@@ -1,0 +1,7 @@
+build/
+generated/*.pb.*
+*.o
+*.exe
+*.out
+*.vscode
+*.idea
