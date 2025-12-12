@@ -1,0 +1,10 @@
+{
+    "tcp_port": 7777,
+    "udp_port": 7778,
+    "max_players_per_room": 4,
+    "tick_rate": 60,
+    "state_sync_rate": 20,
+    "map_width": 2000,
+    "map_height": 2000,
+    "log_level": "info"
+}
