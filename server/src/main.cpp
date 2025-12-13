@@ -1,12 +1,17 @@
-#include <iostream>
 #include <spdlog/spdlog.h>
+#include "network/tcp/tcp_server.hpp"
 
 int main() {
-    spdlog::info("LawnMower Server 启动中...");
-    spdlog::info("服务端主程序 - 等待实现网络模块");
-    
-    // TODO: 初始化网络服务器
-    // TODO: 启动游戏循环
-    
+    try {
+        asio::io_context io;
+        TcpServer server(io, 7777);
+        
+        spdlog::info("服务器启动，监听端口 7777");
+        server.start();
+        
+        io.run();
+    } catch (std::exception& e) {
+        spdlog::error("错误: {}", e.what());
+    }
     return 0;
 }
