@@ -1,8 +1,12 @@
 #include "network/tcp/tcp_server.hpp"
 
-TcpSession::TcpSession(tcp::socket socket) : socket_(std::move(socket)) {}
+TcpSession::TcpSession(tcp::socket socket) : socket_(std::move(socket)) {
 
-void TcpSession::start() { do_read(); }
+}
+
+void TcpSession::start() { 
+  do_read(); 
+}
 
 void TcpSession::send(const std::string& data) {
   write_data_ = data;
@@ -35,16 +39,19 @@ void TcpSession::do_write() {
   );
 }
 
-TcpServer::TcpServer(asio::io_context& io, uint16_t port)
-    : io_context_(io),
-      acceptor_(io_context_, tcp::endpoint(tcp::v4(), port)) {}
+TcpServer::TcpServer(asio::io_context& io, uint16_t port): 
+  io_context_(io),
+  acceptor_(io_context_, tcp::endpoint(tcp::v4(), port)) {
+}
 
-void TcpServer::start() { do_accept(); }
+void TcpServer::start() { 
+  do_accept(); 
+}
 
 void TcpServer::do_accept() {
   acceptor_.async_accept([this](const asio::error_code& ec, tcp::socket socket) {
     if (!ec) {
-      std::make_shared<TcpSession>(std::move(socket))->start();
+        std::make_shared<TcpSession>(std::move(socket))->start();
     }
     do_accept();
   });

@@ -9,11 +9,10 @@
 using asio::ip::tcp;
 
 class TcpSession : public std::enable_shared_from_this<TcpSession> {
- public:
-  explicit TcpSession(tcp::socket socket);
-  void start();
-  void send(const std::string& data);
-
+ public: 
+   explicit TcpSession(tcp::socket socket);
+   void start();
+   void send(const std::string& data);
  private:
   void do_read();
   void do_write();
