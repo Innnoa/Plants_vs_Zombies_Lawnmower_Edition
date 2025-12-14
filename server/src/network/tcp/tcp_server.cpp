@@ -1,6 +1,7 @@
 #include "network/tcp/tcp_server.hpp"
 #include <spdlog/spdlog.h>
 #include <arpa/inet.h>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 
@@ -85,36 +86,52 @@ void TcpSession::do_write() {
 }
 
 void TcpSession::handle_packet(const lawnmower::Packet& packet){
+  using lawnmower::MessageType;
+
   switch (packet.msg_type()){
-    case 0: { // quit
-      spdlog::info("Client requested disconnect");
-      asio::error_code ignored_ec;
-      socket_.shutdown(tcp::socket::shutdown_both, ignored_ec);
-      socket_.close(ignored_ec);
-      break;
-    }
-    case 1: { // login
-      lawnmower::C2s_Login login;
+    case MessageType::MSG_C2S_LOGIN: { // login
+      lawnmower::C2S_Login login;
       if (!login.ParseFromString(packet.payload())) {
         spdlog::warn("Failed to parse login payload");
         break;
       }
       spdlog::info("player login: {}", login.player_name());
 
-      lawnmower::S2c_LoginResult result;
+      lawnmower::S2C_LoginResult result;
       result.set_success(true);
       result.set_player_id(1001);
-      result.set_message("login success");
+      result.set_message_login("login success");
 
       lawnmower::Packet reply;
-      reply.set_msg_type(2);
+      reply.set_msg_type(MessageType::MSG_S2C_LOGIN_RESULT);
       reply.set_payload(result.SerializeAsString());
 
       send_packet(reply);
       break;
     }
+    case MessageType::MSG_C2S_HEARTBEAT: { // heartbeat echo with server info
+      lawnmower::C2S_Heartbeat heartbeat;
+      if (!heartbeat.ParseFromString(packet.payload())) {
+        spdlog::warn("Failed to parse heartbeat payload");
+        break;
+      }
+
+      lawnmower::S2C_Heartbeat reply;
+      const auto now_ms = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count());
+      reply.set_timestamp(now_ms);
+      reply.set_online_players(1);
+
+      lawnmower::Packet packet_out;
+      packet_out.set_msg_type(MessageType::MSG_S2C_HEARTBEAT);
+      packet_out.set_payload(reply.SerializeAsString());
+
+      send_packet(packet_out);
+      break;
+    }
+    case MessageType::MSG_UNKNOWN:
     default:
-      spdlog::warn("Unknown message type: {}", packet.msg_type());
+      spdlog::warn("Unhandled message type: {}", static_cast<int>(packet.msg_type()));
   }
 }
 
