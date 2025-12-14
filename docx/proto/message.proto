@@ -25,13 +25,13 @@ message S2c_Heartbeat{
 
 // 登录
 message C2s_Login {
-    string player name = 1;
+    string player_name = 1;
 }
 
 // 登录反馈
 message S2c_LoginResult {
     bool success =1;
-    uint32 player id=2;
+    uint32 player_id=2;
     string message =3;
 }
 
