@@ -1,7 +1,7 @@
 # 构建目录
 build/
-build-gcc/
-build-clang
+server/build-gcc/
+server/build-clang/
 server/build/
 server/generated/*.pb.*
 client/build/
