@@ -39,7 +39,6 @@ enum MessageType{
   MSG_C2S_SET_READY = 14; // 设置准备状态请求
   MSG_C2S_START_GAME = 15; // 开始游戏请求
   MSG_C2S_REQUEST_QUIT = 16; // 关闭连接请求
-  MSG_C2S_GET_PLAYER_LIST = 17; // 获取玩家列表请求
 	
     // 服务器to客户端
   MSG_S2C_CREATE_ROOM_RESULT = 20; // 创建房间反馈
@@ -49,7 +48,6 @@ enum MessageType{
   MSG_S2C_SET_READY_RESULT = 24; // 设置准备状态反馈
   MSG_S2C_ROOM_UPDATE = 25; // 房间信息更新（广播)
   MSG_S2C_GAME_START = 26; // 游戏开始反馈 (广播)
-  MSG_S2C_PLAYER_LIST = 27; // 玩家列表反馈
 
   // 游戏相关
   MSG_C2S_PLAYER_INPUT = 30; // C2S 玩家信息输入
@@ -122,11 +120,6 @@ message C2S_CreateRoom {
 message C2S_GetRoomList {
 }
 
-// 获取玩家列表请求
-message C2S_GetPlayerList {
-  uint32 room_id = 1; // 房间id
-}
-
 // 加入房间请求
 message C2S_JoinRoom {
   uint32 room_id = 1; //房间id
@@ -157,14 +150,6 @@ message S2C_CreateRoomResult {
 // 房间列表反馈
 message S2C_RoomList {
   repeated RoomInfo rooms = 1; // 所有房间信息, 房间容器
-}
-
-// 玩家列表反馈
-message S2C_PlayerList {
-  bool success = 1; // 是否获取成功
-  uint32 room_id = 2; // 房间id
-  repeated PlayerInfo players = 3; // 当前房间内所有玩家, 玩家容器
-  string message_player_list = 4; // 信息
 }
 
 // 加入房间反馈
