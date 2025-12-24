@@ -1,9 +1,6 @@
 # 构建目录
 build/
-server/build-gcc/
-server/build-test/
-server/build-clang/
-server/build/
+server/build*/
 server/generated/*.pb.*
 client/build/
 client/out/
