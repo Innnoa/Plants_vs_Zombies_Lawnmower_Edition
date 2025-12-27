@@ -7,7 +7,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # 查找依赖
 find_package(Protobuf REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(PkgConfig REQUIRED)
 
 # Protobuf 代码生成
 set(PROTO_DIR ${CMAKE_SOURCE_DIR}/proto)
@@ -50,16 +49,14 @@ target_link_libraries(server
       spdlog::spdlog
 )
 
-# absl全家桶
-pkg_check_modules(ABSEIL REQUIRED IMPORTED_TARGET
-    absl_log
-    absl_flags
-    absl_flags_parse
-)
-target_link_libraries(server 
-  PRIVATE 
-  PkgConfig::ABSEIL
-  absl_log_internal_check_op
-  absl_die_if_null
-  absl_log_internal_message
+# Abseil: protobuf 里内联的 CHECK 宏会依赖 absl 的日志实现，使用动态库名查找
+find_library(ABSL_LOG_INTERNAL_CHECK_OP absl_log_internal_check_op REQUIRED)
+find_library(ABSL_LOG_INTERNAL_MESSAGE absl_log_internal_message REQUIRED)
+find_library(ABSL_LOG_INTERNAL_NULLGUARD absl_log_internal_nullguard REQUIRED)
+
+target_link_libraries(server
+  PRIVATE
+      ${ABSL_LOG_INTERNAL_CHECK_OP}
+      ${ABSL_LOG_INTERNAL_MESSAGE}
+      ${ABSL_LOG_INTERNAL_NULLGUARD}
 )

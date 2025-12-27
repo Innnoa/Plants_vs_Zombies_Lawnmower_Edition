@@ -1,0 +1,17 @@
+# 忽略无关内容，减小构建上下文
+.git
+docx/
+picture/
+client/
+*.tar
+*.log
+
+# 本地构建产物
+**/build/
+**/build-*/
+**/cmake-build-*/
+**/CMakeFiles/
+**/.gradle/
+**/.idea/
+**/.vscode/
+**/.DS_Store
