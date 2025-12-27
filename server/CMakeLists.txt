@@ -49,10 +49,10 @@ target_link_libraries(server
       spdlog::spdlog
 )
 
-# Abseil：优先使用 CMake Config，若不可用则回退到 find_library
+# Abseil：优先使用 CMake Config 且要求 absl::log 目标存在，否则回退到 find_library
 set(ABSL_LOG_TARGETS)
 find_package(absl CONFIG)
-if(absl_FOUND)
+if(absl_FOUND AND TARGET absl::log)
   list(APPEND ABSL_LOG_TARGETS
     absl::log
     absl::log_internal_check_op
