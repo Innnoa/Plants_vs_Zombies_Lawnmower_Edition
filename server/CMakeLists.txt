@@ -49,14 +49,33 @@ target_link_libraries(server
       spdlog::spdlog
 )
 
-# Abseil: protobuf 里内联的 CHECK 宏会依赖 absl 的日志实现，使用动态库名查找
-find_library(ABSL_LOG_INTERNAL_CHECK_OP absl_log_internal_check_op REQUIRED)
-find_library(ABSL_LOG_INTERNAL_MESSAGE absl_log_internal_message REQUIRED)
-find_library(ABSL_LOG_INTERNAL_NULLGUARD absl_log_internal_nullguard REQUIRED)
+# Abseil：优先使用 CMake Config，若不可用则回退到 find_library
+set(ABSL_LOG_TARGETS)
+find_package(absl CONFIG)
+if(absl_FOUND)
+  list(APPEND ABSL_LOG_TARGETS
+    absl::log
+    absl::log_internal_check_op
+    absl::log_internal_message
+    absl::log_internal_nullguard
+    absl::check
+  )
+else()
+  find_library(ABSL_LOG absl_log REQUIRED)
+  find_library(ABSL_LOG_INTERNAL_CHECK_OP absl_log_internal_check_op REQUIRED)
+  find_library(ABSL_LOG_INTERNAL_MESSAGE absl_log_internal_message REQUIRED)
+  find_library(ABSL_LOG_INTERNAL_NULLGUARD absl_log_internal_nullguard REQUIRED)
+  find_library(ABSL_CHECK NAMES absl_check absl_die_if_null REQUIRED)
+  list(APPEND ABSL_LOG_TARGETS
+    ${ABSL_LOG}
+    ${ABSL_LOG_INTERNAL_CHECK_OP}
+    ${ABSL_LOG_INTERNAL_MESSAGE}
+    ${ABSL_LOG_INTERNAL_NULLGUARD}
+    ${ABSL_CHECK}
+  )
+endif()
 
 target_link_libraries(server
   PRIVATE
-      ${ABSL_LOG_INTERNAL_CHECK_OP}
-      ${ABSL_LOG_INTERNAL_MESSAGE}
-      ${ABSL_LOG_INTERNAL_NULLGUARD}
+      ${ABSL_LOG_TARGETS}
 )
