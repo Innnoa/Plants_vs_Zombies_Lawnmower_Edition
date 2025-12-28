@@ -326,9 +326,10 @@ std::optional<RoomManager::RoomSnapshot> RoomManager::TryStartGame(
     return std::nullopt;
   }
 
-  const bool all_ready = std::all_of(
-      room.players.begin(), room.players.end(),
-      [](const RoomPlayer& player) { return player.is_host || player.is_ready; });
+  const bool all_ready = std::all_of(room.players.begin(), room.players.end(),
+                                     [](const RoomPlayer& player) {
+                                       return player.is_host || player.is_ready;
+                                     });
   if (!all_ready) {
     result->set_success(false);
     result->set_message_start("存在未准备的玩家");

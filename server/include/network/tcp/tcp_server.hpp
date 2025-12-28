@@ -1,23 +1,25 @@
 #pragma once
 
-#include <cstdint>
 #include <array>
 #include <asio.hpp>
 #include <atomic>
+#include <cstdint>
 #include <deque>
+#include <google/protobuf/message.h>
 #include <memory>
 #include <string>
 #include <vector>
-#include <google/protobuf/message.h>
+
 #include "message.pb.h"
 
 using asio::ip::tcp;
 
 class TcpSession : public std::enable_shared_from_this<TcpSession> {
- public: 
-   explicit TcpSession(tcp::socket socket);
-   void start();
-   void SendProto(lawnmower::MessageType type, const google::protobuf::Message& message);
+ public:
+  explicit TcpSession(tcp::socket socket);
+  void start();
+  void SendProto(lawnmower::MessageType type,
+                 const google::protobuf::Message& message);
 
  private:
   void read_header();
