@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 #include <google/protobuf/message.h>
-#include "../../../generated/message.pb.h"
+#include "message.pb.h"
 
 using asio::ip::tcp;
 

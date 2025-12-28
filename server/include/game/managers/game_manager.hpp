@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../../generated/message.pb.h"
+#include "message.pb.h"
 #include "game/managers/room_manager.hpp"
 
 // 游戏管理器：负责场景初始化、玩家状态更新与同步

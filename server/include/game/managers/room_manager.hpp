@@ -6,7 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "../../../generated/message.pb.h"
+#include "message.pb.h"
 
 class TcpSession;
 

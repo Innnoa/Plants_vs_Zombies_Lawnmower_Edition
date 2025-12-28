@@ -1,6 +1,6 @@
 #include <spdlog/spdlog.h>
 
-#include "../generated/message.pb.h"
+#include "message.pb.h"
 #include "network/tcp/tcp_server.hpp"
 
 int main() {
