@@ -221,6 +221,7 @@ message PlayerState {
     uint32 buff_id = 15;           // Buff ID（0 表示无）
     uint32 attack_speed = 16;       // 攻击速度（数值越大越快，或表示攻击间隔 ms）
     float move_speed = 17;          // 移动速度（像素/秒）
+    int32 last_processed_input_seq = 18; // 玩家客户端最后一次输入码的序号
 }
 
 // 射弹信息（如豌豆、子弹）

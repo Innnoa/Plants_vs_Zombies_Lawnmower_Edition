@@ -11,7 +11,9 @@ int main() {
     TcpServer server(io, 7777);
 
     spdlog::set_level(spdlog::level::debug);
-    spdlog::set_pattern("%Y-%m-%d %H:%M:%S.%e [%l] %v");
+    // Keep the same timestamp/level/message layout, but wrap the level with color markers
+    // so the console sink prints it with ANSI colors when the output is a TTY.
+    spdlog::set_pattern("%Y-%m-%d %H:%M:%S.%e %^[%l]%$ %v");
     spdlog::info("服务器启动，监听端口 7777");
     server.start();
 
