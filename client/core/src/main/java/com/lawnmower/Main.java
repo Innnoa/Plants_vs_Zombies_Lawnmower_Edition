@@ -38,16 +38,12 @@ public class Main extends Game {
             tcpClient = new TcpClient();
             tcpClient.connect(Config.SERVER_HOST, Config.SERVER_PORT);
             log.info("Connected to server {}:{}", Config.SERVER_HOST, Config.SERVER_PORT);
-            setScreen(new RoomListScreen(Main.this, skin));
-            // 启动网络监听线程
             startNetworkThread();
         } catch (IOException e) {
             log.error("Failed to connect to server", e);
-            // 可选：弹出错误对话框或进入离线模式
+            setScreen(new MainMenuScreen(this, skin));
         }
-
-        // 设置初始屏幕为主菜单
-        setScreen(new MainMenuScreen(this,skin));
+        setScreen(new MainMenuScreen(Main.this, skin));
     }
 
     private void startNetworkThread() {
@@ -58,12 +54,20 @@ public class Main extends Game {
             while (networkRunning.get() && !Thread.currentThread().isInterrupted()) {
                 try {
                     // 阻塞等待服务器消息
+                    long beforeRead = System.currentTimeMillis();
                     Message.Packet packet = tcpClient.receivePacket();
+                    long afterRead = System.currentTimeMillis();
                     if (packet == null) break; // 连接关闭
 
                     // 解析消息类型并分发
                     Message.MessageType type = packet.getMsgType();
                     Object payload = null;
+                    /**
+                     * 日志
+                     */
+                    if (packet.getMsgType() == Message.MessageType.MSG_S2C_GAME_STATE_SYNC) {
+                        Gdx.app.log("NET", "Packet received! Took: " + (afterRead - beforeRead) + "ms");
+                    }
 
                     Gdx.app.log("当前接受",type.name());
                     switch (type) {
@@ -231,13 +235,7 @@ public class Main extends Game {
 
     @Override
     public void dispose() {
-        // 停止网络线程
-        if (networkRunning.get()) {
-            networkRunning.set(false);
-            if (networkThread != null) {
-                networkThread.interrupt();
-            }
-        }
+        networkRunning.set(false);
 
         if (tcpClient != null) {
             try {
@@ -245,6 +243,11 @@ public class Main extends Game {
             } catch (IOException e) {
                 log.warn("Error closing TCP client", e);
             }
+        }
+
+        if (networkThread != null) {
+            networkThread.interrupt();
+            networkThread = null;
         }
 
         if (skin != null) skin.dispose();

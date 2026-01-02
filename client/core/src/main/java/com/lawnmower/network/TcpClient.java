@@ -1,5 +1,6 @@
 package com.lawnmower.network;
 
+import com.badlogic.gdx.Gdx;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.MessageLite;
 
@@ -16,14 +17,13 @@ import java.io.IOException;
 public class TcpClient {
     private static final Logger log = LoggerFactory.getLogger(TcpClient.class);
     private Socket socket;
-    private PrintWriter out;
-    private BufferedReader in;
+    private DataInputStream dataIn;
+    private DataOutputStream dataOut;
 
     public void connect(String host, int port) throws IOException {
         socket = new Socket(host, port);
-        out = new PrintWriter(socket.getOutputStream(), true);
-        in = new BufferedReader(
-                new InputStreamReader(socket.getInputStream()));
+        dataOut = new DataOutputStream(socket.getOutputStream());
+        dataIn = new DataInputStream(socket.getInputStream());
         System.out.println("已连接到 " + host + ":" + port);
     }
 
@@ -65,20 +65,17 @@ public class TcpClient {
     }
 
 
-    public void sendPacket(Message.Packet packet) throws IOException {
+    private void writePacket(Message.Packet packet) throws IOException {
         byte[] data = packet.toByteArray();
-
-        // 写长度（4字节）
-        DataOutputStream dos = new DataOutputStream(
-                socket.getOutputStream());
-        dos.writeInt(data.length);
-        dos.write(data);
-        dos.flush();
+        synchronized (dataOut) {
+            dataOut.writeInt(data.length);
+            dataOut.write(data);
+            dataOut.flush();
+        }
     }
-    // ====== 新增方法：发送玩家输入 ======
-    public void sendPlayerInput(Message.C2S_PlayerInput input) throws IOException {
-        // 注意：input 已包含 player_id、方向、攻击状态等
-        sendPacket(Message.MessageType.MSG_C2S_PLAYER_INPUT, input);
+
+    public void sendPacket(Message.Packet packet) throws IOException {
+        writePacket(packet);
     }
 
     public void sendPacket(Message.MessageType type, MessageLite payload) throws IOException {
@@ -86,33 +83,45 @@ public class TcpClient {
                 .setMsgType(type)
                 .setPayload(payload.toByteString())
                 .build();
-
-        DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-        byte[] data = packet.toByteArray();
-        dos.writeInt(data.length);
-        dos.write(data);
-        dos.flush();
+        writePacket(packet);
+    }
+    // ====== 新增方法：发送玩家输入 ======
+    public void sendPlayerInput(Message.C2S_PlayerInput input) throws IOException {
+        // 注意：input 已包含 player_id、方向、攻击状态等
+        sendPacket(Message.MessageType.MSG_C2S_PLAYER_INPUT, input);
     }
 
     public Message.Packet receivePacket() throws IOException {
-        DataInputStream dis = new DataInputStream(
-                socket.getInputStream());
-
-        int len = dis.readInt();
-        byte[] data = new byte[len];
-        dis.readFully(data);
-
-        return Message.Packet.parseFrom(data);
+        try {
+            int len = dataIn.readInt();
+            byte[] data = new byte[len];
+            dataIn.readFully(data);
+            return Message.Packet.parseFrom(data);
+        } catch (EOFException | SocketException e) {
+            return null;
+        }
     }
 
 
     public void close() throws IOException {
+        if (socket == null) return;
+
         Message.Packet packet = Message.Packet.newBuilder()
-                        .setMsgType(Message.MessageType.MSG_C2S_REQUEST_QUIT)
-                        .setPayload(Config.byteString)
-                        .build();
-        sendPacket(packet);
+                .setMsgType(Message.MessageType.MSG_C2S_REQUEST_QUIT)
+                .setPayload(Config.byteString)
+                .build();
+        writePacket(packet);
+
+        if (dataIn != null) {
+            dataIn.close();
+            dataIn = null;
+        }
+        if (dataOut != null) {
+            dataOut.close();
+            dataOut = null;
+        }
         socket.close();
+        socket = null;
     }
 
 }

@@ -3,18 +3,22 @@ package com.lawnmower.screens;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Screen;
-import com.badlogic.gdx.graphics.*;
+import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
+
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.viewport.FitViewport;
-
 import com.lawnmower.Main;
 import com.lawnmower.players.PlayerInputCommand;
 import com.lawnmower.players.PlayerStateSnapshot;
+import com.lawnmower.players.ServerPlayerSnapshot;
 import lawnmower.Message;
-
 
 import java.util.*;
 
@@ -22,46 +26,46 @@ public class GameScreen implements Screen {
 
     private static final float WORLD_WIDTH = 1280f;
     private static final float WORLD_HEIGHT = 720f;
-    private static final float PLAYER_SPEED = 200f; // pixels per second
+    private static final float PLAYER_SPEED = 200f;
+
+    private static final float MAX_COMMAND_DURATION = 0.05f;
+    private static final float MIN_COMMAND_DURATION = 1f / 120f;
+    private static final long SNAPSHOT_RETENTION_MS = 400L;
+    private static final long MAX_EXTRAPOLATION_MS = 150L;
+    private static final long INTERP_DELAY_MIN_MS = 80L;
+    private static final long INTERP_DELAY_MAX_MS = 220L;
+
+    private final Vector2 renderBuffer = new Vector2();
+    private final Map<Integer, Message.PlayerState> serverPlayerStates = new HashMap<>();
+    private final Map<Integer, Deque<ServerPlayerSnapshot>> remotePlayerServerSnapshots = new HashMap<>();
+    private final Map<Integer, PlayerInputCommand> unconfirmedInputs = new LinkedHashMap<>();
+    private final Queue<PlayerStateSnapshot> snapshotHistory = new ArrayDeque<>();
 
     private Main game;
     private OrthographicCamera camera;
     private FitViewport viewport;
     private SpriteBatch batch;
     private Texture playerTexture;
-    private long lastInputTimeMs = System.currentTimeMillis(); // 上次发送时间（用于 delta_ms）
-    private int inputSequence = 0;                            // 输入序列号（从0开始递增）
-    private float sendInterval = 0.05f; // 1秒
-    private float timeSinceLastSend = 0f;
-
-    // 所有玩家状态（key: player_id）
-    private final Map<Integer, Message.PlayerState> serverPlayerStates = new HashMap<>();
-    // 本地预测状态（仅用于本玩家渲染，提升响应速度）
-    private Vector2 predictedPosition = new Vector2();     // 当前预测位置（用于渲染）
-    private float predictedRotation = 0f;                 // 当前预测朝向
-    private final Map<Integer, PlayerInputCommand> unconfirmedInputs = new LinkedHashMap<>();
-    private final Queue<PlayerStateSnapshot> snapshotHistory = new ArrayDeque<>();
-    private boolean hasReceivedInitialState = false;
-
     private TextureRegion playerTextureRegion;
-
-    // 输入缓存
-    private Vector2 moveDirection = new Vector2();
-    private boolean isAttacking = false;
     private Texture backgroundTexture;
 
-    // 新增：记录最后一次从服务器收到的位置和时间
-    private Vector2 lastServerPosition = new Vector2();
-    private long lastServerTimeMs = 0L;
+    private Vector2 predictedPosition = new Vector2();
+    private float predictedRotation = 0f;
+    private int inputSequence = 0;
+    private boolean hasReceivedInitialState = false;
 
-    // 标记是否已收到过服务器状态（避免初始渲染错误）
-    private boolean hasReceivedServerState = false;
+    private boolean hasPendingInputChunk = false;
+    private final Vector2 pendingMoveDir = new Vector2();
+    private boolean pendingAttack = false;
+    private float pendingInputDuration = 0f;
+    private boolean idleAckSent = true;
 
+    private float clockOffsetMs = 0f;
+    private float smoothedRttMs = 120f;
 
     public GameScreen(Main game) {
         this.game = Objects.requireNonNull(game);
     }
-
 
     @Override
     public void show() {
@@ -69,86 +73,29 @@ public class GameScreen implements Screen {
         viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT, camera);
         batch = new SpriteBatch();
 
-        // === 加载背景图 ===
         try {
-            backgroundTexture = new Texture(Gdx.files.internal("background/roomListBackground.png")); // 路径可自定义
-            Gdx.app.log("GameScreen", "Loaded background: " + backgroundTexture.getWidth() + "x" + backgroundTexture.getHeight());
+            backgroundTexture = new Texture(Gdx.files.internal("background/roomListBackground.png"));
         } catch (Exception e) {
-            Gdx.app.error("GameScreen", "Failed to load background texture", e);
-            // 创建一个绿色渐变或纯色背景作为 fallback
-            Pixmap bgPixmap = new Pixmap((int)WORLD_WIDTH, (int)WORLD_HEIGHT, Pixmap.Format.RGBA8888);
-            bgPixmap.setColor(0.05f, 0.15f, 0.05f, 1f); // 深绿色草地感
+            Pixmap bgPixmap = new Pixmap((int) WORLD_WIDTH, (int) WORLD_HEIGHT, Pixmap.Format.RGBA8888);
+            bgPixmap.setColor(0.05f, 0.15f, 0.05f, 1f);
             bgPixmap.fill();
             backgroundTexture = new Texture(bgPixmap);
             bgPixmap.dispose();
         }
 
         try {
-            // 假设使用统一角色图（后续可按 role_id 区分）
             playerTexture = new Texture(Gdx.files.internal("player/bbb1.png"));
             playerTextureRegion = new TextureRegion(playerTexture);
-            Gdx.app.log("GameScreen", "Loaded texture: " + playerTexture.getWidth() + "x" + playerTexture.getHeight());
         } catch (Exception e) {
-            Gdx.app.error("GameScreen", "Failed to load player texture", e);
             Pixmap pixmap = new Pixmap(64, 64, Pixmap.Format.RGBA8888);
-            pixmap.setColor(Color.RED); // 改成红色，便于识别
-            pixmap.fillCircle(32, 32, 30); // 画个圆，不是纯色块
+            pixmap.setColor(Color.RED);
+            pixmap.fillCircle(32, 32, 30);
             playerTexture = new Texture(pixmap);
             playerTextureRegion = new TextureRegion(playerTexture);
             pixmap.dispose();
         }
 
-        // 初始化本地位置（等待服务器同步或设为中心）
-        predictedPosition.set(640, 300); // 临时值，会被首次同步覆盖
-    }
-
-    private void collectAndPredict(float delta) {
-        // 1. 采集当前帧输入
-        Vector2 dir = getMovementInput(); // 你已有的方法
-        boolean attacking = Gdx.input.isKeyJustPressed(Input.Keys.SPACE);
-
-        // 2. 创建输入命令
-        PlayerInputCommand input = new PlayerInputCommand(inputSequence++, dir, attacking);
-
-        // 3. 缓存为“未确认输入”
-        unconfirmedInputs.put(input.seq, input);
-
-        // 4. 立即预测（应用到 predictedPosition）
-        applyInputLocally(predictedPosition, predictedRotation, input, delta);
-    }
-
-    private void clampPositionToMap(Vector2 position) {
-        if (playerTextureRegion == null) {
-            return; // 纹理未加载，无法计算
-        }
-
-        float halfWidth = playerTextureRegion.getRegionWidth() / 2.0f;
-        float halfHeight = playerTextureRegion.getRegionHeight() / 2.0f;
-
-        // X轴限制: [halfWidth, WORLD_WIDTH - halfWidth]
-        position.x = MathUtils.clamp(position.x, halfWidth, WORLD_WIDTH - halfWidth);
-        // Y轴限制: [halfHeight, WORLD_HEIGHT - halfHeight]
-        position.y = MathUtils.clamp(position.y, halfHeight, WORLD_HEIGHT - halfHeight);
-    }
-
-
-    private Vector2 getMovementInput() {
-        Vector2 input = new Vector2();
-        if (Gdx.input.isKeyPressed(Input.Keys.W)) input.y += 1;
-        if (Gdx.input.isKeyPressed(Input.Keys.S)) input.y -= 1;
-        if (Gdx.input.isKeyPressed(Input.Keys.A)) input.x -= 1;
-        if (Gdx.input.isKeyPressed(Input.Keys.D)) input.x += 1;
-        return input.len2() > 0 ? input.nor() : input;
-    }
-
-    private void applyInputLocally(Vector2 pos, float rot, PlayerInputCommand input, float delta) {
-        if (input.moveDir.len2() > 0.1f) {
-            float speed = PLAYER_SPEED;
-            // 可从 serverPlayerStates 获取动态速度（略）
-            pos.add(input.moveDir.x * speed * delta, input.moveDir.y * speed * delta);
-            clampPositionToMap(pos);
-        }
-        // TODO攻击逻辑可扩展
+        predictedPosition.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
     }
 
     @Override
@@ -159,22 +106,12 @@ public class GameScreen implements Screen {
             return;
         }
 
-        // === 1. 采集当前输入 ===
         Vector2 dir = getMovementInput();
         boolean attacking = Gdx.input.isKeyJustPressed(Input.Keys.SPACE);
 
-        // === 2. 创建并缓存新输入 ===
-        PlayerInputCommand input = new PlayerInputCommand(inputSequence++, dir, attacking);
-        unconfirmedInputs.put(input.seq, input);
+        simulateLocalStep(dir, delta);
+        processInputChunk(dir, attacking, delta);
 
-        // === 3. 立即预测（应用到 predictedPosition）===
-        applyInputLocally(predictedPosition, predictedRotation, input, delta);
-        clampPositionToMap(predictedPosition);
-
-        // === 4. 发送新输入到服务器 ===
-        sendPlayerInputToServer(input); // 修改此方法接收 input
-
-        // === 5. 渲染 ===
         Gdx.gl.glClearColor(0, 0, 0, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
@@ -188,34 +125,190 @@ public class GameScreen implements Screen {
 
         float width = playerTextureRegion.getRegionWidth();
         float height = playerTextureRegion.getRegionHeight();
-
-        // 自己：用预测位置
         batch.draw(playerTextureRegion,
-                predictedPosition.x - width / 2,
-                predictedPosition.y - height / 2,
-                width / 2, height / 2,
-                width, height,
-                1, 1,
+                predictedPosition.x - width / 2f,
+                predictedPosition.y - height / 2f,
+                width / 2f,
+                height / 2f,
+                width,
+                height,
+                1f,
+                1f,
                 predictedRotation);
 
-        // 其他人：用服务器状态
-        int myId = game.getPlayerId();
-        for (Message.PlayerState state : serverPlayerStates.values()) {
-            if (state.getPlayerId() == myId || !state.getIsAlive()) continue;
-            Vector2 otherPos = new Vector2(state.getPosition().getX(), state.getPosition().getY());
-            clampPositionToMap(otherPos);
-            batch.draw(playerTextureRegion,
-                    state.getPosition().getX() - width / 2,
-                    state.getPosition().getY() - height / 2,
-                    width / 2, height / 2,
-                    width, height,
-                    1, 1,
-                    state.getRotation());
+        long estimatedServerTimeMs = estimateServerTimeMs();
+        long renderServerTimeMs = estimatedServerTimeMs - computeRenderDelayMs();
+        renderRemotePlayers(renderServerTimeMs, width, height);
+
+        batch.end();
+    }
+
+    private void simulateLocalStep(Vector2 dir, float delta) {
+        if (dir.len2() > 0.1f) {
+            predictedPosition.add(dir.x * PLAYER_SPEED * delta, dir.y * PLAYER_SPEED * delta);
+            predictedRotation = dir.angleDeg();
+            clampPositionToMap(predictedPosition);
+        }
+    }
+
+    private void processInputChunk(Vector2 dir, boolean attacking, float delta) {
+        boolean moving = dir.len2() > 0.0001f;
+        if (!moving && !attacking) {
+            if (hasPendingInputChunk) {
+                flushPendingInput();
+            }
+            if (!idleAckSent) {
+                sendIdleCommand(delta);
+            }
+            return;
         }
 
-        Gdx.app.log("位置",lastServerPosition.x + "," + lastServerPosition.y);
-        Gdx.app.log("位置",predictedPosition.x + "," + predictedPosition.y);
-        batch.end();
+        idleAckSent = false;
+
+        if (!hasPendingInputChunk) {
+            startPendingChunk(dir, attacking, delta);
+            if (pendingAttack) {
+                flushPendingInput();
+            }
+            return;
+        }
+
+        if (pendingMoveDir.epsilonEquals(dir, 0.001f) && pendingAttack == attacking) {
+            pendingInputDuration += delta;
+        } else {
+            flushPendingInput();
+            startPendingChunk(dir, attacking, delta);
+        }
+
+        if (pendingAttack || pendingInputDuration >= MAX_COMMAND_DURATION) {
+            flushPendingInput();
+        }
+    }
+
+    private void startPendingChunk(Vector2 dir, boolean attacking, float delta) {
+        pendingMoveDir.set(dir);
+        pendingAttack = attacking;
+        pendingInputDuration = Math.max(delta, MIN_COMMAND_DURATION);
+        hasPendingInputChunk = true;
+    }
+
+    private void flushPendingInput() {
+        if (!hasPendingInputChunk) {
+            return;
+        }
+        float duration = Math.max(pendingInputDuration, MIN_COMMAND_DURATION);
+        PlayerInputCommand cmd = new PlayerInputCommand(inputSequence++, pendingMoveDir, pendingAttack, duration);
+        unconfirmedInputs.put(cmd.seq, cmd);
+        sendPlayerInputToServer(cmd);
+        hasPendingInputChunk = false;
+        pendingInputDuration = 0f;
+    }
+
+    private void sendIdleCommand(float delta) {
+        PlayerInputCommand idleCmd = new PlayerInputCommand(
+                inputSequence++,
+                new Vector2(Vector2.Zero),
+                false,
+                Math.max(delta, MIN_COMMAND_DURATION)
+        );
+        unconfirmedInputs.put(idleCmd.seq, idleCmd);
+        sendPlayerInputToServer(idleCmd);
+        idleAckSent = true;
+    }
+
+    private void renderRemotePlayers(long renderServerTimeMs, float width, float height) {
+        for (Map.Entry<Integer, Deque<ServerPlayerSnapshot>> entry : remotePlayerServerSnapshots.entrySet()) {
+            Deque<ServerPlayerSnapshot> snapshots = entry.getValue();
+            if (snapshots == null || snapshots.isEmpty()) {
+                continue;
+            }
+
+            ServerPlayerSnapshot prev = null;
+            ServerPlayerSnapshot next = null;
+            for (ServerPlayerSnapshot snap : snapshots) {
+                if (snap.serverTimestampMs <= renderServerTimeMs) {
+                    prev = snap;
+                } else {
+                    next = snap;
+                    break;
+                }
+            }
+
+            Vector2 drawPos = renderBuffer;
+            float drawRot;
+
+            if (prev != null && next != null && next.serverTimestampMs > prev.serverTimestampMs) {
+                float t = (renderServerTimeMs - prev.serverTimestampMs) /
+                        (float) (next.serverTimestampMs - prev.serverTimestampMs);
+                t = MathUtils.clamp(t, 0f, 1f);
+                drawPos.set(prev.position).lerp(next.position, t);
+                drawRot = prev.rotation + (next.rotation - prev.rotation) * t;
+            } else if (prev != null) {
+                long ahead = Math.max(0L, renderServerTimeMs - prev.serverTimestampMs);
+                long clampedAhead = Math.min(ahead, MAX_EXTRAPOLATION_MS);
+                float seconds = clampedAhead / 1000f;
+                drawPos.set(prev.position).mulAdd(prev.velocity, seconds);
+                drawRot = prev.rotation;
+            } else {
+                drawPos.set(next.position);
+                drawRot = next.rotation;
+            }
+
+            clampPositionToMap(drawPos);
+            batch.draw(playerTextureRegion,
+                    drawPos.x - width / 2f,
+                    drawPos.y - height / 2f,
+                    width / 2f,
+                    height / 2f,
+                    width,
+                    height,
+                    1f,
+                    1f,
+                    drawRot);
+        }
+    }
+
+    private long computeRenderDelayMs() {
+        float estimate = smoothedRttMs * 0.5f + 50f;
+        if (Float.isNaN(estimate) || Float.isInfinite(estimate)) {
+            estimate = 120f;
+        }
+        long delay = Math.round(estimate);
+        delay = Math.max(delay, INTERP_DELAY_MIN_MS);
+        delay = Math.min(delay, INTERP_DELAY_MAX_MS);
+        return delay;
+    }
+
+    private long estimateServerTimeMs() {
+        return (long) (System.currentTimeMillis() + clockOffsetMs);
+    }
+
+    private void clampPositionToMap(Vector2 position) {
+        if (playerTextureRegion == null) {
+            return;
+        }
+
+        float halfWidth = playerTextureRegion.getRegionWidth() / 2.0f;
+        float halfHeight = playerTextureRegion.getRegionHeight() / 2.0f;
+
+        position.x = MathUtils.clamp(position.x, halfWidth, WORLD_WIDTH - halfWidth);
+        position.y = MathUtils.clamp(position.y, halfHeight, WORLD_HEIGHT - halfHeight);
+    }
+
+    private Vector2 getMovementInput() {
+        Vector2 input = new Vector2();
+        if (Gdx.input.isKeyPressed(Input.Keys.W)) input.y += 1;
+        if (Gdx.input.isKeyPressed(Input.Keys.S)) input.y -= 1;
+        if (Gdx.input.isKeyPressed(Input.Keys.A)) input.x -= 1;
+        if (Gdx.input.isKeyPressed(Input.Keys.D)) input.x += 1;
+        return input.len2() > 0 ? input.nor() : input;
+    }
+
+    private void applyInputLocally(Vector2 pos, float rot, PlayerInputCommand input, float delta) {
+        if (input.moveDir.len2() > 0.1f) {
+            pos.add(input.moveDir.x * PLAYER_SPEED * delta, input.moveDir.y * PLAYER_SPEED * delta);
+            clampPositionToMap(pos);
+        }
     }
 
     private void sendPlayerInputToServer(PlayerInputCommand cmd) {
@@ -231,7 +324,7 @@ public class GameScreen implements Screen {
                 .setMoveDirection(pbVec)
                 .setIsAttacking(cmd.isAttacking)
                 .setInputSeq(cmd.seq)
-                .setDeltaMs(0) // 可省略或设为固定值
+                .setDeltaMs(cmd.getDeltaMs())
                 .build();
 
         try {
@@ -240,70 +333,119 @@ public class GameScreen implements Screen {
             Gdx.app.error("GameScreen", "Failed to send input", e);
         }
     }
-    // —————— 供 Main.java 调用的网络事件入口 ——————
 
     public void onGameStateReceived(Message.S2C_GameStateSync sync) {
-        serverPlayerStates.clear();
+        long currentServerTimeMs = sync.getServerTimeMs();
+        long now = System.currentTimeMillis();
+        float offsetSample = currentServerTimeMs - now;
+        clockOffsetMs = MathUtils.lerp(clockOffsetMs, offsetSample, 0.1f);
+
+        Set<Integer> updatedPlayerIds = new HashSet<>();
         int myId = game.getPlayerId();
         Message.PlayerState selfStateFromServer = null;
 
         for (Message.PlayerState player : sync.getPlayersList()) {
-            serverPlayerStates.put((int) player.getPlayerId(), player);
-            if (player.getPlayerId() == myId && player.getIsAlive()) {
+            int playerId = (int) player.getPlayerId();
+            updatedPlayerIds.add(playerId);
+            serverPlayerStates.put(playerId, player);
+
+            if (playerId == myId && player.getIsAlive()) {
                 selfStateFromServer = player;
+            } else if (playerId != myId) {
+                Vector2 position = new Vector2(player.getPosition().getX(), player.getPosition().getY());
+                pushRemoteSnapshot(playerId, position, player.getRotation(), currentServerTimeMs);
             }
         }
 
+        serverPlayerStates.entrySet().removeIf(entry -> {
+            int id = entry.getKey();
+            boolean shouldRemove = id != myId && !updatedPlayerIds.contains(id);
+            if (shouldRemove) {
+                remotePlayerServerSnapshots.remove(id);
+            }
+            return shouldRemove;
+        });
+
         if (selfStateFromServer == null) return;
 
-        // === 关键：获取服务器已处理的最后一个输入序号 ===
-        int lastProcessedSeq = selfStateFromServer.getLastProcessedInputSeq(); // ← 新字段！
-
-        // 创建快照
         Vector2 serverPos = new Vector2(
                 selfStateFromServer.getPosition().getX(),
                 selfStateFromServer.getPosition().getY()
         );
         clampPositionToMap(serverPos);
+
+        int lastProcessedSeq = selfStateFromServer.getLastProcessedInputSeq();
         PlayerStateSnapshot snapshot = new PlayerStateSnapshot(
                 serverPos,
                 selfStateFromServer.getRotation(),
                 lastProcessedSeq
         );
-
         snapshotHistory.offer(snapshot);
         while (snapshotHistory.size() > 10) {
-            snapshotHistory.poll(); // 防止内存爆炸
+            snapshotHistory.poll();
         }
 
-        // === 执行回滚 + 重放 ===
         reconcileWithServer(snapshot);
     }
 
-    private void reconcileWithServer(PlayerStateSnapshot serverSnapshot) {
-        // 1. 回滚到服务器状态
-        predictedPosition.set(serverSnapshot.position);
-        predictedRotation = serverSnapshot.rotation;
+    private void pushRemoteSnapshot(int playerId, Vector2 position, float rotation, long serverTimeMs) {
+        Deque<ServerPlayerSnapshot> queue = remotePlayerServerSnapshots
+                .computeIfAbsent(playerId, k -> new ArrayDeque<>());
 
-        clampPositionToMap(predictedPosition);
-
-        // 2. 重放未确认输入（seq > server 已处理的）
-        for (PlayerInputCommand input : unconfirmedInputs.values()) {
-            if (input.seq > serverSnapshot.lastProcessedInputSeq) {
-                applyInputLocally(predictedPosition, predictedRotation, input, 1f / 60f);
+        Vector2 velocity = new Vector2();
+        ServerPlayerSnapshot previous = queue.peekLast();
+        if (previous != null) {
+            long deltaMs = serverTimeMs - previous.serverTimestampMs;
+            if (deltaMs > 0) {
+                velocity.set(position).sub(previous.position).scl(1000f / deltaMs);
+            } else {
+                velocity.set(previous.velocity);
+            }
+            float maxSpeed = PLAYER_SPEED * 1.5f;
+            if (velocity.len2() > maxSpeed * maxSpeed) {
+                velocity.clamp(0f, maxSpeed);
             }
         }
 
-        // 3. 清除已确认输入
+        ServerPlayerSnapshot snap = new ServerPlayerSnapshot(position, rotation, velocity, serverTimeMs);
+        queue.addLast(snap);
+
+        while (!queue.isEmpty() &&
+                (serverTimeMs - queue.peekFirst().serverTimestampMs) > SNAPSHOT_RETENTION_MS) {
+            queue.removeFirst();
+        }
+    }
+
+    private void reconcileWithServer(PlayerStateSnapshot serverSnapshot) {
+        PlayerInputCommand acknowledged = unconfirmedInputs.get(serverSnapshot.lastProcessedInputSeq);
+        if (acknowledged != null) {
+            float sample = System.currentTimeMillis() - acknowledged.timestampMs;
+            if (sample > 0f) {
+                smoothedRttMs = MathUtils.lerp(smoothedRttMs, sample, 0.2f);
+            }
+        }
+
+        predictedPosition.set(serverSnapshot.position);
+        predictedRotation = serverSnapshot.rotation;
+        clampPositionToMap(predictedPosition);
+
+        for (PlayerInputCommand input : unconfirmedInputs.values()) {
+            if (input.seq > serverSnapshot.lastProcessedInputSeq) {
+                applyInputLocally(predictedPosition, predictedRotation, input, input.deltaSeconds);
+            }
+        }
+
         unconfirmedInputs.entrySet().removeIf(entry ->
                 entry.getKey() <= serverSnapshot.lastProcessedInputSeq
         );
 
         hasReceivedInitialState = true;
+        if (unconfirmedInputs.isEmpty()) {
+            idleAckSent = true;
+        }
     }
 
     public void onGameEvent(Message.MessageType type, Object message) {
-        // 根据消息类型做不同处理
         switch (type) {
             case MSG_S2C_PLAYER_HURT:
                 Message.S2C_PlayerHurt hurt = (Message.S2C_PlayerHurt) message;
@@ -311,7 +453,8 @@ public class GameScreen implements Screen {
                 break;
             case MSG_S2C_ENEMY_DIED:
                 Message.S2C_EnemyDied died = (Message.S2C_EnemyDied) message;
-                Gdx.app.log("GameEvent", "Enemy " + died.getEnemyId() + " died at (" + died.getPosition().getX() + ", " + died.getPosition().getY() + ")");
+                Gdx.app.log("GameEvent", "Enemy " + died.getEnemyId() + " died at (" + died.getPosition().getX() + ", " +
+                        died.getPosition().getY() + ")");
                 break;
             case MSG_S2C_PLAYER_LEVEL_UP:
                 Message.S2C_PlayerLevelUp levelUp = (Message.S2C_PlayerLevelUp) message;
@@ -319,7 +462,6 @@ public class GameScreen implements Screen {
                 break;
             case MSG_S2C_GAME_OVER:
                 Gdx.app.log("GameEvent", "Game Over!");
-                // 可在此切换到结算界面
                 break;
             default:
                 Gdx.app.log("GameEvent", "Unhandled game event: " + type);
@@ -328,23 +470,17 @@ public class GameScreen implements Screen {
 
     @Override
     public void resize(int width, int height) {
-        viewport.update(width, height, true); // true 表示居中
+        viewport.update(width, height, true);
     }
 
     @Override
-    public void pause() {
-
-    }
+    public void pause() { }
 
     @Override
-    public void resume() {
-
-    }
+    public void resume() { }
 
     @Override
-    public void hide() {
-
-    }
+    public void hide() { }
 
     @Override
     public void dispose() {
@@ -353,3 +489,7 @@ public class GameScreen implements Screen {
         if (backgroundTexture != null) backgroundTexture.dispose();
     }
 }
+
+
+
+

@@ -221,7 +221,7 @@ message PlayerState {
     uint32 buff_id = 15;           // Buff ID（0 表示无）
     uint32 attack_speed = 16;       // 攻击速度（数值越大越快，或表示攻击间隔 ms）
     float move_speed = 17;          // 移动速度（像素/秒）
-    int32 last_processed_input_seq = 18;
+    int32 last_processed_input_seq = 18; // 玩家客户端最后一次输入码的序号
 }
 
 // 射弹信息（如豌豆、子弹）
@@ -275,6 +275,7 @@ message S2C_GameStateSync {
   repeated EnemyState enemies = 3;             // 变化的敌人状态,容器
   repeated ItemState items = 4;                // 道具状态（如新掉落或被拾取）,容器
   uint32 room_id = 5;                          // 所属房间ID（便于客户端路由/校验）
+  uint64 server_time_ms = 6;                   // 服务器当前时间戳（毫秒）
 }
 
 // 玩家受伤广播
