@@ -50,8 +50,8 @@ class RoomManager {
   // 房主开始游戏：检查房间状态、准备状态并设置 is_playing
   // 成功返回房间快照（包含成员会话，用于后续广播）；失败返回 nullopt，同时填充
   // result
-  std::optional<RoomSnapshot> TryStartGame(uint32_t player_id,
-                                           lawnmower::S2C_GameStart* result);
+  [[nodiscard]] std::optional<RoomSnapshot> TryStartGame(
+      uint32_t player_id, lawnmower::S2C_GameStart* result);
 
   // 获取房间内所有成员会话（用于广播）
   std::vector<std::weak_ptr<TcpSession>> GetRoomSessions(

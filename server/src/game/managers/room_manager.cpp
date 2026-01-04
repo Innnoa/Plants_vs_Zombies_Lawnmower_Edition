@@ -4,7 +4,7 @@
 #include <chrono>
 #include <spdlog/spdlog.h>
 
-#include "network/tcp/tcp_server.hpp"
+#include "network/tcp/tcp_session.hpp"
 
 RoomManager& RoomManager::Instance() {  // 单例房间管理器
   static RoomManager instance;
@@ -353,11 +353,9 @@ std::optional<RoomManager::RoomSnapshot> RoomManager::TryStartGame(
     snapshot.players.push_back(std::move(player_snapshot));
   }
 
-  const auto now_ms = static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count());
-  result->set_start_time(now_ms);
+  const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+  result->set_start_time(static_cast<uint64_t>(now_ms.count()));
   result->set_success(true);
   result->set_message_start("游戏开始");
 

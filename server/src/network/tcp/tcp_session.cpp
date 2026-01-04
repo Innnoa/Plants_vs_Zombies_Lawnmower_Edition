@@ -1,0 +1,379 @@
+#include "network/tcp/tcp_session.hpp"
+
+#include <arpa/inet.h>
+#include <chrono>
+#include <cstring>
+#include <span>
+#include <spdlog/spdlog.h>
+
+#include "game/managers/game_manager.hpp"
+#include "game/managers/room_manager.hpp"
+
+namespace {
+constexpr std::size_t kMaxPacketSize = 64 * 1024;  // 设定最大包大小
+
+// 类型转字符串
+std::string MessageTypeToString(lawnmower::MessageType type) {
+  const std::string name = lawnmower::MessageType_Name(type);
+  if (!name.empty()) {
+    return name + "(" + std::to_string(static_cast<int>(type)) + ")";
+  }
+  return "UNKNOWN(" + std::to_string(static_cast<int>(type)) + ")";
+}
+
+// 向房间广播
+void BroadcastToRoom(std::span<const std::weak_ptr<TcpSession>> sessions,
+                     lawnmower::MessageType type,
+                     const google::protobuf::Message& message) {
+  for (const auto& weak_session : sessions) {
+    if (auto session = weak_session.lock()) {
+      session->SendProto(type, message);
+    }
+  }
+}
+}  // namespace
+
+// 用于给 player 赋 id，next_player_id_ 是静态的
+std::atomic<uint32_t> TcpSession::next_player_id_{1};
+// 当前活跃会话数
+std::atomic<uint32_t> TcpSession::active_sessions_{0};
+
+TcpSession::TcpSession(tcp::socket socket) : socket_(std::move(socket)) {}
+
+void TcpSession::start() {
+  active_sessions_.fetch_add(1, std::memory_order_relaxed);
+  read_header();
+}
+
+// 专门用于发送 Packet 包，设置 Message_type 类型 + payload 内容
+void TcpSession::SendProto(lawnmower::MessageType type,
+                           const google::protobuf::Message& message) {
+  if (closed_) {
+    return;
+  }
+  lawnmower::Packet packet;
+  packet.set_msg_type(type);
+  packet.set_payload(message.SerializeAsString());
+  send_packet(packet);
+}
+
+void TcpSession::handle_disconnect() {
+  if (closed_) {
+    return;
+  }
+  closed_ = true;
+
+  if (player_id_ != 0) {
+    GameManager::Instance().RemovePlayer(player_id_);
+    RoomManager::Instance().RemovePlayer(player_id_);
+  }
+
+  asio::error_code ignored_ec;
+  socket_.shutdown(tcp::socket::shutdown_both, ignored_ec);
+  socket_.close(ignored_ec);
+  active_sessions_.fetch_sub(1, std::memory_order_relaxed);
+}
+
+void TcpSession::read_header() {
+  auto self = shared_from_this();
+  asio::async_read(
+      socket_, asio::buffer(length_buffer_),
+      [this, self](const asio::error_code& ec, std::size_t) {
+        spdlog::debug("开始读取包长度");
+        if (ec) {
+          spdlog::warn("读取包长度失败: {}", ec.message());
+          handle_disconnect();
+          return;
+        }
+
+        uint32_t net_len = 0;
+        std::memcpy(&net_len, length_buffer_.data(), sizeof(net_len));
+        const uint32_t body_len = ntohl(net_len);
+        spdlog::debug("收到包长度: {}", body_len);
+        if (body_len == 0 || body_len > kMaxPacketSize) {
+          spdlog::warn("包长度异常: {}", body_len);
+          handle_disconnect();
+          return;
+        }
+
+        read_buffer_.resize(body_len);
+        spdlog::debug("包长度解析完成，开始读取包体");
+
+        read_body(body_len);
+      });
+}
+
+void TcpSession::read_body(std::size_t length) {
+  auto self = shared_from_this();
+  asio::async_read(
+      socket_, asio::buffer(read_buffer_, length),
+      [this, self, length](const asio::error_code& ec, std::size_t) {
+        spdlog::debug("开始解析包体，长度 {} bytes", length);
+        if (ec) {
+          spdlog::warn("解析包体失败: {}", ec.message());
+          handle_disconnect();
+          return;
+        }
+
+        lawnmower::Packet packet;
+        if (!packet.ParseFromArray(read_buffer_.data(),
+                                   static_cast<int>(read_buffer_.size()))) {
+          spdlog::warn("解析protobuf数据包失败，大小为 {} bytes",
+                       read_buffer_.size());
+          read_header();
+          return;
+        }
+        if (spdlog::should_log(spdlog::level::debug)) {
+          spdlog::debug(
+              "包体解析完成: {}，payload长度 {} bytes，包体总长度 {} bytes",
+              MessageTypeToString(packet.msg_type()), packet.payload().size(),
+              length);
+        }
+        handle_packet(packet);
+        if (closed_ || !socket_.is_open()) {
+          return;
+        }
+        read_header();
+      });
+}
+
+void TcpSession::do_write() {
+  auto self = shared_from_this();
+  asio::async_write(socket_, asio::buffer(write_queue_.front()),
+                    [this, self](const asio::error_code& ec, std::size_t) {
+                      if (ec) {
+                        spdlog::warn("包写入失败: {}", ec.message());
+                        handle_disconnect();
+                        return;
+                      }
+                      write_queue_.pop_front();
+                      if (!write_queue_.empty()) {
+                        do_write();
+                      }
+                    });
+}
+
+void TcpSession::handle_packet(const lawnmower::Packet& packet) {
+  using lawnmower::MessageType;
+  spdlog::debug("开始处理消息 {}", MessageTypeToString(packet.msg_type()));
+  switch (packet.msg_type()) {
+    case MessageType::MSG_C2S_LOGIN: {
+      lawnmower::C2S_Login login;
+      if (!login.ParseFromString(packet.payload())) {
+        spdlog::warn("解析登录包体失败");
+        break;
+      }
+
+      if (player_id_ != 0) {
+        lawnmower::S2C_LoginResult result;
+        result.set_success(false);
+        result.set_player_id(player_id_);
+        result.set_message_login("重复登录");
+        SendProto(MessageType::MSG_S2C_LOGIN_RESULT, result);
+        break;
+      }
+
+      player_id_ = next_player_id_.fetch_add(1);
+      player_name_ = login.player_name().empty()
+                         ? ("玩家" + std::to_string(player_id_))
+                         : login.player_name();
+
+      lawnmower::S2C_LoginResult result;
+      result.set_success(true);
+      result.set_player_id(player_id_);
+      result.set_message_login("login success");
+
+      SendProto(MessageType::MSG_S2C_LOGIN_RESULT, result);
+      spdlog::info("玩家登录: {} (id={})", player_name_, player_id_);
+      break;
+    }
+    case MessageType::MSG_C2S_HEARTBEAT: {
+      lawnmower::C2S_Heartbeat heartbeat;
+      if (!heartbeat.ParseFromString(packet.payload())) {
+        spdlog::warn("解析心跳包失败");
+        break;
+      }
+
+      lawnmower::S2C_Heartbeat reply;
+      const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch());
+      reply.set_timestamp(static_cast<uint64_t>(now_ms.count()));
+      reply.set_online_players(
+          active_sessions_.load(std::memory_order_relaxed));
+
+      SendProto(MessageType::MSG_S2C_HEARTBEAT, reply);
+      break;
+    }
+    case MessageType::MSG_C2S_CREATE_ROOM: {
+      lawnmower::C2S_CreateRoom request;
+      if (!request.ParseFromString(packet.payload())) {
+        spdlog::warn("解析创建房间包体失败");
+        break;
+      }
+
+      lawnmower::S2C_CreateRoomResult result;
+      if (player_id_ == 0) {
+        result.set_success(false);
+        result.set_message_create("请先登录");
+      } else {
+        result = RoomManager::Instance().CreateRoom(player_id_, player_name_,
+                                                    weak_from_this(), request);
+      }
+      SendProto(MessageType::MSG_S2C_CREATE_ROOM_RESULT, result);
+      break;
+    }
+    case MessageType::MSG_C2S_GET_ROOM_LIST: {
+      lawnmower::C2S_GetRoomList request;
+      if (!request.ParseFromString(packet.payload())) {
+        spdlog::warn("解析房间列表请求失败");
+        break;
+      }
+
+      lawnmower::S2C_RoomList list;
+      if (player_id_ != 0) {
+        list = RoomManager::Instance().GetRoomList();
+      }
+      spdlog::debug("发送房间列表给玩家 {}", player_id_);
+      SendProto(MessageType::MSG_S2C_ROOM_LIST, list);
+      break;
+    }
+    case MessageType::MSG_C2S_JOIN_ROOM: {
+      lawnmower::C2S_JoinRoom request;
+      if (!request.ParseFromString(packet.payload())) {
+        spdlog::warn("解析加入房间包体失败");
+        break;
+      }
+
+      lawnmower::S2C_JoinRoomResult result;
+      if (player_id_ == 0) {
+        result.set_success(false);
+        result.set_message_join("请先登录");
+      } else {
+        result = RoomManager::Instance().JoinRoom(player_id_, player_name_,
+                                                  weak_from_this(), request);
+      }
+      SendProto(MessageType::MSG_S2C_JOIN_ROOM_RESULT, result);
+      break;
+    }
+    case MessageType::MSG_C2S_LEAVE_ROOM: {
+      lawnmower::C2S_LeaveRoom request;
+      if (!request.ParseFromString(packet.payload())) {
+        spdlog::warn("解析离开房间包体失败");
+        break;
+      }
+
+      lawnmower::S2C_LeaveRoomResult result;
+      if (player_id_ == 0) {
+        result.set_success(false);
+        result.set_message_leave("请先登录");
+      } else {
+        result = RoomManager::Instance().LeaveRoom(player_id_);
+      }
+      SendProto(MessageType::MSG_S2C_LEAVE_ROOM_RESULT, result);
+      break;
+    }
+    case MessageType::MSG_C2S_SET_READY: {
+      lawnmower::C2S_SetReady request;
+      if (!request.ParseFromString(packet.payload())) {
+        spdlog::warn("解析设置准备状态包体失败");
+        break;
+      }
+
+      lawnmower::S2C_SetReadyResult result;
+      if (player_id_ == 0) {
+        result.set_success(false);
+        result.set_message_ready("请先登录");
+      } else {
+        result = RoomManager::Instance().SetReady(player_id_, request);
+      }
+      SendProto(MessageType::MSG_S2C_SET_READY_RESULT, result);
+      break;
+    }
+    case MessageType::MSG_C2S_REQUEST_QUIT: {
+      spdlog::info("客户端请求断开连接");
+      handle_disconnect();
+      break;
+    }
+    case MessageType::MSG_C2S_START_GAME: {
+      lawnmower::C2S_StartGame request;
+      if (!request.ParseFromString(packet.payload())) {
+        spdlog::warn("解析开始游戏请求失败");
+        break;
+      }
+
+      lawnmower::S2C_GameStart result;
+      auto snapshot = RoomManager::Instance().TryStartGame(player_id_, &result);
+      if (!result.success()) {
+        SendProto(MessageType::MSG_S2C_GAME_START, result);
+        break;
+      }
+
+      const lawnmower::SceneInfo scene_info =
+          GameManager::Instance().CreateScene(*snapshot);
+      *result.mutable_scene() = scene_info;
+
+      const auto sessions =
+          RoomManager::Instance().GetRoomSessions(snapshot->room_id);
+      BroadcastToRoom(sessions, MessageType::MSG_S2C_GAME_START, result);
+
+      lawnmower::S2C_GameStateSync sync;
+      if (GameManager::Instance().BuildFullState(snapshot->room_id, &sync)) {
+        BroadcastToRoom(sessions, MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
+        GameManager::Instance().StartGameLoop(snapshot->room_id);
+      }
+      spdlog::info("房间 {} 游戏开始", snapshot->room_id);
+      break;
+    }
+    case MessageType::MSG_C2S_PLAYER_INPUT: {
+      lawnmower::C2S_PlayerInput input;
+      if (!input.ParseFromString(packet.payload())) {
+        spdlog::warn("解析玩家输入失败");
+        break;
+      }
+
+      if (player_id_ == 0) {
+        spdlog::warn("未登录玩家发送移动输入");
+        break;
+      }
+
+      input.set_player_id(player_id_);
+
+      uint32_t room_id = 0;
+      if (!GameManager::Instance().HandlePlayerInput(player_id_, input,
+                                                     &room_id)) {
+        spdlog::debug("玩家 {} 输入被拒绝或未找到场景", player_id_);
+      }
+      break;
+    }
+    case MessageType::MSG_UNKNOWN:
+    default:
+      spdlog::warn("未知操作类型: {}", MessageTypeToString(packet.msg_type()));
+  }
+  spdlog::debug("完成处理消息 {}", MessageTypeToString(packet.msg_type()));
+}
+
+void TcpSession::send_packet(const lawnmower::Packet& packet) {
+  const std::string data = packet.SerializeAsString();
+  const uint32_t net_len = htonl(static_cast<uint32_t>(data.size()));
+
+  if (spdlog::should_log(spdlog::level::debug)) {
+    const auto payload_len = packet.payload().size();
+    const auto body_len = data.size();
+    spdlog::debug(
+        "发送包 {}，payload长度 {} bytes，序列化后长度 {} bytes（含4字节包长总计 {} "
+        "bytes）",
+        MessageTypeToString(packet.msg_type()), payload_len, body_len,
+        body_len + sizeof(net_len));
+  }
+
+  std::string framed;
+  framed.resize(sizeof(net_len) + data.size());
+  std::memcpy(framed.data(), &net_len, sizeof(net_len));
+  std::memcpy(framed.data() + sizeof(net_len), data.data(), data.size());
+
+  const bool write_in_progress = !write_queue_.empty();
+  write_queue_.push_back(std::move(framed));
+  if (!write_in_progress) {
+    do_write();
+  }
+}
