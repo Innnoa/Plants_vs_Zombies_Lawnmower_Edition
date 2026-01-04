@@ -1,19 +1,18 @@
 package com.lawnmower.screens;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
-import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Scaling;
 import com.badlogic.gdx.utils.viewport.StretchViewport;
-
 import com.lawnmower.Main;
+import com.lawnmower.utils.ErrorPopupController;
 import lawnmower.Message;
-
 
 import java.util.List;
 import java.util.Objects;
@@ -23,30 +22,27 @@ public class GameRoomScreen implements Screen {
     private Skin skin;
     private Stage stage;
 
-    // UI 组件（全部作为独立 Actor）
     private TextButton backButton;
     private Label titleLabel;
-    private Table playerSlotTable; // 仅用于排列槽位，整体可移动
+    private Table playerSlotTable;
     private TextButton readyButton;
     private TextButton startButton;
 
-    // 状态
     private boolean isHost = false;
     private boolean amIReady = false;
+    private boolean allPlayersReady = false;
     private int currentRoomId = -1;
 
-    // 资源
     private Texture backgroundTexture;
     private Texture lockedSlotTex;
     private Texture unlockedSlotTex;
 
-    // 设计尺寸（用于坐标计算）
     private static final float DESIGN_WIDTH = 2560f;
     private static final float DESIGN_HEIGHT = 1440f;
     private static final int MAX_PLAYERS = 4;
     private static final int WIDE = 600;
     private static final int HEIGHT = 700;
-
+    private ErrorPopupController error;
 
     public GameRoomScreen(Main game, Skin skin) {
         this.game = game;
@@ -57,21 +53,19 @@ public class GameRoomScreen implements Screen {
     public void show() {
         stage = new Stage(new StretchViewport(DESIGN_WIDTH, DESIGN_HEIGHT));
         Gdx.input.setInputProcessor(stage);
+        
+        error = new ErrorPopupController(stage,skin);
 
-        // === 背景 ===
         backgroundTexture = new Texture(Gdx.files.internal("background/gameReadyRoom.png"));
         Image bg = new Image(backgroundTexture);
         bg.setSize(DESIGN_WIDTH, DESIGN_HEIGHT);
         bg.setScaling(Scaling.stretch);
         stage.addActor(bg);
 
-        // === 加载资源 ===
         lockedSlotTex = new Texture(Gdx.files.internal("background/LockedRoom.png"));
         unlockedSlotTex = new Texture(Gdx.files.internal("background/unLockedRoom.png"));
 
-
-        // 返回按钮（左上角）
-        backButton = new TextButton("离开房间", skin,"CreateButton");
+        backButton = new TextButton("离开房间", skin, "CreateButton");
         backButton.setSize(200, 60);
         backButton.setPosition(50, DESIGN_HEIGHT - 270);
         backButton.addListener(new ClickListener() {
@@ -82,20 +76,17 @@ public class GameRoomScreen implements Screen {
         });
         stage.addActor(backButton);
 
-        // 标题（顶部居中）
         titleLabel = new Label("等待中...", skin);
         titleLabel.setFontScale(1.3f);
-        titleLabel.pack(); // 计算自身尺寸
+        titleLabel.pack();
         titleLabel.setPosition((DESIGN_WIDTH - titleLabel.getWidth()) / 2, DESIGN_HEIGHT - 180);
         stage.addActor(titleLabel);
 
-        // 槽位容器（初始空，后续动态填充并定位）
         playerSlotTable = new Table();
         playerSlotTable.pad(10).defaults().padLeft(10).padRight(10);
         stage.addActor(playerSlotTable);
 
-        // 准备按钮（底部居中）
-        readyButton = new TextButton("准备", skin,"CreateButton");
+        readyButton = new TextButton("准备", skin, "CreateButton");
         readyButton.setSize(200, 60);
         readyButton.setPosition((DESIGN_WIDTH - readyButton.getWidth()) / 2, 120);
         readyButton.addListener(new ClickListener() {
@@ -106,8 +97,7 @@ public class GameRoomScreen implements Screen {
         });
         stage.addActor(readyButton);
 
-        // 开始游戏按钮（在准备按钮上方）
-        startButton = new TextButton("开始游戏", skin,"CreateButton");
+        startButton = new TextButton("开始游戏", skin, "CreateButton");
         startButton.setSize(200, 60);
         startButton.setPosition((DESIGN_WIDTH - startButton.getWidth()) / 2, 200);
         startButton.setVisible(false);
@@ -120,7 +110,6 @@ public class GameRoomScreen implements Screen {
         stage.addActor(startButton);
     }
 
-    // —————— 网络回调 ——————
     public void onRoomUpdate(int roomId, List<Message.PlayerInfo> players) {
         this.currentRoomId = roomId;
 
@@ -129,7 +118,6 @@ public class GameRoomScreen implements Screen {
         Gdx.app.postRunnable(() -> {
             playerSlotTable.clearChildren();
 
-            // 构建槽位数据
             boolean[] occupied = new boolean[MAX_PLAYERS];
             String[] names = new String[MAX_PLAYERS];
             for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -142,7 +130,6 @@ public class GameRoomScreen implements Screen {
                 names[i] = safePlayers.get(i).getPlayerName();
             }
 
-            // 添加槽位到 Table（水平排列）
             for (int i = 0; i < MAX_PLAYERS; i++) {
                 Texture tex = occupied[i] ? unlockedSlotTex : lockedSlotTex;
                 Image slot = new Image(tex);
@@ -153,18 +140,18 @@ public class GameRoomScreen implements Screen {
                     nameLabel.setFontScale(0.9f);
                     Table slotWithLabel = new Table();
                     slotWithLabel.add(slot).row();
+                    slotWithLabel.add(nameLabel).padTop(10);
                     playerSlotTable.add(slotWithLabel).size(WIDE, HEIGHT);
                 } else {
-                    playerSlotTable.add(slot).size(WIDE-70, HEIGHT-10);
+                    playerSlotTable.add(slot).size(WIDE - 70, HEIGHT - 10);
                 }
             }
 
-            // 关键：更新槽位整体位置（居中）
             updatePlayerSlotPosition();
 
-            // 更新按钮状态
             isHost = false;
             amIReady = false;
+            boolean everyoneReady = !safePlayers.isEmpty();
             for (Message.PlayerInfo p : safePlayers) {
                 if (p.getPlayerId() == game.getPlayerId()) {
                     amIReady = p.getIsReady();
@@ -173,36 +160,43 @@ public class GameRoomScreen implements Screen {
                 if (p.getIsHost() && p.getPlayerId() == game.getPlayerId()) {
                     isHost = true;
                 }
+                if (!p.getIsReady()) {
+                    everyoneReady = false;
+                }
             }
+            allPlayersReady = everyoneReady;
             startButton.setVisible(isHost);
+            startButton.setDisabled(!isHost || !allPlayersReady);
         });
     }
 
-    // —————— 布局辅助 ——————
     private void updatePlayerSlotPosition() {
         playerSlotTable.validate();
-        playerSlotTable.pack(); // 重新计算 Table 尺寸
+        playerSlotTable.pack();
 
         float x = (DESIGN_WIDTH - playerSlotTable.getWidth()) / 2;
         float y = DESIGN_HEIGHT * 0.2f;
         playerSlotTable.setPosition(x, y);
     }
 
-    // —————— 操作方法 ——————
     private void toggleReady() {
         try {
             game.getTcpClient().sendSetReady(!amIReady);
         } catch (Exception e) {
-            showError("准备操作失败");
+            error.showError("准备操作失败");
         }
     }
 
     private void startGame() {
         if (!isHost) return;
+        if (!allPlayersReady) {
+            error.showError("还有玩家未准备完毕，无法开始");
+            return;
+        }
         try {
             game.getTcpClient().sendStartGame();
         } catch (Exception e) {
-            showError("无法开始游戏");
+            error.showError("无法开始游戏");
         }
     }
 
@@ -213,16 +207,6 @@ public class GameRoomScreen implements Screen {
         game.setScreen(new RoomListScreen(game, skin));
     }
 
-    public void showError(String msg) {
-        Gdx.app.postRunnable(() -> {
-            new Dialog("提示", skin)
-                    .text(msg)
-                    .button("确定")
-                    .show(stage);
-        });
-    }
-
-    // —————— 生命周期 ——————
     @Override
     public void render(float delta) {
         Gdx.gl.glClearColor(0.1f, 0.15f, 0.1f, 1);

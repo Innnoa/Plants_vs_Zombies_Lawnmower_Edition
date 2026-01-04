@@ -114,8 +114,19 @@ project(":desktop") {
         args = ['../assets-raw/def_out', '../core/assets/def_out', 'def_out']
     }
 
+    task packPeaShooter(type: JavaExec) {
+        mainClass = 'com.badlogic.gdx.tools.texturepacker.TexturePacker'
+        classpath = configurations.texturePacker
+        args = ['../assets-raw/Plants/PeaShooter/Standby', '../core/assets/Plants/PeaShooter/Standby', 'standby']
+    }
+
+
     // 一键打包所有
     task runTexturePacker {
-        dependsOn packDefIn
+        dependsOn packPeaShooter
+        doLast {
+            logger.lifecycle("PeaShooter atlas packed.")
+        }
     }
+
 }

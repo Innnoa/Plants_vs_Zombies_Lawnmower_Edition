@@ -1,0 +1,6 @@
+# TexturePacker 配置文件
+
+width: 100
+height: 100
+padding: 2
+duplicatePadding: true
