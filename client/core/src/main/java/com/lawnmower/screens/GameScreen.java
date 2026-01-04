@@ -8,9 +8,10 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.Animation;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureAtlas;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
-
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.viewport.FitViewport;
@@ -40,6 +41,7 @@ public class GameScreen implements Screen {
     private final Vector2 renderBuffer = new Vector2();
     private final Map<Integer, Message.PlayerState> serverPlayerStates = new HashMap<>();
     private final Map<Integer, Deque<ServerPlayerSnapshot>> remotePlayerServerSnapshots = new HashMap<>();
+    private final Map<Integer, Boolean> remoteFacingRight = new HashMap<>();
     private final Map<Integer, PlayerInputCommand> unconfirmedInputs = new LinkedHashMap<>();
     private final Queue<PlayerStateSnapshot> snapshotHistory = new ArrayDeque<>();
 
@@ -48,13 +50,17 @@ public class GameScreen implements Screen {
     private FitViewport viewport;
     private SpriteBatch batch;
     private Texture playerTexture;
+    private TextureAtlas playerAtlas;
+    private Animation<TextureRegion> playerIdleAnimation;
     private TextureRegion playerTextureRegion;
     private Texture backgroundTexture;
+    private float playerAnimationTime = 0f;
 
     private Vector2 predictedPosition = new Vector2();
     private float predictedRotation = 0f;
     private int inputSequence = 0;
     private boolean hasReceivedInitialState = false;
+    private boolean facingRight = true;
 
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
@@ -86,14 +92,16 @@ public class GameScreen implements Screen {
         }
 
         try {
-            playerTexture = new Texture(Gdx.files.internal("player/bbb1.png"));
-            playerTextureRegion = new TextureRegion(playerTexture);
+            playerAtlas = new TextureAtlas(Gdx.files.internal("Plants/PeaShooter/Standby/standby.atlas"));
+            playerIdleAnimation = new Animation<>(0.1f, playerAtlas.getRegions(), Animation.PlayMode.LOOP);
+            playerTextureRegion = playerIdleAnimation.getKeyFrame(0f);
         } catch (Exception e) {
             Pixmap pixmap = new Pixmap(64, 64, Pixmap.Format.RGBA8888);
             pixmap.setColor(Color.RED);
             pixmap.fillCircle(32, 32, 30);
             playerTexture = new Texture(pixmap);
             playerTextureRegion = new TextureRegion(playerTexture);
+            playerIdleAnimation = null;
             pixmap.dispose();
         }
 
@@ -125,23 +133,20 @@ public class GameScreen implements Screen {
         batch.begin();
         batch.draw(backgroundTexture, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-        float width = playerTextureRegion.getRegionWidth();
-        float height = playerTextureRegion.getRegionHeight();
+        playerAnimationTime += delta;
+        TextureRegion currentFrame = playerIdleAnimation != null
+                ? playerIdleAnimation.getKeyFrame(playerAnimationTime, true)
+                : playerTextureRegion;
+        if (currentFrame == null) {
+            batch.end();
+            return;
+        }
+        playerTextureRegion = currentFrame;
 
         long estimatedServerTimeMs = estimateServerTimeMs();
         long renderServerTimeMs = estimatedServerTimeMs - computeRenderDelayMs();
-        renderRemotePlayers(renderServerTimeMs, width, height);
-
-        batch.draw(playerTextureRegion,
-                predictedPosition.x - width / 2f,
-                predictedPosition.y - height / 2f,
-                width / 2f,
-                height / 2f,
-                width,
-                height,
-                1f,
-                1f,
-                predictedRotation);
+        renderRemotePlayers(renderServerTimeMs, currentFrame);
+        drawCharacterFrame(currentFrame, predictedPosition.x, predictedPosition.y, facingRight);
 
         batch.end();
     }
@@ -150,6 +155,9 @@ public class GameScreen implements Screen {
         if (dir.len2() > 0.1f) {
             predictedPosition.add(dir.x * PLAYER_SPEED * delta, dir.y * PLAYER_SPEED * delta);
             predictedRotation = dir.angleDeg();
+            if (Math.abs(dir.x) > 0.01f) {
+                facingRight = dir.x >= 0f;
+            }
             clampPositionToMap(predictedPosition);
         }
     }
@@ -223,37 +231,41 @@ public class GameScreen implements Screen {
 
     private void pruneUnconfirmedInputs() {
         if (unconfirmedInputs.isEmpty()) {
-                return;
-            }
+            return;
+        }
 
-                long now = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
         Iterator<Map.Entry<Integer, PlayerInputCommand>> iterator = unconfirmedInputs.entrySet().iterator();
         boolean removed = false;
         while (iterator.hasNext()) {
-                Map.Entry<Integer, PlayerInputCommand> entry = iterator.next();
-                PlayerInputCommand cmd = entry.getValue();
-                boolean tooOld = (now - cmd.timestampMs) > MAX_UNCONFIRMED_INPUT_AGE_MS;
-                boolean overflow = unconfirmedInputs.size() > MAX_UNCONFIRMED_INPUTS;
-                if (tooOld || overflow) {
-                        iterator.remove();
-                        removed = true;
-                        continue;
-                    }
-                if (!tooOld && !overflow) {
-                        break;
-                    }
+            Map.Entry<Integer, PlayerInputCommand> entry = iterator.next();
+            PlayerInputCommand cmd = entry.getValue();
+            boolean tooOld = (now - cmd.timestampMs) > MAX_UNCONFIRMED_INPUT_AGE_MS;
+            boolean overflow = unconfirmedInputs.size() > MAX_UNCONFIRMED_INPUTS;
+            if (tooOld || overflow) {
+                iterator.remove();
+                removed = true;
+                continue;
             }
+            if (!tooOld && !overflow) {
+                break;
+            }
+        }
 
-                if (removed) {
-                Gdx.app.log("GameScreen", "Pruned stale inputs, remaining=" + unconfirmedInputs.size());
-            }
+        if (removed) {
+            Gdx.app.log("GameScreen", "Pruned stale inputs, remaining=" + unconfirmedInputs.size());
+        }
         if (unconfirmedInputs.isEmpty()) {
-                idleAckSent = true;
-            }
+            idleAckSent = true;
+        }
     }
 
-    private void renderRemotePlayers(long renderServerTimeMs, float width, float height) {
+    private void renderRemotePlayers(long renderServerTimeMs, TextureRegion frame) {
+        if (frame == null) {
+            return;
+        }
         for (Map.Entry<Integer, Deque<ServerPlayerSnapshot>> entry : remotePlayerServerSnapshots.entrySet()) {
+            int playerId = entry.getKey();
             Deque<ServerPlayerSnapshot> snapshots = entry.getValue();
             if (snapshots == null || snapshots.isEmpty()) {
                 continue;
@@ -271,37 +283,37 @@ public class GameScreen implements Screen {
             }
 
             Vector2 drawPos = renderBuffer;
-            float drawRot;
-
             if (prev != null && next != null && next.serverTimestampMs > prev.serverTimestampMs) {
                 float t = (renderServerTimeMs - prev.serverTimestampMs) /
                         (float) (next.serverTimestampMs - prev.serverTimestampMs);
                 t = MathUtils.clamp(t, 0f, 1f);
                 drawPos.set(prev.position).lerp(next.position, t);
-                drawRot = prev.rotation + (next.rotation - prev.rotation) * t;
             } else if (prev != null) {
                 long ahead = Math.max(0L, renderServerTimeMs - prev.serverTimestampMs);
                 long clampedAhead = Math.min(ahead, MAX_EXTRAPOLATION_MS);
                 float seconds = clampedAhead / 1000f;
                 drawPos.set(prev.position).mulAdd(prev.velocity, seconds);
-                drawRot = prev.rotation;
             } else {
                 drawPos.set(next.position);
-                drawRot = next.rotation;
             }
-
             clampPositionToMap(drawPos);
-            batch.draw(playerTextureRegion,
-                    drawPos.x - width / 2f,
-                    drawPos.y - height / 2f,
-                    width / 2f,
-                    height / 2f,
-                    width,
-                    height,
-                    1f,
-                    1f,
-                    drawRot);
+            boolean remoteFacing = remoteFacingRight.getOrDefault(playerId, true);
+            drawCharacterFrame(frame, drawPos.x, drawPos.y, remoteFacing);
         }
+    }
+
+    private void drawCharacterFrame(TextureRegion frame, float centerX, float centerY, boolean faceRight) {
+        if (frame == null) {
+            return;
+        }
+        float width = frame.getRegionWidth();
+        float height = frame.getRegionHeight();
+        float drawX = centerX - width / 2f;
+        float drawY = centerY - height / 2f;
+        float originX = width / 2f;
+        float originY = height / 2f;
+        float scaleX = faceRight ? 1f : -1f;
+        batch.draw(frame, drawX, drawY, originX, originY, width, height, scaleX, 1f, 0f);
     }
 
     private long computeRenderDelayMs() {
@@ -398,6 +410,7 @@ public class GameScreen implements Screen {
             boolean shouldRemove = id != myId && !updatedPlayerIds.contains(id);
             if (shouldRemove) {
                 remotePlayerServerSnapshots.remove(id);
+                remoteFacingRight.remove(id);
             }
             return shouldRemove;
         });
@@ -444,6 +457,8 @@ public class GameScreen implements Screen {
             }
         }
 
+        updateRemoteFacing(playerId, velocity, rotation);
+
         ServerPlayerSnapshot snap = new ServerPlayerSnapshot(position, rotation, velocity, serverTimeMs);
         queue.addLast(snap);
 
@@ -451,6 +466,24 @@ public class GameScreen implements Screen {
                 (serverTimeMs - queue.peekFirst().serverTimestampMs) > SNAPSHOT_RETENTION_MS) {
             queue.removeFirst();
         }
+    }
+
+    private void updateRemoteFacing(int playerId, Vector2 velocity, float rotation) {
+        boolean faceRight = remoteFacingRight.getOrDefault(playerId, true);
+        if (Math.abs(velocity.x) > 0.001f) {
+            faceRight = velocity.x >= 0f;
+        } else {
+            faceRight = inferFacingFromRotation(rotation);
+        }
+        remoteFacingRight.put(playerId, faceRight);
+    }
+
+    private boolean inferFacingFromRotation(float rotation) {
+        float normalized = rotation % 360f;
+        if (normalized < 0f) {
+            normalized += 360f;
+        }
+        return !(normalized > 90f && normalized < 270f);
     }
 
     private void reconcileWithServer(PlayerStateSnapshot serverSnapshot) {
@@ -464,6 +497,7 @@ public class GameScreen implements Screen {
 
         predictedPosition.set(serverSnapshot.position);
         predictedRotation = serverSnapshot.rotation;
+        facingRight = inferFacingFromRotation(predictedRotation);
         clampPositionToMap(predictedPosition);
 
         for (PlayerInputCommand input : unconfirmedInputs.values()) {
@@ -524,6 +558,8 @@ public class GameScreen implements Screen {
     public void dispose() {
         if (batch != null) batch.dispose();
         if (playerTexture != null) playerTexture.dispose();
+        if (playerAtlas != null) playerAtlas.dispose();
         if (backgroundTexture != null) backgroundTexture.dispose();
     }
+
 }
