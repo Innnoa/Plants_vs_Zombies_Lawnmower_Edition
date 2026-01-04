@@ -37,11 +37,13 @@ public class GameScreen implements Screen {
     private static final long INTERP_DELAY_MAX_MS = 220L;
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
+    private static final long REMOTE_PLAYER_TIMEOUT_MS = 5000L;
 
     private final Vector2 renderBuffer = new Vector2();
     private final Map<Integer, Message.PlayerState> serverPlayerStates = new HashMap<>();
     private final Map<Integer, Deque<ServerPlayerSnapshot>> remotePlayerServerSnapshots = new HashMap<>();
     private final Map<Integer, Boolean> remoteFacingRight = new HashMap<>();
+    private final Map<Integer, Long> remotePlayerLastSeen = new HashMap<>();
     private final Map<Integer, PlayerInputCommand> unconfirmedInputs = new LinkedHashMap<>();
     private final Queue<PlayerStateSnapshot> snapshotHistory = new ArrayDeque<>();
 
@@ -63,6 +65,7 @@ public class GameScreen implements Screen {
     private boolean facingRight = true;
     private final Vector2 displayPosition = new Vector2();
     private static final float DISPLAY_LERP_RATE = 12f;
+    private boolean isLocallyMoving = false;
 
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
@@ -120,6 +123,7 @@ public class GameScreen implements Screen {
         }
 
         Vector2 dir = getMovementInput();
+        isLocallyMoving = dir.len2() > 0.0001f;
         boolean attacking = Gdx.input.isKeyJustPressed(Input.Keys.SPACE);
 
         simulateLocalStep(dir, delta);
@@ -393,32 +397,26 @@ public class GameScreen implements Screen {
         float offsetSample = currentServerTimeMs - now;
         clockOffsetMs = MathUtils.lerp(clockOffsetMs, offsetSample, 0.1f);
 
-        Set<Integer> updatedPlayerIds = new HashSet<>();
         int myId = game.getPlayerId();
         Message.PlayerState selfStateFromServer = null;
 
         for (Message.PlayerState player : sync.getPlayersList()) {
             int playerId = (int) player.getPlayerId();
-            updatedPlayerIds.add(playerId);
             serverPlayerStates.put(playerId, player);
 
-            if (playerId == myId && player.getIsAlive()) {
-                selfStateFromServer = player;
-            } else if (playerId != myId) {
-                Vector2 position = new Vector2(player.getPosition().getX(), player.getPosition().getY());
-                pushRemoteSnapshot(playerId, position, player.getRotation(), currentServerTimeMs);
+            if (playerId == myId) {
+                if (player.getIsAlive()) {
+                    selfStateFromServer = player;
+                }
+                continue;
             }
+
+            Vector2 position = new Vector2(player.getPosition().getX(), player.getPosition().getY());
+            pushRemoteSnapshot(playerId, position, player.getRotation(), currentServerTimeMs);
+            remotePlayerLastSeen.put(playerId, currentServerTimeMs);
         }
 
-        serverPlayerStates.entrySet().removeIf(entry -> {
-            int id = entry.getKey();
-            boolean shouldRemove = id != myId && !updatedPlayerIds.contains(id);
-            if (shouldRemove) {
-                remotePlayerServerSnapshots.remove(id);
-                remoteFacingRight.remove(id);
-            }
-            return shouldRemove;
-        });
+        purgeStaleRemotePlayers(currentServerTimeMs);
 
         if (selfStateFromServer == null) return;
 
@@ -467,7 +465,7 @@ public class GameScreen implements Screen {
         ServerPlayerSnapshot snap = new ServerPlayerSnapshot(position, rotation, velocity, serverTimeMs);
         queue.addLast(snap);
 
-        while (!queue.isEmpty() &&
+        while (queue.size() > 1 &&
                 (serverTimeMs - queue.peekFirst().serverTimestampMs) > SNAPSHOT_RETENTION_MS) {
             queue.removeFirst();
         }
@@ -481,6 +479,21 @@ public class GameScreen implements Screen {
             faceRight = inferFacingFromRotation(rotation);
         }
         remoteFacingRight.put(playerId, faceRight);
+    }
+
+    private void purgeStaleRemotePlayers(long currentServerTimeMs) {
+        Iterator<Map.Entry<Integer, Long>> iterator = remotePlayerLastSeen.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Integer, Long> entry = iterator.next();
+            long lastSeen = entry.getValue();
+            if ((currentServerTimeMs - lastSeen) > REMOTE_PLAYER_TIMEOUT_MS) {
+                int playerId = entry.getKey();
+                iterator.remove();
+                remotePlayerServerSnapshots.remove(playerId);
+                remoteFacingRight.remove(playerId);
+                serverPlayerStates.remove(playerId);
+            }
+        }
     }
 
     private boolean inferFacingFromRotation(float rotation) {
@@ -573,6 +586,10 @@ public class GameScreen implements Screen {
 
     private void updateDisplayPosition(float delta) {
         if (!hasReceivedInitialState) {
+            return;
+        }
+        if (!isLocallyMoving) {
+            displayPosition.set(predictedPosition);
             return;
         }
         float alpha = MathUtils.clamp(delta * DISPLAY_LERP_RATE, 0f, 1f);

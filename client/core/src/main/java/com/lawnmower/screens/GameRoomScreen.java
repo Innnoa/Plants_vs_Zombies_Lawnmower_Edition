@@ -117,15 +117,9 @@ public class GameRoomScreen implements Screen {
             playerSlotTable.clearChildren();
 
             boolean[] occupied = new boolean[MAX_PLAYERS];
-            String[] names = new String[MAX_PLAYERS];
-            for (int i = 0; i < MAX_PLAYERS; i++) {
-                occupied[i] = false;
-                names[i] = "";
-            }
-
-            for (int i = 0; i < Math.min(safePlayers.size(), MAX_PLAYERS); i++) {
+            int occupiedCount = Math.min(safePlayers.size(), MAX_PLAYERS);
+            for (int i = 0; i < occupiedCount; i++) {
                 occupied[i] = true;
-                names[i] = safePlayers.get(i).getPlayerName();
             }
 
             for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -134,12 +128,7 @@ public class GameRoomScreen implements Screen {
                 slot.setSize(SLOT_WIDTH, SLOT_HEIGHT);
 
                 if (occupied[i]) {
-                    Label nameLabel = new Label(names[i], skin, "default");
-                    nameLabel.setFontScale(0.9f);
-                    Table slotWithLabel = new Table();
-                    slotWithLabel.add(slot).row();
-                    slotWithLabel.add(nameLabel).padTop(10);
-                    playerSlotTable.add(slotWithLabel).size(SLOT_WIDTH, SLOT_HEIGHT);
+                    playerSlotTable.add(slot).size(SLOT_WIDTH, SLOT_HEIGHT);
                 } else {
                     playerSlotTable.add(slot).size(SLOT_WIDTH - 70, SLOT_HEIGHT - 10);
                 }
