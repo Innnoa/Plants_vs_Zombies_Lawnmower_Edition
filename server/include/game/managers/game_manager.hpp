@@ -54,7 +54,7 @@ class GameManager {
     uint32_t height = 2000;
     uint32_t tick_rate = 60;
     uint32_t state_sync_rate = 20;
-    float move_speed = 280.0f;
+    float move_speed = 200.0f;
   };
 
   struct PlayerRuntime {

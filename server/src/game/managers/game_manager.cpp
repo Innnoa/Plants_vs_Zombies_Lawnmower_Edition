@@ -323,24 +323,27 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     for (auto& [_, runtime] : scene.players) {
       bool moved = false;
       bool consumed_input = false;
-      double time_budget = dt_seconds;
+      double processed_seconds = 0.0;
 
-      // 消耗输入队列，允许一个 tick 处理多条输入（使用 delta_ms 折算）
-      while (time_budget > 0.0 && !runtime.pending_inputs.empty()) {
-        const auto input = runtime.pending_inputs.front();
-        runtime.pending_inputs.pop_front();
-        consumed_input = true;
-
+      // 消耗输入队列，尽量在当前 tick 内吃掉完整的输入 delta（上限 kMaxTickDeltaSeconds）
+      while (!runtime.pending_inputs.empty() &&
+             processed_seconds < kMaxTickDeltaSeconds) {
+        auto& input = runtime.pending_inputs.front();
         const float dx_raw = input.move_direction().x();
         const float dy_raw = input.move_direction().y();
         const float len_sq = dx_raw * dx_raw + dy_raw * dy_raw;
-        if (len_sq >= kDirectionEpsilonSq && len_sq <= kMaxDirectionLengthSq) {
-          const double reported_dt =
-              input.delta_ms() > 0 ? std::clamp(input.delta_ms() / 1000.0, 0.0,
-                                                kMaxInputDeltaSeconds)
-                                   : time_budget;
-          const double input_dt = std::min(time_budget, reported_dt);
 
+        const double reported_dt =
+            input.delta_ms() > 0
+                ? std::clamp(input.delta_ms() / 1000.0, 0.0,
+                             kMaxInputDeltaSeconds)
+                : tick_interval_seconds;
+        const double remaining_budget =
+            kMaxTickDeltaSeconds - processed_seconds;
+        const double input_dt = std::min(reported_dt, remaining_budget);
+
+        if (len_sq >= kDirectionEpsilonSq && len_sq <= kMaxDirectionLengthSq &&
+            input_dt > 0.0) {
           const float len = std::sqrt(len_sq);
           const float dx = dx_raw / len;
           const float dy = dy_raw / len;
@@ -365,11 +368,30 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
           position->set_x(new_x);
           position->set_y(new_y);
           runtime.state.set_rotation(DegreesFromDirection(dx, dy));
-          time_budget -= input_dt;
+          processed_seconds += input_dt;
+          consumed_input = true;
+        } else {
+          // 无效方向也要前进时间，防止队列阻塞
+          processed_seconds += input_dt;
+          consumed_input = true;
         }
 
+        // 更新序号（即便被拆分）
         if (input.input_seq() > runtime.last_input_seq) {
           runtime.last_input_seq = input.input_seq();
+        }
+
+        const double remaining_dt = reported_dt - input_dt;
+        if (remaining_dt > 1e-5) {
+          // 当前 tick 只消耗了一部分，保留剩余 delta_ms 在队首
+          const uint32_t remaining_ms = static_cast<uint32_t>(
+              std::clamp(std::llround(remaining_dt * 1000.0), 1LL,
+                         static_cast<long long>(kMaxInputDeltaSeconds *
+                                                 1000.0)));
+          input.set_delta_ms(remaining_ms);
+          break;
+        } else {
+          runtime.pending_inputs.pop_front();
         }
       }
 
