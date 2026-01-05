@@ -14,6 +14,7 @@ import com.badlogic.gdx.graphics.g2d.TextureAtlas;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.utils.TimeUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.lawnmower.Main;
 import com.lawnmower.players.PlayerInputCommand;
@@ -24,6 +25,8 @@ import lawnmower.Message;
 import java.util.*;
 
 public class GameScreen implements Screen {
+
+    private static final String TAG = "GameScreen";
 
     private static final float WORLD_WIDTH = 1280f;
     private static final float WORLD_HEIGHT = 720f;
@@ -69,6 +72,16 @@ public class GameScreen implements Screen {
     private static final float DISPLAY_SNAP_DISTANCE = 1f;
     private boolean isLocallyMoving = false;
 
+    private static final float DELTA_SPIKE_THRESHOLD = 0.02f;
+    private static final long DELTA_LOG_INTERVAL_MS = 400L;
+    private static final float POSITION_CORRECTION_LOG_THRESHOLD = 6f;
+    private static final long POSITION_LOG_INTERVAL_MS = 700L;
+    private static final float DISPLAY_DRIFT_LOG_THRESHOLD = 10f;
+    private static final long DISPLAY_LOG_INTERVAL_MS = 700L;
+    private static final float SYNC_INTERVAL_SMOOTH_ALPHA = 0.1f;
+    private static final float SYNC_INTERVAL_LOG_THRESHOLD_MS = 120f;
+    private static final long SYNC_INTERVAL_LOG_INTERVAL_MS = 800L;
+
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
     private boolean pendingAttack = false;
@@ -88,6 +101,13 @@ public class GameScreen implements Screen {
     private static final float RENDER_DELAY_LERP = 0.25f;
     private static final float MAX_RENDER_DELAY_STEP_MS = 15f;
     private float renderDelayMs = 150f;
+
+    private long lastDeltaSpikeLogMs = 0L;
+    private long lastCorrectionLogMs = 0L;
+    private long lastDisplayDriftLogMs = 0L;
+    private long lastSyncArrivalMs = 0L;
+    private long lastSyncLogMs = 0L;
+    private float smoothedSyncIntervalMs = 50f;
 
     public GameScreen(Main game) {
         this.game = Objects.requireNonNull(game);
@@ -142,8 +162,8 @@ public class GameScreen implements Screen {
         isLocallyMoving = dir.len2() > 0.0001f;
         boolean attacking = Gdx.input.isKeyJustPressed(Input.Keys.SPACE);
 
-        simulateLocalStep(dir, delta);
-        processInputChunk(dir, attacking, delta);
+        simulateLocalStep(dir, renderDelta);
+        processInputChunk(dir, attacking, renderDelta);
 
         Gdx.gl.glClearColor(0, 0, 0, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
@@ -186,6 +206,7 @@ public class GameScreen implements Screen {
     private float getStableDelta(float rawDelta) {
         float clamped = Math.min(rawDelta, MAX_FRAME_DELTA);
         smoothedFrameDelta += (clamped - smoothedFrameDelta) * DELTA_SMOOTH_ALPHA;
+        logFrameDeltaSpike(rawDelta, smoothedFrameDelta);
         return smoothedFrameDelta;
     }
 
@@ -295,7 +316,7 @@ public class GameScreen implements Screen {
         }
 
         if (removed) {
-            Gdx.app.log("GameScreen", "Pruned stale inputs, remaining=" + unconfirmedInputs.size());
+            Gdx.app.log(TAG, "Pruned stale inputs, remaining=" + unconfirmedInputs.size());
         }
         if (unconfirmedInputs.isEmpty()) {
             idleAckSent = true;
@@ -363,12 +384,27 @@ public class GameScreen implements Screen {
         if (Float.isNaN(target) || Float.isInfinite(target)) {
             target = 120f;
         }
+        float jitterReserve = MathUtils.clamp(smoothedSyncIntervalMs * 1.2f + 30f,
+                INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS + 30f);
+        target = Math.max(target, jitterReserve);
         target = MathUtils.clamp(target, INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
         float delta = target - renderDelayMs;
         delta = MathUtils.clamp(delta, -MAX_RENDER_DELAY_STEP_MS, MAX_RENDER_DELAY_STEP_MS);
         renderDelayMs = MathUtils.clamp(renderDelayMs + delta * RENDER_DELAY_LERP,
                 INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
         return Math.round(renderDelayMs);
+    }
+    private void logSyncIntervalSpike(float intervalMs, float smoothInterval) {
+        if (intervalMs < SYNC_INTERVAL_LOG_THRESHOLD_MS) {
+            return;
+            }
+        long nowMs = TimeUtils.millis();
+        if (nowMs - lastSyncLogMs < SYNC_INTERVAL_LOG_INTERVAL_MS) {
+            return;
+            }
+        Gdx.app.log(TAG, "Sync interval spike=" + intervalMs + "ms smooth=" + smoothInterval
+                + "ms renderDelay=" + renderDelayMs);
+        lastSyncLogMs = nowMs;
     }
 
     private long estimateServerTimeMs() {
@@ -422,11 +458,18 @@ public class GameScreen implements Screen {
         try {
             game.getTcpClient().sendPlayerInput(inputMsg);
         } catch (Exception e) {
-            Gdx.app.error("GameScreen", "Failed to send input", e);
+            Gdx.app.error(TAG, "Failed to send input", e);
         }
     }
 
     public void onGameStateReceived(Message.S2C_GameStateSync sync) {
+        long arrivalMs = TimeUtils.millis();
+        if (lastSyncArrivalMs != 0L) {
+            float interval = arrivalMs - lastSyncArrivalMs;
+            smoothedSyncIntervalMs += (interval - smoothedSyncIntervalMs) * SYNC_INTERVAL_SMOOTH_ALPHA;
+            logSyncIntervalSpike(interval, smoothedSyncIntervalMs);
+        }
+        lastSyncArrivalMs = arrivalMs;
         long currentServerTimeMs = sync.getServerTimeMs();
         long now = System.currentTimeMillis();
         float offsetSample = currentServerTimeMs - now;
@@ -554,11 +597,13 @@ public class GameScreen implements Screen {
             }
         }
 
+        float correctionDist = predictedPosition.dst(serverSnapshot.position);
         boolean wasInitialized = hasReceivedInitialState;
         predictedPosition.set(serverSnapshot.position);
         predictedRotation = serverSnapshot.rotation;
         facingRight = inferFacingFromRotation(predictedRotation);
         clampPositionToMap(predictedPosition);
+        logServerCorrection(correctionDist, serverSnapshot.lastProcessedInputSeq);
         if (!wasInitialized) {
             displayPosition.set(predictedPosition);
         }
@@ -604,7 +649,8 @@ public class GameScreen implements Screen {
                 break;
             case MSG_S2C_PLAYER_LEVEL_UP:
                 Message.S2C_PlayerLevelUp levelUp = (Message.S2C_PlayerLevelUp) message;
-                Gdx.app.log("GameEvent", "Player " + levelUp.getPlayerId() + " leveled up to " + levelUp.getNewLevel());
+                Gdx.app.log("GameEvent", "Player " + levelUp.getPlayerId() + " leveled up to " +
+                        levelUp.getNewLevel());
                 break;
             case MSG_S2C_GAME_OVER:
                 Gdx.app.log("GameEvent", "Game Over!");
@@ -649,7 +695,51 @@ public class GameScreen implements Screen {
             displayPosition.set(predictedPosition);
             return;
         }
+        float distance = (float) Math.sqrt(distSq);
+        if (distance > DISPLAY_DRIFT_LOG_THRESHOLD) {
+            logDisplayDrift(distance);
+        }
         float alpha = MathUtils.clamp(delta * DISPLAY_LERP_RATE, 0f, 1f);
         displayPosition.lerp(predictedPosition, alpha);
+    }
+
+    private void logFrameDeltaSpike(float rawDelta, float stableDelta) {
+        if (Math.abs(rawDelta - stableDelta) < DELTA_SPIKE_THRESHOLD) {
+            return;
+        }
+        long nowMs = TimeUtils.millis();
+        if (nowMs - lastDeltaSpikeLogMs < DELTA_LOG_INTERVAL_MS) {
+            return;
+        }
+        Gdx.app.log(TAG, "Frame delta spike raw=" + rawDelta + " stable=" + stableDelta
+                + " pendingInputs=" + unconfirmedInputs.size());
+        lastDeltaSpikeLogMs = nowMs;
+    }
+
+    private void logServerCorrection(float correctionDist, int lastProcessedSeq) {
+        if (correctionDist < POSITION_CORRECTION_LOG_THRESHOLD) {
+            return;
+        }
+        long nowMs = TimeUtils.millis();
+        if (nowMs - lastCorrectionLogMs < POSITION_LOG_INTERVAL_MS) {
+            return;
+        }
+        Gdx.app.log(TAG, "Server correction dist=" + correctionDist
+                + " lastSeq=" + lastProcessedSeq
+                + " pendingInputs=" + unconfirmedInputs.size());
+        lastCorrectionLogMs = nowMs;
+    }
+
+    private void logDisplayDrift(float drift) {
+        if (drift < DISPLAY_DRIFT_LOG_THRESHOLD) {
+            return;
+        }
+        long nowMs = TimeUtils.millis();
+        if (nowMs - lastDisplayDriftLogMs < DISPLAY_LOG_INTERVAL_MS) {
+            return;
+        }
+        Gdx.app.log(TAG, "Display drift=" + drift + " facingRight=" + facingRight
+                + " pendingInputs=" + unconfirmedInputs.size());
+        lastDisplayDriftLogMs = nowMs;
     }
 }
