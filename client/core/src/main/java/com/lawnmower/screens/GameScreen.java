@@ -38,8 +38,8 @@ public class GameScreen implements Screen {
     private static final float MIN_COMMAND_DURATION = 1f / 120f;
     private static final long SNAPSHOT_RETENTION_MS = 900L;
     private static final long MAX_EXTRAPOLATION_MS = 220L;
-    private static final long INTERP_DELAY_MIN_MS = 80L;
-    private static final long INTERP_DELAY_MAX_MS = 220L;
+    private static final long INTERP_DELAY_MIN_MS = 50L;
+    private static final long INTERP_DELAY_MAX_MS = 140L;
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
     private static final long REMOTE_PLAYER_TIMEOUT_MS = 5000L;
@@ -103,7 +103,7 @@ public class GameScreen implements Screen {
 
     private static final float RENDER_DELAY_LERP = 0.25f;
     private static final float MAX_RENDER_DELAY_STEP_MS = 15f;
-    private float renderDelayMs = 150f;
+    private float renderDelayMs = 100f;
 
     private long lastDeltaSpikeLogMs = 0L;
     private long lastCorrectionLogMs = 0L;
@@ -384,12 +384,12 @@ public class GameScreen implements Screen {
     }
 
     private long computeRenderDelayMs() {
-        float target = smoothedRttMs * 0.5f + 50f;
+        float target = smoothedRttMs * 0.35f + 20f;
         if (Float.isNaN(target) || Float.isInfinite(target)) {
-            target = 120f;
+            target = 90f;
         }
-        float jitterReserve = MathUtils.clamp(smoothedSyncIntervalMs * 1.2f + 30f,
-                INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS + 30f);
+        float jitterReserve = MathUtils.clamp(smoothedSyncIntervalMs * 1.2f + 20f,
+                INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
         target = Math.max(target, jitterReserve);
         target = MathUtils.clamp(target, INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
         float delta = target - renderDelayMs;
