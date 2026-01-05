@@ -1,7 +1,5 @@
 package com.lawnmower.network;
 
-import com.badlogic.gdx.Gdx;
-import com.google.protobuf.ByteString;
 import com.google.protobuf.MessageLite;
 
 import com.lawnmower.Config;
@@ -16,12 +14,19 @@ import java.io.IOException;
 
 public class TcpClient {
     private static final Logger log = LoggerFactory.getLogger(TcpClient.class);
+    private static final int SOCKET_TIMEOUT_MS = 500;
     private Socket socket;
     private DataInputStream dataIn;
     private DataOutputStream dataOut;
 
     public void connect(String host, int port) throws IOException {
-        socket = new Socket(host, port);
+//        socket = new Socket(host, port);
+        socket = new Socket();
+        socket.setTcpNoDelay(true);
+        socket.setKeepAlive(true);
+        socket.setReceiveBufferSize(128 * 1024);
+        socket.setSoTimeout(SOCKET_TIMEOUT_MS);
+        socket.connect(new InetSocketAddress(host, port), 3000);
         dataOut = new DataOutputStream(socket.getOutputStream());
         dataIn = new DataInputStream(socket.getInputStream());
         System.out.println("已连接到 " + host + ":" + port);
@@ -33,6 +38,10 @@ public class TcpClient {
                 .setMaxPlayers(maxPlayers)
                 .build();
         sendPacket(Message.MessageType.MSG_C2S_CREATE_ROOM, msg);
+    }
+
+    public int getSocketTimeoutMs() {
+        return SOCKET_TIMEOUT_MS;
     }
 
     public void sendGetRoomList() throws IOException {
@@ -97,8 +106,18 @@ public class TcpClient {
             byte[] data = new byte[len];
             dataIn.readFully(data);
             return Message.Packet.parseFrom(data);
+        } catch (SocketTimeoutException timeout) {
+            throw timeout;
         } catch (EOFException | SocketException e) {
             return null;
+        }
+    }
+    public int availableBytes() {
+        if (dataIn == null) return -1;
+        try {
+            return dataIn.available();
+        } catch (IOException e) {
+            return -1;
         }
     }
 

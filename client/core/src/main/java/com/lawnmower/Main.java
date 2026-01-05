@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main extends Game {
@@ -24,6 +25,7 @@ public class Main extends Game {
     private TcpClient tcpClient;
     private String playerName = "Player";
     private int playerId = -1; // 未登录时为 -1
+    private long lastSocketWaitLogMs = 0L;
 
     private final AtomicBoolean networkRunning = new AtomicBoolean(false);
     private Thread networkThread;
@@ -109,7 +111,16 @@ public class Main extends Game {
 
                     // 通知主线程处理（UI 操作必须在渲染线程）
                     handleNetworkMessage(type, payload);
-
+                } catch (SocketTimeoutException e) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastSocketWaitLogMs > 1000L) {
+                        Gdx.app.log("NET",
+                                "Waiting for server... no packet for "
+                                        + tcpClient.getSocketTimeoutMs() + "ms, available="
+                                        + tcpClient.availableBytes());
+                        lastSocketWaitLogMs = now;
+                    }
+                    continue;
                 } catch (IOException e) {
                     if (networkRunning.get()) {
                         Gdx.app.log("NET", "Network error: " + e.getMessage());
