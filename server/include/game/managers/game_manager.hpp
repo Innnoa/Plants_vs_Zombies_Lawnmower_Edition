@@ -53,7 +53,7 @@ class GameManager {
     uint32_t width = 2000;
     uint32_t height = 2000;
     uint32_t tick_rate = 60;
-    uint32_t state_sync_rate = 20;
+    uint32_t state_sync_rate = 30;
     float move_speed = 200.0f;
   };
 

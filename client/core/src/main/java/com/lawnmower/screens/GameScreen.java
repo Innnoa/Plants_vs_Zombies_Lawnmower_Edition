@@ -110,7 +110,8 @@ public class GameScreen implements Screen {
     private long lastDisplayDriftLogMs = 0L;
     private long lastSyncArrivalMs = 0L;
     private long lastSyncLogMs = 0L;
-    private float smoothedSyncIntervalMs = 50f;
+    // 30Hz 目标同步间隔约 33ms，预置一个靠近目标的初值便于平滑
+    private float smoothedSyncIntervalMs = 35f;
 
     public GameScreen(Main game) {
         this.game = Objects.requireNonNull(game);

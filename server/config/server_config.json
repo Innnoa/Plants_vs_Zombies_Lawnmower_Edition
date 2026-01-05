@@ -3,7 +3,7 @@
     "udp_port": 7778,
     "max_players_per_room": 4,
     "tick_rate": 60,
-    "state_sync_rate": 20,
+    "state_sync_rate": 30,
     "map_width": 1280,
     "map_height": 720,
     "log_level": "info"
