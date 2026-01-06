@@ -5,7 +5,7 @@ import com.google.protobuf.ByteString;
 public final class Config {
 
     // =============== 网络配置 ===============
-    public static final String SERVER_HOST = "192.168.206.244";
+    public static final String SERVER_HOST = "192.168.241.244";
 
     /** 服务器端口 */
     public static final int SERVER_PORT = 7777;
