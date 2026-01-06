@@ -12,6 +12,7 @@
 #include <string_view>
 
 #include "network/tcp/tcp_session.hpp"
+#include "network/udp/udp_server.hpp"
 
 namespace {
 constexpr float kSpawnRadius = 120.0f;
@@ -74,6 +75,8 @@ GameManager::SceneConfig GameManager::BuildDefaultConfig() const {
 }
 
 void GameManager::SetIoContext(asio::io_context* io) { io_context_ = io; }
+
+void GameManager::SetUdpServer(UdpServer* udp) { udp_server_ = udp; }
 
 void GameManager::ScheduleGameTick(
     uint32_t room_id, std::chrono::microseconds interval,
@@ -458,6 +461,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
 
   const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
   SendSyncToSessions(sessions, sync);
+  if (udp_server_ != nullptr) {
+    udp_server_->BroadcastState(room_id, sync);
+  }
 }
 
 // 操纵玩家输入：只入队，逻辑帧内处理

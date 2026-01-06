@@ -14,6 +14,8 @@
 #include "message.pb.h"
 
 // 游戏管理器：负责场景初始化、玩家状态更新与同步
+class UdpServer;
+
 class GameManager {
  public:
   static GameManager& Instance();
@@ -30,6 +32,9 @@ class GameManager {
 
   // 注册 io_context（用于定时广播状态同步）
   void SetIoContext(asio::io_context* io);
+
+  // 注册 UDP 服务（用于高频同步）
+  void SetUdpServer(UdpServer* udp);
 
   // 在游戏开始后为房间启动固定逻辑帧循环与状态同步
   void StartGameLoop(uint32_t room_id);
@@ -93,4 +98,5 @@ class GameManager {
   std::unordered_map<uint32_t, uint32_t> player_scene_;  // player_id -> room_id
 
   asio::io_context* io_context_ = nullptr;
+  UdpServer* udp_server_ = nullptr;
 };

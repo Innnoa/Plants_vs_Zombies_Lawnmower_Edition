@@ -1,0 +1,127 @@
+#include "network/udp/udp_server.hpp"
+
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <string>
+
+#include "game/managers/game_manager.hpp"
+#include "game/managers/room_manager.hpp"
+
+namespace {
+constexpr std::chrono::seconds kEndpointTtl{10};
+}  // namespace
+
+UdpServer::UdpServer(asio::io_context& io, uint16_t port)
+    : io_context_(io), socket_(io_context_, udp::endpoint(udp::v4(), port)) {}
+
+void UdpServer::Start() { DoReceive(); }
+
+void UdpServer::DoReceive() {
+  socket_.async_receive_from(
+      asio::buffer(recv_buffer_), remote_endpoint_,
+      [this](const asio::error_code& ec, std::size_t bytes) {
+        if (!ec && bytes > 0) {
+          lawnmower::Packet packet;
+          if (packet.ParseFromArray(recv_buffer_.data(),
+                                    static_cast<int>(bytes))) {
+            HandlePacket(packet, remote_endpoint_);
+          } else {
+            spdlog::debug("UDP 解析 Packet 失败，长度 {}", bytes);
+          }
+        } else if (ec != asio::error::operation_aborted) {
+          spdlog::warn("UDP 接收失败: {}", ec.message());
+        }
+        DoReceive();
+      });
+}
+
+void UdpServer::HandlePacket(const lawnmower::Packet& packet,
+                             const udp::endpoint& from) {
+  using lawnmower::MessageType;
+  switch (packet.msg_type()) {
+    case MessageType::MSG_C2S_PLAYER_INPUT:
+      HandlePlayerInput(packet, from);
+      break;
+    default:
+      spdlog::debug("UDP 收到未处理消息类型 {}", static_cast<int>(packet.msg_type()));
+      break;
+  }
+}
+
+void UdpServer::HandlePlayerInput(const lawnmower::Packet& packet,
+                                  const udp::endpoint& from) {
+  lawnmower::C2S_PlayerInput input;
+  if (!input.ParseFromString(packet.payload())) {
+    spdlog::debug("UDP 输入解析失败");
+    return;
+  }
+
+  const uint32_t player_id = input.player_id();
+  if (player_id == 0) {
+    spdlog::debug("UDP 输入缺少 player_id");
+    return;
+  }
+
+  auto room_opt = RoomManager::Instance().GetPlayerRoom(player_id);
+  if (!room_opt.has_value()) {
+    spdlog::debug("UDP 输入: player {} 不在任何房间，丢弃", player_id);
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    player_endpoints_[player_id] =
+        EndpointInfo{from, *room_opt, std::chrono::steady_clock::now()};
+  }
+
+  uint32_t room_id = 0;
+  if (!GameManager::Instance().HandlePlayerInput(player_id, input, &room_id)) {
+    spdlog::debug("UDP 输入: player {} 未被受理", player_id);
+  }
+}
+
+void UdpServer::BroadcastState(uint32_t room_id,
+                               const lawnmower::S2C_GameStateSync& sync) {
+  lawnmower::Packet packet;
+  packet.set_msg_type(lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC);
+  packet.set_payload(sync.SerializeAsString());
+
+  const auto targets = EndpointsForRoom(room_id);
+  for (const auto& endpoint : targets) {
+    SendPacket(packet, endpoint);
+  }
+}
+
+std::vector<udp::endpoint> UdpServer::EndpointsForRoom(uint32_t room_id) {
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<udp::endpoint> endpoints;
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto it = player_endpoints_.begin(); it != player_endpoints_.end();) {
+    const bool expired = (now - it->second.last_seen) > kEndpointTtl;
+    if (expired) {
+      it = player_endpoints_.erase(it);
+      continue;
+    }
+    if (it->second.room_id == room_id) {
+      endpoints.push_back(it->second.endpoint);
+    }
+    ++it;
+  }
+
+  return endpoints;
+}
+
+void UdpServer::SendPacket(const lawnmower::Packet& packet,
+                           const udp::endpoint& to) {
+  const std::string data = packet.SerializeAsString();
+  socket_.async_send_to(asio::buffer(data), to,
+                        [to](const asio::error_code& ec, std::size_t) {
+                          if (ec && ec != asio::error::operation_aborted) {
+                            const std::string addr = to.address().to_string();
+                            spdlog::debug("UDP 发送到 {}:{} 失败: {}", addr,
+                                          to.port(), ec.message());
+                          }
+                        });
+}

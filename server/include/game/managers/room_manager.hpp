@@ -57,6 +57,9 @@ class RoomManager {
   std::vector<std::weak_ptr<TcpSession>> GetRoomSessions(
       uint32_t room_id) const;
 
+  // 查询玩家所在房间（无则返回空）
+  [[nodiscard]] std::optional<uint32_t> GetPlayerRoom(uint32_t player_id) const;
+
   // 断线清理，不返回离开结果
   void RemovePlayer(uint32_t player_id);
 

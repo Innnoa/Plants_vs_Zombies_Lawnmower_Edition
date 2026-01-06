@@ -378,6 +378,15 @@ std::vector<std::weak_ptr<TcpSession>> RoomManager::GetRoomSessions(
   return sessions;
 }
 
+std::optional<uint32_t> RoomManager::GetPlayerRoom(uint32_t player_id) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = player_room_.find(player_id);
+  if (it == player_room_.end()) {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
 // 更新房间基本信息
 RoomManager::RoomUpdate RoomManager::BuildRoomUpdateLocked(
     const Room& room) const {
