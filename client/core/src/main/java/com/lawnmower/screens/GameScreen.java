@@ -40,10 +40,7 @@ public class GameScreen implements Screen {
     private static final long MAX_EXTRAPOLATION_MS = 150L;
     private static final long INTERP_DELAY_MIN_MS = 80L;
     private static final long INTERP_DELAY_MAX_MS = 220L;
-    private static final long SNAPSHOT_RETENTION_MS = 900L;
-    private static final long MAX_EXTRAPOLATION_MS = 220L;
-    private static final long INTERP_DELAY_MIN_MS = 50L;
-    private static final long INTERP_DELAY_MAX_MS = 140L;
+    
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
     private static final long REMOTE_PLAYER_TIMEOUT_MS = 5000L;
