@@ -28,8 +28,6 @@ public class Main extends Game {
     private String playerName = "Player";
     private int playerId = -1; // 未登录时为 -1
     private long lastSocketWaitLogMs = 0L;
-    private int currentRoomId = -1;
-    private String sessionToken = "";
     private long lastUdpSyncTick = -1L;
     private long lastUdpServerTimeMs = -1L;
 
@@ -226,22 +224,16 @@ public class Main extends Game {
         return false;
     }
 
-    private synchronized void ensureUdpSession(int roomId) {
+    private synchronized void prepareUdpClientForMatch() {
         if (playerId <= 0) {
-            return;
-        }
-        int targetRoom = roomId > 0 ? roomId : currentRoomId;
-        if (targetRoom <= 0) {
             return;
         }
         try {
             startUdpClientIfNeeded();
             lastUdpSyncTick = -1L;
             lastUdpServerTimeMs = -1L;
-            String token = (sessionToken != null && !sessionToken.isEmpty()) ? sessionToken : playerName;
-            udpClient.configureSession(playerId, targetRoom, token);
         } catch (IOException e) {
-            log.error("Failed to initialize UDP session", e);
+            log.error("Failed to initialize UDP client", e);
         }
     }
 
@@ -321,7 +313,6 @@ public class Main extends Game {
                     if (result.getSuccess()) {
                         setPlayerId(result.getPlayerId());
                         setPlayerName(result.getMessageLogin());
-                        sessionToken = result.getMessageLogin();
                         // 登录成功，跳转到房间列表
                         setScreen(new RoomListScreen(Main.this, skin));
                     } else {
@@ -344,7 +335,6 @@ public class Main extends Game {
 
                 case MSG_S2C_ROOM_UPDATE:
                     Message.S2C_RoomUpdate update = (Message.S2C_RoomUpdate) message;
-                    currentRoomId = update.getRoomId();
                     if (!(getScreen() instanceof GameRoomScreen)) {
                         // 自动进入游戏房间界面
                         setScreen(new GameRoomScreen(Main.this, skin));
@@ -354,9 +344,7 @@ public class Main extends Game {
                     }
                     break;
                 case MSG_S2C_GAME_START:
-                    Message.S2C_GameStart start = (Message.S2C_GameStart) message;
-                    currentRoomId = start.getRoomId();
-                    ensureUdpSession(currentRoomId);
+                    prepareUdpClientForMatch();
                     if (getScreen() instanceof GameRoomScreen) {
                         // 切换到游戏场景
                         setScreen(new GameScreen(Main.this));
