@@ -38,8 +38,8 @@ public class GameScreen implements Screen {
     private static final float MIN_COMMAND_DURATION = 1f / 120f;
     private static final long SNAPSHOT_RETENTION_MS = 400L;
     private static final long MAX_EXTRAPOLATION_MS = 150L;
-    private static final long INTERP_DELAY_MIN_MS = 80L;
-    private static final long INTERP_DELAY_MAX_MS = 220L;
+    private static final long INTERP_DELAY_MIN_MS = 60L;
+    private static final long INTERP_DELAY_MAX_MS = 180L;
 
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
@@ -51,6 +51,7 @@ public class GameScreen implements Screen {
     private final Map<Integer, Deque<ServerPlayerSnapshot>> remotePlayerServerSnapshots = new HashMap<>();
     private final Map<Integer, Boolean> remoteFacingRight = new HashMap<>();
     private final Map<Integer, Long> remotePlayerLastSeen = new HashMap<>();
+    private final Map<Integer, Vector2> remoteDisplayPositions = new HashMap<>();
     private final Map<Integer, PlayerInputCommand> unconfirmedInputs = new LinkedHashMap<>();
     private final Map<Integer, Long> inputSendTimes = new HashMap<>();
     private final Queue<PlayerStateSnapshot> snapshotHistory = new ArrayDeque<>();
@@ -85,6 +86,9 @@ public class GameScreen implements Screen {
     private static final float SYNC_INTERVAL_SMOOTH_ALPHA = 0.1f;
     private static final float SYNC_INTERVAL_LOG_THRESHOLD_MS = 120f;
     private static final long SYNC_INTERVAL_LOG_INTERVAL_MS = 800L;
+    private static final float SYNC_DEVIATION_SMOOTH_ALPHA = 0.12f;
+    private static final float REMOTE_DISPLAY_LERP_RATE = 14f;
+    private static final float REMOTE_DISPLAY_SNAP_DISTANCE = 8f;
 
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
@@ -103,8 +107,8 @@ public class GameScreen implements Screen {
     private double logicalClockRemainderMs = 0.0;
     private long logicalTimeMs = 0L;
 
-    private static final float RENDER_DELAY_LERP = 0.25f;
-    private static final float MAX_RENDER_DELAY_STEP_MS = 15f;
+    private static final float RENDER_DELAY_LERP = 0.35f;
+    private static final float MAX_RENDER_DELAY_STEP_MS = 20f;
     private float renderDelayMs = 100f;
 
     private long lastDeltaSpikeLogMs = 0L;
@@ -114,6 +118,7 @@ public class GameScreen implements Screen {
     private long lastSyncLogMs = 0L;
     // 30Hz 目标同步间隔约 33ms，预置一个靠近目标的初值便于平滑
     private float smoothedSyncIntervalMs = 35f;
+    private float smoothedSyncDeviationMs = 30f;
     private Message.C2S_PlayerInput pendingRateLimitedInput;
     private long lastInputSendMs = 0L;
 
@@ -199,7 +204,7 @@ public class GameScreen implements Screen {
 
         long estimatedServerTimeMs = estimateServerTimeMs();
         long renderServerTimeMs = estimatedServerTimeMs - computeRenderDelayMs();
-        renderRemotePlayers(renderServerTimeMs, currentFrame);
+        renderRemotePlayers(renderServerTimeMs, currentFrame, renderDelta);
         drawCharacterFrame(currentFrame, displayPosition.x, displayPosition.y, facingRight);
 
         batch.end();
@@ -332,7 +337,7 @@ public class GameScreen implements Screen {
         }
     }
 
-    private void renderRemotePlayers(long renderServerTimeMs, TextureRegion frame) {
+    private void renderRemotePlayers(long renderServerTimeMs, TextureRegion frame, float delta) {
         if (frame == null) {
             return;
         }
@@ -354,23 +359,32 @@ public class GameScreen implements Screen {
                 }
             }
 
-            Vector2 drawPos = renderBuffer;
+            Vector2 targetPos = renderBuffer;
             if (prev != null && next != null && next.serverTimestampMs > prev.serverTimestampMs) {
                 float t = (renderServerTimeMs - prev.serverTimestampMs) /
                         (float) (next.serverTimestampMs - prev.serverTimestampMs);
                 t = MathUtils.clamp(t, 0f, 1f);
-                drawPos.set(prev.position).lerp(next.position, t);
+                targetPos.set(prev.position).lerp(next.position, t);
             } else if (prev != null) {
                 long ahead = Math.max(0L, renderServerTimeMs - prev.serverTimestampMs);
                 long clampedAhead = Math.min(ahead, MAX_EXTRAPOLATION_MS);
                 float seconds = clampedAhead / 1000f;
-                drawPos.set(prev.position).mulAdd(prev.velocity, seconds);
+                targetPos.set(prev.position).mulAdd(prev.velocity, seconds);
             } else {
-                drawPos.set(next.position);
+                targetPos.set(next.position);
             }
-            clampPositionToMap(drawPos);
+            clampPositionToMap(targetPos);
             boolean remoteFacing = remoteFacingRight.getOrDefault(playerId, true);
-            drawCharacterFrame(frame, drawPos.x, drawPos.y, remoteFacing);
+            Vector2 displayPos = remoteDisplayPositions
+                    .computeIfAbsent(playerId, id -> new Vector2(targetPos));
+            float distSq = displayPos.dst2(targetPos);
+            if (distSq > REMOTE_DISPLAY_SNAP_DISTANCE * REMOTE_DISPLAY_SNAP_DISTANCE) {
+                displayPos.set(targetPos);
+            } else {
+                float lerpAlpha = MathUtils.clamp(delta * REMOTE_DISPLAY_LERP_RATE, 0f, 1f);
+                displayPos.lerp(targetPos, lerpAlpha);
+            }
+            drawCharacterFrame(frame, displayPos.x, displayPos.y, remoteFacing);
         }
     }
 
@@ -389,13 +403,15 @@ public class GameScreen implements Screen {
     }
 
     private long computeRenderDelayMs() {
-        float target = smoothedRttMs * 0.35f + 20f;
-        if (Float.isNaN(target) || Float.isInfinite(target)) {
-            target = 90f;
+        float latencyComponent = smoothedRttMs * 0.25f + 12f;
+        if (Float.isNaN(latencyComponent) || Float.isInfinite(latencyComponent)) {
+            latencyComponent = 90f;
         }
-        float jitterReserve = MathUtils.clamp(smoothedSyncIntervalMs * 1.2f + 20f,
-                INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
-        target = Math.max(target, jitterReserve);
+        latencyComponent = MathUtils.clamp(latencyComponent, 45f, 150f);
+        float jitterReserve = Math.abs(smoothedSyncIntervalMs - 33f) * 0.5f
+                + (smoothedSyncDeviationMs * 1.3f) + 18f;
+        jitterReserve = MathUtils.clamp(jitterReserve, INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
+        float target = Math.max(latencyComponent, jitterReserve);
         target = MathUtils.clamp(target, INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
         float delta = target - renderDelayMs;
         delta = MathUtils.clamp(delta, -MAX_RENDER_DELAY_STEP_MS, MAX_RENDER_DELAY_STEP_MS);
@@ -501,6 +517,9 @@ public class GameScreen implements Screen {
         if (lastSyncArrivalMs != 0L) {
             float interval = arrivalMs - lastSyncArrivalMs;
             smoothedSyncIntervalMs += (interval - smoothedSyncIntervalMs) * SYNC_INTERVAL_SMOOTH_ALPHA;
+            float deviation = Math.abs(interval - smoothedSyncIntervalMs);
+            smoothedSyncDeviationMs += (deviation - smoothedSyncDeviationMs) * SYNC_DEVIATION_SMOOTH_ALPHA;
+            smoothedSyncDeviationMs = MathUtils.clamp(smoothedSyncDeviationMs, 0f, 220f);
             logSyncIntervalSpike(interval, smoothedSyncIntervalMs);
         }
         lastSyncArrivalMs = arrivalMs;
@@ -603,6 +622,7 @@ public class GameScreen implements Screen {
                 iterator.remove();
                 remotePlayerServerSnapshots.remove(playerId);
                 remoteFacingRight.remove(playerId);
+                remoteDisplayPositions.remove(playerId);
                 serverPlayerStates.remove(playerId);
             }
         }

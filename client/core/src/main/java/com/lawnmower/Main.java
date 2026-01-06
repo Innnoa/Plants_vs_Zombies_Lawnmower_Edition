@@ -68,12 +68,7 @@ public class Main extends Game {
                     // 解析消息类型并分发
                     Message.MessageType type = packet.getMsgType();
                     Object payload = null;
-                    /**
-                     * 日志
-                     */
-                    if (packet.getMsgType() == Message.MessageType.MSG_S2C_GAME_STATE_SYNC) {
-                        Gdx.app.log("NET", "Packet received! Took: " + (afterRead - beforeRead) + "ms");
-                    }
+
 
                     Gdx.app.log("当前接受",type.name());
                     switch (type) {
@@ -118,10 +113,6 @@ public class Main extends Game {
                 } catch (SocketTimeoutException e) {
                     long now = System.currentTimeMillis();
                     if (now - lastSocketWaitLogMs > 1000L) {
-                        Gdx.app.log("NET",
-                                "Waiting for server... no packet for "
-                                        + tcpClient.getSocketTimeoutMs() + "ms, available="
-                                        + tcpClient.availableBytes());
                         lastSocketWaitLogMs = now;
                     }
                     continue;
