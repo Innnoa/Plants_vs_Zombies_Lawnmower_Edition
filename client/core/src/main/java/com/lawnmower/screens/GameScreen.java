@@ -84,6 +84,8 @@ public class GameScreen implements Screen {
     private long lastInitialStateRequestMs = 0L;
     private boolean initialStateWarningLogged = false;
     private boolean initialStateCriticalLogged = false;
+    private boolean initialStateFailureLogged = false;
+    private int initialStateRequestCount = 0;
 
     private static final float DELTA_SPIKE_THRESHOLD = 0.02f;
     private static final long DELTA_LOG_INTERVAL_MS = 400L;
@@ -101,6 +103,7 @@ public class GameScreen implements Screen {
     private static final long INITIAL_STATE_REQUEST_INTERVAL_MS = 1500L;
     private static final long INITIAL_STATE_WARNING_MS = 4000L;
     private static final long INITIAL_STATE_CRITICAL_MS = 10000L;
+    private static final long INITIAL_STATE_FAILURE_HINT_MS = 16000L;
 
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
@@ -886,7 +889,9 @@ public class GameScreen implements Screen {
         lastInitialStateRequestMs = 0L;
         initialStateWarningLogged = false;
         initialStateCriticalLogged = false;
-        maybeSendInitialStateRequest(initialStateStartMs);
+        initialStateFailureLogged = false;
+        initialStateRequestCount = 0;
+        maybeSendInitialStateRequest(initialStateStartMs, "initial_enter");
     }
 
     private void clearInitialStateWait() {
@@ -894,6 +899,8 @@ public class GameScreen implements Screen {
         lastInitialStateRequestMs = 0L;
         initialStateWarningLogged = false;
         initialStateCriticalLogged = false;
+        initialStateFailureLogged = false;
+        initialStateRequestCount = 0;
     }
 
     private void maybeRequestInitialStateResync() {
@@ -906,7 +913,7 @@ public class GameScreen implements Screen {
             return;
         }
         if ((now - lastInitialStateRequestMs) >= INITIAL_STATE_REQUEST_INTERVAL_MS) {
-            maybeSendInitialStateRequest(now);
+            maybeSendInitialStateRequest(now, "retry_interval");
         }
         long waitDuration = now - initialStateStartMs;
         if (!initialStateWarningLogged && waitDuration >= INITIAL_STATE_WARNING_MS) {
@@ -915,13 +922,18 @@ public class GameScreen implements Screen {
         } else if (!initialStateCriticalLogged && waitDuration >= INITIAL_STATE_CRITICAL_MS) {
             Gdx.app.log(TAG, "Requesting another full sync after waitMs=" + waitDuration);
             initialStateCriticalLogged = true;
-            maybeSendInitialStateRequest(now);
+            maybeSendInitialStateRequest(now, "retry_critical");
+        } else if (!initialStateFailureLogged && waitDuration >= INITIAL_STATE_FAILURE_HINT_MS) {
+            Gdx.app.log(TAG, "Long wait for initial sync, consider checking network. waitMs=" + waitDuration);
+            initialStateFailureLogged = true;
         }
     }
 
-    private void maybeSendInitialStateRequest(long timestampMs) {
+    private void maybeSendInitialStateRequest(long timestampMs, String reason) {
+        initialStateRequestCount++;
         if (game != null) {
-            game.requestFullGameStateSync();
+            String tag = reason != null ? reason : "unknown";
+            game.requestFullGameStateSync("GameScreen:" + tag + "#"+ initialStateRequestCount);
         }
         lastInitialStateRequestMs = timestampMs;
     }
@@ -952,12 +964,15 @@ public class GameScreen implements Screen {
             return "加载中...";
         }
         long waitMs = TimeUtils.millis() - initialStateStartMs;
+        if (waitMs >= INITIAL_STATE_FAILURE_HINT_MS) {
+            return "等待服务器同步超时，请检查网络连接（已请求 " + initialStateRequestCount + " 次）";
+        }
         if (waitMs >= INITIAL_STATE_CRITICAL_MS) {
-            return "等待服务器同步超时，正在重试...";
+            return "等待服务器同步超时，正在重试...（第 " + initialStateRequestCount + " 次）";
         }
         if (waitMs >= INITIAL_STATE_WARNING_MS) {
-            return "正在请求服务器同步...";
+            return "正在请求服务器同步...（第 " + initialStateRequestCount + " 次）";
         }
-        return "加载中...";
+        return "加载中...（第 " + Math.max(1, initialStateRequestCount) + " 次请求）";
     }
 }

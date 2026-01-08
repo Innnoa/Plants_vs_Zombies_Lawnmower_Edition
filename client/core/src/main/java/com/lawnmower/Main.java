@@ -271,6 +271,10 @@ public class Main extends Game {
     }
 
     public void requestFullGameStateSync() {
+        requestFullGameStateSync(null);
+    }
+
+    public void requestFullGameStateSync(String reason) {
         if (tcpClient == null) {
             return;
         }
@@ -279,7 +283,8 @@ public class Main extends Game {
                     .setTimestamp(System.currentTimeMillis())
                     .build();
             tcpClient.sendPacket(Message.MessageType.MSG_C2S_HEARTBEAT, heartbeat);
-            Gdx.app.log("NET", "Requested full game state sync");
+            String tag = reason == null ? "unknown" : reason;
+            Gdx.app.log("NET", "Requested full game state sync (" + tag + ")");
         } catch (IOException e) {
             log.warn("Failed to request game state sync", e);
         }
