@@ -85,8 +85,8 @@ public class Main extends Game {
                             payload = Message.S2C_GameStart.parseFrom(packet.getPayload());
                             break;
                         case MSG_S2C_GAME_STATE_SYNC:
-                            payload = Message.S2C_GameStateSync.parseFrom(packet.getPayload());
-                            break;
+                            Gdx.app.log("NET", "Ignoring TCP GameStateSync; expecting UDP only");
+                            continue;
                         case MSG_S2C_PLAYER_HURT:
                             payload = Message.S2C_PlayerHurt.parseFrom(packet.getPayload());
                             break;

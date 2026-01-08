@@ -89,6 +89,7 @@ public class GameScreen implements Screen {
     private static final float SYNC_DEVIATION_SMOOTH_ALPHA = 0.12f;
     private static final float REMOTE_DISPLAY_LERP_RATE = 14f;
     private static final float REMOTE_DISPLAY_SNAP_DISTANCE = 8f;
+    private static final long DROPPED_SYNC_LOG_INTERVAL_MS = 900L;
 
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
@@ -116,6 +117,9 @@ public class GameScreen implements Screen {
     private long lastDisplayDriftLogMs = 0L;
     private long lastSyncArrivalMs = 0L;
     private long lastSyncLogMs = 0L;
+    private long lastDroppedSyncLogMs = 0L;
+    private long lastAppliedSyncTick = -1L;
+    private long lastAppliedServerTimeMs = -1L;
     // 30Hz 目标同步间隔约 33ms，预置一个靠近目标的初值便于平滑
     private float smoothedSyncIntervalMs = 35f;
     private float smoothedSyncDeviationMs = 30f;
@@ -433,6 +437,45 @@ public class GameScreen implements Screen {
         lastSyncLogMs = nowMs;
     }
 
+    private boolean shouldAcceptSync(Message.S2C_GameStateSync sync, long arrivalMs) {
+        long serverTime = sync.getServerTimeMs();
+        if (sync.hasSyncTime()) {
+            long incomingTick = Integer.toUnsignedLong(sync.getSyncTime().getTick());
+            if (lastAppliedSyncTick >= 0L && Long.compareUnsigned(incomingTick, lastAppliedSyncTick) <= 0) {
+                logDroppedSync("tick", incomingTick, serverTime, arrivalMs);
+                return false;
+            }
+            lastAppliedSyncTick = incomingTick;
+            if (serverTime > lastAppliedServerTimeMs) {
+                lastAppliedServerTimeMs = serverTime;
+            }
+            return true;
+        }
+
+        if (lastAppliedServerTimeMs >= 0L && serverTime <= lastAppliedServerTimeMs) {
+            logDroppedSync("serverTime", serverTime, serverTime, arrivalMs);
+            return false;
+        }
+
+        lastAppliedServerTimeMs = serverTime;
+        return true;
+    }
+
+    private void logDroppedSync(String reason, long value, long serverTimeMs, long arrivalMs) {
+        long nowMs = TimeUtils.millis();
+        if ((nowMs - lastDroppedSyncLogMs) < DROPPED_SYNC_LOG_INTERVAL_MS) {
+            return;
+        }
+        long sinceLastAccepted = lastSyncArrivalMs == 0L ? -1L : (arrivalMs - lastSyncArrivalMs);
+        Gdx.app.log(TAG, "Dropped GameStateSync by " + reason
+                + " val=" + value
+                + " serverTime=" + serverTimeMs
+                + " lastTick=" + lastAppliedSyncTick
+                + " lastServerTime=" + lastAppliedServerTimeMs
+                + " arrivalDelta=" + sinceLastAccepted);
+        lastDroppedSyncLogMs = nowMs;
+    }
+
     private long estimateServerTimeMs() {
         return (long) (System.currentTimeMillis() + clockOffsetMs);
     }
@@ -514,6 +557,9 @@ public class GameScreen implements Screen {
 
     public void onGameStateReceived(Message.S2C_GameStateSync sync) {
         long arrivalMs = TimeUtils.millis();
+        if (!shouldAcceptSync(sync, arrivalMs)) {
+            return;
+        }
         if (lastSyncArrivalMs != 0L) {
             float interval = arrivalMs - lastSyncArrivalMs;
             smoothedSyncIntervalMs += (interval - smoothedSyncIntervalMs) * SYNC_INTERVAL_SMOOTH_ALPHA;
