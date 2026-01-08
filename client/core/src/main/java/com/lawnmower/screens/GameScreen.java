@@ -9,6 +9,8 @@ import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.Animation;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureAtlas;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
@@ -66,6 +68,8 @@ public class GameScreen implements Screen {
     private TextureRegion playerTextureRegion;
     private Texture backgroundTexture;
     private float playerAnimationTime = 0f;
+    private BitmapFont loadingFont;
+    private GlyphLayout loadingLayout;
 
     private Vector2 predictedPosition = new Vector2();
     private float predictedRotation = 0f;
@@ -76,6 +80,10 @@ public class GameScreen implements Screen {
     private static final float DISPLAY_LERP_RATE = 12f;
     private static final float DISPLAY_SNAP_DISTANCE = 1f;
     private boolean isLocallyMoving = false;
+    private long initialStateStartMs = 0L;
+    private long lastInitialStateRequestMs = 0L;
+    private boolean initialStateWarningLogged = false;
+    private boolean initialStateCriticalLogged = false;
 
     private static final float DELTA_SPIKE_THRESHOLD = 0.02f;
     private static final long DELTA_LOG_INTERVAL_MS = 400L;
@@ -90,6 +98,9 @@ public class GameScreen implements Screen {
     private static final float REMOTE_DISPLAY_LERP_RATE = 14f;
     private static final float REMOTE_DISPLAY_SNAP_DISTANCE = 8f;
     private static final long DROPPED_SYNC_LOG_INTERVAL_MS = 900L;
+    private static final long INITIAL_STATE_REQUEST_INTERVAL_MS = 1500L;
+    private static final long INITIAL_STATE_WARNING_MS = 4000L;
+    private static final long INITIAL_STATE_CRITICAL_MS = 10000L;
 
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
@@ -135,6 +146,9 @@ public class GameScreen implements Screen {
         camera = new OrthographicCamera();
         viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT, camera);
         batch = new SpriteBatch();
+        loadingFont = new BitmapFont();
+        loadingFont.getData().setScale(1.3f);
+        loadingLayout = new GlyphLayout();
 
         try {
             backgroundTexture = new Texture(Gdx.files.internal("background/roomListBackground.png"));
@@ -162,6 +176,7 @@ public class GameScreen implements Screen {
 
         predictedPosition.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
         displayPosition.set(predictedPosition);
+        resetInitialStateTracking();
     }
 
     @Override
@@ -170,8 +185,8 @@ public class GameScreen implements Screen {
         pumpPendingNetworkInput();
 
         if (!hasReceivedInitialState || playerTextureRegion == null) {
-            Gdx.gl.glClearColor(0.1f, 0.1f, 0.1f, 1);
-            Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+            maybeRequestInitialStateResync();
+            renderLoadingOverlay();
             return;
         }
 
@@ -705,6 +720,7 @@ public class GameScreen implements Screen {
         clampPositionToMap(predictedPosition);
         logServerCorrection(correctionDist, serverSnapshot.lastProcessedInputSeq);
         if (!wasInitialized) {
+            clearInitialStateWait();
             displayPosition.set(predictedPosition);
         }
 
@@ -780,6 +796,10 @@ public class GameScreen implements Screen {
         if (playerTexture != null) playerTexture.dispose();
         if (playerAtlas != null) playerAtlas.dispose();
         if (backgroundTexture != null) backgroundTexture.dispose();
+        if (loadingFont != null) {
+            loadingFont.dispose();
+            loadingFont = null;
+        }
     }
 
     private void updateDisplayPosition(float delta) {
@@ -859,5 +879,85 @@ public class GameScreen implements Screen {
         pendingAttack = false;
         pendingInputDuration = 0f;
         pendingInputStartMs = 0L;
+    }
+
+    private void resetInitialStateTracking() {
+        initialStateStartMs = TimeUtils.millis();
+        lastInitialStateRequestMs = 0L;
+        initialStateWarningLogged = false;
+        initialStateCriticalLogged = false;
+        maybeSendInitialStateRequest(initialStateStartMs);
+    }
+
+    private void clearInitialStateWait() {
+        initialStateStartMs = 0L;
+        lastInitialStateRequestMs = 0L;
+        initialStateWarningLogged = false;
+        initialStateCriticalLogged = false;
+    }
+
+    private void maybeRequestInitialStateResync() {
+        if (hasReceivedInitialState) {
+            return;
+        }
+        long now = TimeUtils.millis();
+        if (initialStateStartMs == 0L) {
+            resetInitialStateTracking();
+            return;
+        }
+        if ((now - lastInitialStateRequestMs) >= INITIAL_STATE_REQUEST_INTERVAL_MS) {
+            maybeSendInitialStateRequest(now);
+        }
+        long waitDuration = now - initialStateStartMs;
+        if (!initialStateWarningLogged && waitDuration >= INITIAL_STATE_WARNING_MS) {
+            Gdx.app.log(TAG, "Still waiting for first GameStateSync, waitMs=" + waitDuration);
+            initialStateWarningLogged = true;
+        } else if (!initialStateCriticalLogged && waitDuration >= INITIAL_STATE_CRITICAL_MS) {
+            Gdx.app.log(TAG, "Requesting another full sync after waitMs=" + waitDuration);
+            initialStateCriticalLogged = true;
+            maybeSendInitialStateRequest(now);
+        }
+    }
+
+    private void maybeSendInitialStateRequest(long timestampMs) {
+        if (game != null) {
+            game.requestFullGameStateSync();
+        }
+        lastInitialStateRequestMs = timestampMs;
+    }
+
+    private void renderLoadingOverlay() {
+        Gdx.gl.glClearColor(0.06f, 0.06f, 0.08f, 1f);
+        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+        if (camera == null || batch == null || loadingFont == null || loadingLayout == null) {
+            return;
+        }
+        camera.position.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f, 0f);
+        camera.update();
+        batch.setProjectionMatrix(camera.combined);
+        batch.begin();
+        String message = getLoadingMessage();
+        loadingLayout.setText(loadingFont, message);
+        float centerX = WORLD_WIDTH / 2f;
+        float centerY = WORLD_HEIGHT / 2f;
+        float x = centerX - loadingLayout.width / 2f;
+        float y = centerY + loadingLayout.height / 2f;
+        loadingFont.setColor(Color.WHITE);
+        loadingFont.draw(batch, loadingLayout, x, y);
+        batch.end();
+    }
+
+    private String getLoadingMessage() {
+        if (initialStateStartMs == 0L) {
+            return "加载中...";
+        }
+        long waitMs = TimeUtils.millis() - initialStateStartMs;
+        if (waitMs >= INITIAL_STATE_CRITICAL_MS) {
+            return "等待服务器同步超时，正在重试...";
+        }
+        if (waitMs >= INITIAL_STATE_WARNING_MS) {
+            return "正在请求服务器同步...";
+        }
+        return "加载中...";
     }
 }

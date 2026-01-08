@@ -270,6 +270,21 @@ public class Main extends Game {
         return false;
     }
 
+    public void requestFullGameStateSync() {
+        if (tcpClient == null) {
+            return;
+        }
+        try {
+            Message.C2S_Heartbeat heartbeat = Message.C2S_Heartbeat.newBuilder()
+                    .setTimestamp(System.currentTimeMillis())
+                    .build();
+            tcpClient.sendPacket(Message.MessageType.MSG_C2S_HEARTBEAT, heartbeat);
+            Gdx.app.log("NET", "Requested full game state sync");
+        } catch (IOException e) {
+            log.warn("Failed to request game state sync", e);
+        }
+    }
+
     public Skin getSkin() {
         return skin;
     }
