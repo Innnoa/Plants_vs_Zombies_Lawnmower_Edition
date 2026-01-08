@@ -459,7 +459,6 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     return;
   }
 
-  const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
   if (udp_server_ != nullptr) {
     udp_server_->BroadcastState(room_id, sync);
   }

@@ -8,6 +8,7 @@
 
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
+#include "network/udp/udp_server.hpp"
 
 namespace {
 constexpr std::size_t kMaxPacketSize = 64 * 1024;  // 设定最大包大小
@@ -318,8 +319,28 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
 
       lawnmower::S2C_GameStateSync sync;
       if (GameManager::Instance().BuildFullState(snapshot->room_id, &sync)) {
-        BroadcastToRoom(sessions, MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
+        if (auto udp = GameManager::Instance().GetUdpServer()) {
+          udp->BroadcastState(snapshot->room_id, sync);
+        }
         GameManager::Instance().StartGameLoop(snapshot->room_id);
+        // 再延迟一个 tick 推送一次全量同步，防止客户端切屏阶段错过首帧
+        if (auto io = GameManager::Instance().GetIoContext()) {
+          auto timer = std::make_shared<asio::steady_timer>(*io);
+          timer->expires_after(std::chrono::milliseconds(
+              static_cast<int>(1000.0 / scene_info.state_sync_rate())));
+          timer->async_wait(
+              [room_id = snapshot->room_id, timer](const asio::error_code& ec) {
+                if (ec == asio::error::operation_aborted) {
+                  return;
+                }
+                lawnmower::S2C_GameStateSync retry_sync;
+                if (GameManager::Instance().BuildFullState(room_id, &retry_sync)) {
+                  if (auto udp = GameManager::Instance().GetUdpServer()) {
+                    udp->BroadcastState(room_id, retry_sync);
+                  }
+                }
+              });
+        }
       }
       spdlog::info("房间 {} 游戏开始", snapshot->room_id);
       break;

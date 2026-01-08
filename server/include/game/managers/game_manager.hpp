@@ -35,6 +35,8 @@ class GameManager {
 
   // 注册 UDP 服务（用于高频同步）
   void SetUdpServer(UdpServer* udp);
+  [[nodiscard]] UdpServer* GetUdpServer() const { return udp_server_; }
+  [[nodiscard]] asio::io_context* GetIoContext() const { return io_context_; }
 
   // 在游戏开始后为房间启动固定逻辑帧循环与状态同步
   void StartGameLoop(uint32_t room_id);
