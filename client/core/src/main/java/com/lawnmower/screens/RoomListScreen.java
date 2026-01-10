@@ -18,6 +18,7 @@ import com.lawnmower.Main;
 import com.lawnmower.ui.Drop.DropPopup;
 import com.lawnmower.ui.slider.StepSlider;
 import com.lawnmower.utils.ErrorPopupController;
+import lawnmower.Message;
 
 import java.io.IOException;
 import java.util.ArrayList;
