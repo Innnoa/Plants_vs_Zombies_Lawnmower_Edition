@@ -11,10 +11,22 @@
 
 namespace {
 constexpr std::chrono::seconds kEndpointTtl{10};
+constexpr int kUdpSocketBufferBytes = 256 * 1024;
 }  // namespace
 
 UdpServer::UdpServer(asio::io_context& io, uint16_t port)
-    : io_context_(io), socket_(io_context_, udp::endpoint(udp::v4(), port)) {}
+    : io_context_(io), socket_(io_context_, udp::endpoint(udp::v4(), port)) {
+  asio::error_code ec;
+  socket_.set_option(asio::socket_base::receive_buffer_size(kUdpSocketBufferBytes), ec);
+  if (ec) {
+    spdlog::warn("UDP 设置接收缓冲区失败: {}", ec.message());
+  }
+  ec.clear();
+  socket_.set_option(asio::socket_base::send_buffer_size(kUdpSocketBufferBytes), ec);
+  if (ec) {
+    spdlog::warn("UDP 设置发送缓冲区失败: {}", ec.message());
+  }
+}
 
 void UdpServer::Start() { DoReceive(); }
 
@@ -88,18 +100,29 @@ void UdpServer::HandlePlayerInput(const lawnmower::Packet& packet,
   }
 }
 
-void UdpServer::BroadcastState(uint32_t room_id,
-                               const lawnmower::S2C_GameStateSync& sync) {
+std::size_t UdpServer::BroadcastState(uint32_t room_id,
+                                      const lawnmower::S2C_GameStateSync& sync) {
+  const auto targets = EndpointsForRoom(room_id);
+  if (targets.empty()) {
+    return 0;
+  }
+
   lawnmower::Packet packet;
   packet.set_msg_type(lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC);
   packet.set_payload(sync.SerializeAsString());
 
-  const auto targets = EndpointsForRoom(room_id);
-  spdlog::debug("UDP 广播房间 {} 状态，玩家数 {}，目标端点 {}",
-                room_id, sync.players_size(), targets.size());
-  for (const auto& endpoint : targets) {
-    SendPacket(packet, endpoint);
+  std::shared_ptr<const std::string> data =
+      std::make_shared<std::string>(packet.SerializeAsString());
+
+  if (spdlog::should_log(spdlog::level::debug)) {
+    spdlog::debug("UDP 广播房间 {} 状态，玩家数 {}，目标端点 {}",
+                  room_id, sync.players_size(), targets.size());
   }
+  for (const auto& endpoint : targets) {
+    SendPacket(data, endpoint);
+  }
+
+  return targets.size();
 }
 
 std::vector<udp::endpoint> UdpServer::EndpointsForRoom(uint32_t room_id) {
@@ -107,6 +130,7 @@ std::vector<udp::endpoint> UdpServer::EndpointsForRoom(uint32_t room_id) {
   std::vector<udp::endpoint> endpoints;
 
   std::lock_guard<std::mutex> lock(mutex_);
+  endpoints.reserve(player_endpoints_.size());
   for (auto it = player_endpoints_.begin(); it != player_endpoints_.end();) {
     const bool expired = (now - it->second.last_seen) > kEndpointTtl;
     if (expired) {
@@ -122,31 +146,27 @@ std::vector<udp::endpoint> UdpServer::EndpointsForRoom(uint32_t room_id) {
   return endpoints;
 }
 
-bool UdpServer::HasAnyEndpoint(uint32_t room_id) const {
-  const auto now = std::chrono::steady_clock::now();
-  std::lock_guard<std::mutex> lock(mutex_);
-  for (const auto& [_, info] : player_endpoints_) {
-    if (info.room_id == room_id &&
-        (now - info.last_seen) <= kEndpointTtl) {
-      return true;
-    }
-  }
-  return false;
-}
-
-void UdpServer::SendPacket(const lawnmower::Packet& packet,
+void UdpServer::SendPacket(const std::shared_ptr<const std::string>& data,
                            const udp::endpoint& to) {
-  const std::string data = packet.SerializeAsString();
-  socket_.async_send_to(asio::buffer(data), to,
-                        [to](const asio::error_code& ec, std::size_t bytes) {
-                          if (ec && ec != asio::error::operation_aborted) {
-                            const std::string addr = to.address().to_string();
-                            spdlog::debug("UDP 发送到 {}:{} 失败: {}", addr,
-                                          to.port(), ec.message());
-                          } else {
-                            spdlog::debug("UDP 发送 {} bytes 到 {}:{}",
-                                          bytes, to.address().to_string(),
-                                          to.port());
-                          }
-                        });
+  if (!data || data->empty()) {
+    return;
+  }
+
+  socket_.async_send_to(
+      asio::buffer(*data), to,
+      [data, to](const asio::error_code& ec, std::size_t bytes) {
+        if (ec == asio::error::operation_aborted) {
+          return;
+        }
+        if (!spdlog::should_log(spdlog::level::debug)) {
+          return;
+        }
+        const std::string addr = to.address().to_string();
+        if (ec) {
+          spdlog::debug("UDP 发送到 {}:{} 失败: {}", addr, to.port(),
+                        ec.message());
+        } else {
+          spdlog::debug("UDP 发送 {} bytes 到 {}:{}", bytes, addr, to.port());
+        }
+      });
 }
