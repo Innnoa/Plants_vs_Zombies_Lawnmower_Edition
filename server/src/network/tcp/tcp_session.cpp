@@ -364,18 +364,13 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
 
       lawnmower::S2C_GameStateSync sync;
       if (GameManager::Instance().BuildFullState(snapshot->room_id, &sync)) {
-        bool sent_tcp = false;
+        bool sent_udp = false;
         if (auto udp = GameManager::Instance().GetUdpServer()) {
-          if (udp->HasAnyEndpoint(snapshot->room_id)) {
-            udp->BroadcastState(snapshot->room_id, sync);
-          } else {
-            // 尚未收到客户端 UDP，首帧用 TCP 兜底
-            BroadcastToRoom(sessions, MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
-            sent_tcp = true;
-          }
-        } else {
+          sent_udp = udp->BroadcastState(snapshot->room_id, sync) > 0;
+        }
+        if (!sent_udp) {
+          // 尚未收到客户端 UDP，首帧用 TCP 兜底
           BroadcastToRoom(sessions, MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
-          sent_tcp = true;
         }
         GameManager::Instance().StartGameLoop(snapshot->room_id);
         // 再延迟一个 tick 推送一次全量同步，防止客户端切屏阶段错过首帧
@@ -390,16 +385,11 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
                 }
                 lawnmower::S2C_GameStateSync retry_sync;
                 if (GameManager::Instance().BuildFullState(room_id, &retry_sync)) {
+                  bool sent_retry_udp = false;
                   if (auto udp = GameManager::Instance().GetUdpServer()) {
-                    if (udp->HasAnyEndpoint(room_id)) {
-                      udp->BroadcastState(room_id, retry_sync);
-                    } else {
-                      const auto retry_sessions =
-                          RoomManager::Instance().GetRoomSessions(room_id);
-                      BroadcastToRoom(retry_sessions,
-                                      MessageType::MSG_S2C_GAME_STATE_SYNC, retry_sync);
-                    }
-                  } else {
+                    sent_retry_udp = udp->BroadcastState(room_id, retry_sync) > 0;
+                  }
+                  if (!sent_retry_udp) {
                     const auto retry_sessions =
                         RoomManager::Instance().GetRoomSessions(room_id);
                     BroadcastToRoom(retry_sessions,

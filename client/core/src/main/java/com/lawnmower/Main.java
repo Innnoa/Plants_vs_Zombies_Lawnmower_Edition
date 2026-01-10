@@ -92,6 +92,9 @@ public class Main extends Game {
                         case MSG_S2C_GAME_STATE_SYNC:
                             payload = Message.S2C_GameStateSync.parseFrom(packet.getPayload());
                             break;
+                        case MSG_S2C_GAME_STATE_DELTA_SYNC:
+                            payload = Message.S2C_GameStateDeltaSync.parseFrom(packet.getPayload());
+                            break;
                         case MSG_S2C_PLAYER_HURT:
                             payload = Message.S2C_PlayerHurt.parseFrom(packet.getPayload());
                             break;
@@ -166,6 +169,11 @@ public class Main extends Game {
                 if (shouldDropUdpSync(sync)) {
                     return;
                 }
+            } else if (type == Message.MessageType.MSG_S2C_GAME_STATE_DELTA_SYNC) {
+                Message.S2C_GameStateDeltaSync delta = (Message.S2C_GameStateDeltaSync) payload;
+                if (shouldDropUdpDelta(delta)) {
+                    return;
+                }
             }
             handleNetworkMessage(type, payload);
         } catch (IOException e) {
@@ -185,6 +193,8 @@ public class Main extends Game {
                 return Message.S2C_GameStart.parseFrom(packet.getPayload());
             case MSG_S2C_GAME_STATE_SYNC:
                 return Message.S2C_GameStateSync.parseFrom(packet.getPayload());
+            case MSG_S2C_GAME_STATE_DELTA_SYNC:
+                return Message.S2C_GameStateDeltaSync.parseFrom(packet.getPayload());
             case MSG_S2C_PLAYER_HURT:
                 return Message.S2C_PlayerHurt.parseFrom(packet.getPayload());
             case MSG_S2C_ENEMY_DIED:
@@ -205,20 +215,32 @@ public class Main extends Game {
         long tick = sync.hasSyncTime()
                 ? Integer.toUnsignedLong(sync.getSyncTime().getTick())
                 : -1L;
+        return shouldDropUdpState(tick, sync.getServerTimeMs());
+    }
+
+    private boolean shouldDropUdpDelta(Message.S2C_GameStateDeltaSync delta) {
+        long tick = delta.hasSyncTime()
+                ? Integer.toUnsignedLong(delta.getSyncTime().getTick())
+                : -1L;
+        return shouldDropUdpState(tick, delta.getServerTimeMs());
+    }
+
+    private boolean shouldDropUdpState(long tick, long serverTimeMs) {
         if (tick >= 0) {
-            if (tick <= lastUdpSyncTick) {
+            if (lastUdpSyncTick >= 0 && Long.compareUnsigned(tick, lastUdpSyncTick) <= 0) {
                 return true;
             }
             lastUdpSyncTick = tick;
-            lastUdpServerTimeMs = sync.getServerTimeMs();
+            if (serverTimeMs > lastUdpServerTimeMs) {
+                lastUdpServerTimeMs = serverTimeMs;
+            }
             return false;
         }
 
-        long serverTime = sync.getServerTimeMs();
-        if (serverTime <= lastUdpServerTimeMs) {
+        if (serverTimeMs <= lastUdpServerTimeMs) {
             return true;
         }
-        lastUdpServerTimeMs = serverTime;
+        lastUdpServerTimeMs = serverTimeMs;
         return false;
     }
 
@@ -428,6 +450,13 @@ public class Main extends Game {
                     if (getScreen() instanceof GameScreen gameScreen) {
                         Message.S2C_GameStateSync sync = (Message.S2C_GameStateSync) message;
                         gameScreen.onGameStateReceived(sync);
+                    }
+                    break;
+
+                case MSG_S2C_GAME_STATE_DELTA_SYNC:
+                    if (getScreen() instanceof GameScreen gameScreenDelta) {
+                        Message.S2C_GameStateDeltaSync delta = (Message.S2C_GameStateDeltaSync) message;
+                        gameScreenDelta.onGameStateDeltaReceived(delta);
                     }
                     break;
 

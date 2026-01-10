@@ -89,6 +89,17 @@ cd lawnmower-game/server
 # 安装依赖（Arch Linux）
 sudo pacman -S cmake protobuf asio spdlog
 
+# （可选）ccache 缓存目录建议放到 ~/.cache/ccache
+# 这样不会在仓库根目录生成 .ccache/.ccache-tmp，也能避免某些环境默认临时目录不可写导致的编译报错。
+# 在仓库根目录执行：
+#   script/build_server.sh --debug
+#   script/build_server.sh --release
+#
+# 或手动设置环境变量（等价）：
+#   export CCACHE_DIR="$HOME/.cache/ccache"
+#   export CCACHE_TEMPDIR="$CCACHE_DIR/tmp"
+#   export TMPDIR="$CCACHE_TEMPDIR"
+#
 # 构建
 mkdir build && cd build
 cmake ..

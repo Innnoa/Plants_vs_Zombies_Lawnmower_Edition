@@ -312,6 +312,18 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     }
 
     Scene& scene = scene_it->second;
+    auto fill_player_high_freq = [](const PlayerRuntime& runtime,
+                                    lawnmower::PlayerState* out) {
+      if (out == nullptr) {
+        return;
+      }
+      out->Clear();
+      out->set_player_id(runtime.state.player_id());
+      *out->mutable_position() = runtime.state.position();
+      out->set_rotation(runtime.state.rotation());
+      out->set_is_alive(runtime.state.is_alive());
+      out->set_last_processed_input_seq(runtime.last_input_seq);
+    };
 
     const auto now = std::chrono::steady_clock::now();
     const auto elapsed = scene.last_tick_time.time_since_epoch().count() == 0
@@ -442,8 +454,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
 
     if (force_full_sync) {
       for (auto& [_, runtime] : scene.players) {
-        runtime.state.set_last_processed_input_seq(runtime.last_input_seq);
-        *sync.add_players() = runtime.state;
+        fill_player_high_freq(runtime, sync.add_players());
         runtime.dirty = false;
       }
       scene.full_sync_elapsed = 0.0;
@@ -452,8 +463,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         if (!runtime.dirty) {
           continue;
         }
-        runtime.state.set_last_processed_input_seq(runtime.last_input_seq);
-        *sync.add_players() = runtime.state;
+        fill_player_high_freq(runtime, sync.add_players());
         runtime.dirty = false;
       }
     }
@@ -463,17 +473,15 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     return;
   }
 
-  const bool has_udp =
-      udp_server_ != nullptr && udp_server_->HasAnyEndpoint(room_id);
-  if (udp_server_ != nullptr && has_udp) {
-    udp_server_->BroadcastState(room_id, sync);
+  if (udp_server_ != nullptr && udp_server_->BroadcastState(room_id, sync) > 0) {
+    return;
+  }
+
+  const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
+  if (!sessions.empty()) {
+    SendSyncToSessions(sessions, sync);
   } else {
-    const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
-    if (!sessions.empty()) {
-      SendSyncToSessions(sessions, sync);
-    } else {
-      spdlog::debug("房间 {} 无可用会话，跳过 TCP 同步兜底", room_id);
-    }
+    spdlog::debug("房间 {} 无可用会话，跳过 TCP 同步兜底", room_id);
   }
 }
 
@@ -525,8 +533,13 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
   const float len_sq = dx_raw * dx_raw + dy_raw * dy_raw;
   if (len_sq < kDirectionEpsilonSq) {
     // 零向量视作“无移动”，仅更新序号防止排队阻塞
+    const uint32_t prev_seq = runtime.last_input_seq;
     runtime.last_input_seq =
         std::max(runtime.last_input_seq, input.input_seq());
+    if (runtime.last_input_seq != prev_seq) {
+      // 需要尽快把输入确认序号同步回客户端，避免客户端预测队列长期堆积。
+      runtime.dirty = true;
+    }
     return true;
   }
   if (len_sq > kMaxDirectionLengthSq) {

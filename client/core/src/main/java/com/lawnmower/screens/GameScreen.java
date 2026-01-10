@@ -48,8 +48,18 @@ public class GameScreen implements Screen {
     private static final long REMOTE_PLAYER_TIMEOUT_MS = 5000L;
     private static final long MIN_INPUT_SEND_INTERVAL_MS = 10L; // ~100Hz
 
+    private static final int PLAYER_DELTA_POSITION_MASK = Message.PlayerDeltaMask.PLAYER_DELTA_POSITION_VALUE;
+    private static final int PLAYER_DELTA_ROTATION_MASK = Message.PlayerDeltaMask.PLAYER_DELTA_ROTATION_VALUE;
+    private static final int PLAYER_DELTA_IS_ALIVE_MASK = Message.PlayerDeltaMask.PLAYER_DELTA_IS_ALIVE_VALUE;
+    private static final int PLAYER_DELTA_LAST_INPUT_MASK = Message.PlayerDeltaMask.PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ_VALUE;
+
+    private static final int ENEMY_DELTA_POSITION_MASK = Message.EnemyDeltaMask.ENEMY_DELTA_POSITION_VALUE;
+    private static final int ENEMY_DELTA_HEALTH_MASK = Message.EnemyDeltaMask.ENEMY_DELTA_HEALTH_VALUE;
+    private static final int ENEMY_DELTA_IS_ALIVE_MASK = Message.EnemyDeltaMask.ENEMY_DELTA_IS_ALIVE_VALUE;
+
     private final Vector2 renderBuffer = new Vector2();
     private final Map<Integer, Message.PlayerState> serverPlayerStates = new HashMap<>();
+    private final Map<Integer, Message.EnemyState> enemyStateCache = new HashMap<>();
     private final Map<Integer, Deque<ServerPlayerSnapshot>> remotePlayerServerSnapshots = new HashMap<>();
     private final Map<Integer, Boolean> remoteFacingRight = new HashMap<>();
     private final Map<Integer, Long> remotePlayerLastSeen = new HashMap<>();
@@ -86,6 +96,7 @@ public class GameScreen implements Screen {
     private boolean initialStateCriticalLogged = false;
     private boolean initialStateFailureLogged = false;
     private int initialStateRequestCount = 0;
+    private long lastDeltaResyncRequestMs = 0L;
 
     private static final float DELTA_SPIKE_THRESHOLD = 0.02f;
     private static final long DELTA_LOG_INTERVAL_MS = 400L;
@@ -104,6 +115,7 @@ public class GameScreen implements Screen {
     private static final long INITIAL_STATE_WARNING_MS = 4000L;
     private static final long INITIAL_STATE_CRITICAL_MS = 10000L;
     private static final long INITIAL_STATE_FAILURE_HINT_MS = 16000L;
+    private static final long DELTA_RESYNC_COOLDOWN_MS = 1200L;
 
     private boolean hasPendingInputChunk = false;
     private final Vector2 pendingMoveDir = new Vector2();
@@ -455,27 +467,28 @@ public class GameScreen implements Screen {
         lastSyncLogMs = nowMs;
     }
 
-    private boolean shouldAcceptSync(Message.S2C_GameStateSync sync, long arrivalMs) {
-        long serverTime = sync.getServerTimeMs();
-        if (sync.hasSyncTime()) {
-            long incomingTick = Integer.toUnsignedLong(sync.getSyncTime().getTick());
+    private boolean shouldAcceptStatePacket(Message.Timestamp syncTime, long serverTimeMs, long arrivalMs) {
+        long incomingTick = syncTime != null
+                ? Integer.toUnsignedLong(syncTime.getTick())
+                : -1L;
+        if (incomingTick >= 0) {
             if (lastAppliedSyncTick >= 0L && Long.compareUnsigned(incomingTick, lastAppliedSyncTick) <= 0) {
-                logDroppedSync("tick", incomingTick, serverTime, arrivalMs);
+                logDroppedSync("tick", incomingTick, serverTimeMs, arrivalMs);
                 return false;
             }
             lastAppliedSyncTick = incomingTick;
-            if (serverTime > lastAppliedServerTimeMs) {
-                lastAppliedServerTimeMs = serverTime;
+            if (serverTimeMs > lastAppliedServerTimeMs) {
+                lastAppliedServerTimeMs = serverTimeMs;
             }
             return true;
         }
 
-        if (lastAppliedServerTimeMs >= 0L && serverTime <= lastAppliedServerTimeMs) {
-            logDroppedSync("serverTime", serverTime, serverTime, arrivalMs);
+        if (lastAppliedServerTimeMs >= 0L && serverTimeMs <= lastAppliedServerTimeMs) {
+            logDroppedSync("serverTime", serverTimeMs, serverTimeMs, arrivalMs);
             return false;
         }
 
-        lastAppliedServerTimeMs = serverTime;
+        lastAppliedServerTimeMs = serverTimeMs;
         return true;
     }
 
@@ -492,6 +505,24 @@ public class GameScreen implements Screen {
                 + " lastServerTime=" + lastAppliedServerTimeMs
                 + " arrivalDelta=" + sinceLastAccepted);
         lastDroppedSyncLogMs = nowMs;
+    }
+
+    private void updateSyncArrivalStats(long arrivalMs) {
+        if (lastSyncArrivalMs != 0L) {
+            float interval = arrivalMs - lastSyncArrivalMs;
+            smoothedSyncIntervalMs += (interval - smoothedSyncIntervalMs) * SYNC_INTERVAL_SMOOTH_ALPHA;
+            float deviation = Math.abs(interval - smoothedSyncIntervalMs);
+            smoothedSyncDeviationMs += (deviation - smoothedSyncDeviationMs) * SYNC_DEVIATION_SMOOTH_ALPHA;
+            smoothedSyncDeviationMs = MathUtils.clamp(smoothedSyncDeviationMs, 0f, 220f);
+            logSyncIntervalSpike(interval, smoothedSyncIntervalMs);
+        }
+        lastSyncArrivalMs = arrivalMs;
+    }
+
+    private void sampleClockOffset(long serverTimeMs) {
+        long now = System.currentTimeMillis();
+        float offsetSample = serverTimeMs - now;
+        clockOffsetMs = MathUtils.lerp(clockOffsetMs, offsetSample, 0.1f);
     }
 
     private long estimateServerTimeMs() {
@@ -575,46 +606,75 @@ public class GameScreen implements Screen {
 
     public void onGameStateReceived(Message.S2C_GameStateSync sync) {
         long arrivalMs = TimeUtils.millis();
-        if (!shouldAcceptSync(sync, arrivalMs)) {
+        Message.Timestamp syncTime = sync.hasSyncTime() ? sync.getSyncTime() : null;
+        if (!shouldAcceptStatePacket(syncTime, sync.getServerTimeMs(), arrivalMs)) {
             return;
         }
-        if (lastSyncArrivalMs != 0L) {
-            float interval = arrivalMs - lastSyncArrivalMs;
-            smoothedSyncIntervalMs += (interval - smoothedSyncIntervalMs) * SYNC_INTERVAL_SMOOTH_ALPHA;
-            float deviation = Math.abs(interval - smoothedSyncIntervalMs);
-            smoothedSyncDeviationMs += (deviation - smoothedSyncDeviationMs) * SYNC_DEVIATION_SMOOTH_ALPHA;
-            smoothedSyncDeviationMs = MathUtils.clamp(smoothedSyncDeviationMs, 0f, 220f);
-            logSyncIntervalSpike(interval, smoothedSyncIntervalMs);
+        updateSyncArrivalStats(arrivalMs);
+        sampleClockOffset(sync.getServerTimeMs());
+        if (!sync.getEnemiesList().isEmpty()) {
+            for (Message.EnemyState enemy : sync.getEnemiesList()) {
+                enemyStateCache.put((int) enemy.getEnemyId(), enemy);
+            }
         }
-        lastSyncArrivalMs = arrivalMs;
-        long currentServerTimeMs = sync.getServerTimeMs();
-        long now = System.currentTimeMillis();
-        float offsetSample = currentServerTimeMs - now;
-        clockOffsetMs = MathUtils.lerp(clockOffsetMs, offsetSample, 0.1f);
+        handlePlayersFromServer(sync.getPlayersList(), sync.getServerTimeMs());
+    }
 
+    public void onGameStateDeltaReceived(Message.S2C_GameStateDeltaSync delta) {
+        long arrivalMs = TimeUtils.millis();
+        Message.Timestamp syncTime = delta.hasSyncTime() ? delta.getSyncTime() : null;
+        if (!shouldAcceptStatePacket(syncTime, delta.getServerTimeMs(), arrivalMs)) {
+            return;
+        }
+
+        List<Message.PlayerState> mergedPlayers = new ArrayList<>(delta.getPlayersCount());
+        for (Message.PlayerStateDelta playerDelta : delta.getPlayersList()) {
+            Message.PlayerState merged = mergePlayerDelta(playerDelta);
+            if (merged != null) {
+                mergedPlayers.add(merged);
+            }
+        }
+        for (Message.EnemyStateDelta enemyDelta : delta.getEnemiesList()) {
+            mergeEnemyDelta(enemyDelta);
+        }
+
+        updateSyncArrivalStats(arrivalMs);
+        sampleClockOffset(delta.getServerTimeMs());
+        handlePlayersFromServer(mergedPlayers, delta.getServerTimeMs());
+    }
+
+    private void handlePlayersFromServer(Collection<Message.PlayerState> players, long serverTimeMs) {
         int myId = game.getPlayerId();
         Message.PlayerState selfStateFromServer = null;
 
-        for (Message.PlayerState player : sync.getPlayersList()) {
-            int playerId = (int) player.getPlayerId();
-            serverPlayerStates.put(playerId, player);
+        if (players != null) {
+            for (Message.PlayerState player : players) {
+                int playerId = (int) player.getPlayerId();
+                serverPlayerStates.put(playerId, player);
 
-            if (playerId == myId) {
-                if (player.getIsAlive()) {
-                    selfStateFromServer = player;
+                if (playerId == myId) {
+                    if (player.getIsAlive()) {
+                        selfStateFromServer = player;
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            Vector2 position = new Vector2(player.getPosition().getX(), player.getPosition().getY());
-            pushRemoteSnapshot(playerId, position, player.getRotation(), currentServerTimeMs);
-            remotePlayerLastSeen.put(playerId, currentServerTimeMs);
+                if (player.hasPosition()) {
+                    Vector2 position = new Vector2(player.getPosition().getX(), player.getPosition().getY());
+                    pushRemoteSnapshot(playerId, position, player.getRotation(), serverTimeMs);
+                    remotePlayerLastSeen.put(playerId, serverTimeMs);
+                }
+            }
         }
 
-        purgeStaleRemotePlayers(currentServerTimeMs);
+        purgeStaleRemotePlayers(serverTimeMs);
 
-        if (selfStateFromServer == null) return;
+        if (selfStateFromServer != null) {
+            applySelfStateFromServer(selfStateFromServer);
+        }
+    }
 
+    private void applySelfStateFromServer(Message.PlayerState selfStateFromServer) {
         Vector2 serverPos = new Vector2(
                 selfStateFromServer.getPosition().getX(),
                 selfStateFromServer.getPosition().getY()
@@ -755,6 +815,74 @@ public class GameScreen implements Screen {
         }
     }
 
+    private Message.PlayerState mergePlayerDelta(Message.PlayerStateDelta delta) {
+        if (delta == null) {
+            return null;
+        }
+        int playerId = (int) delta.getPlayerId();
+        Message.PlayerState base = serverPlayerStates.get(playerId);
+        if (base == null) {
+            requestDeltaResync("player_" + playerId);
+            return null;
+        }
+
+        Message.PlayerState.Builder builder = base.toBuilder();
+        int mask = delta.getChangedMask();
+        if ((mask & PLAYER_DELTA_POSITION_MASK) != 0 && delta.hasPosition()) {
+            builder.setPosition(delta.getPosition());
+        }
+        if ((mask & PLAYER_DELTA_ROTATION_MASK) != 0 && delta.hasRotation()) {
+            builder.setRotation(delta.getRotation());
+        }
+        if ((mask & PLAYER_DELTA_IS_ALIVE_MASK) != 0 && delta.hasIsAlive()) {
+            builder.setIsAlive(delta.getIsAlive());
+        }
+        if ((mask & PLAYER_DELTA_LAST_INPUT_MASK) != 0 && delta.hasLastProcessedInputSeq()) {
+            builder.setLastProcessedInputSeq(delta.getLastProcessedInputSeq());
+        }
+
+        Message.PlayerState updated = builder.build();
+        serverPlayerStates.put(playerId, updated);
+        return updated;
+    }
+
+    private void mergeEnemyDelta(Message.EnemyStateDelta delta) {
+        if (delta == null) {
+            return;
+        }
+        int enemyId = (int) delta.getEnemyId();
+        Message.EnemyState base = enemyStateCache.get(enemyId);
+        if (base == null) {
+            requestDeltaResync("enemy_" + enemyId);
+            return;
+        }
+
+        Message.EnemyState.Builder builder = base.toBuilder();
+        int mask = delta.getChangedMask();
+        if ((mask & ENEMY_DELTA_POSITION_MASK) != 0 && delta.hasPosition()) {
+            builder.setPosition(delta.getPosition());
+        }
+        if ((mask & ENEMY_DELTA_HEALTH_MASK) != 0 && delta.hasHealth()) {
+            builder.setHealth(delta.getHealth());
+        }
+        if ((mask & ENEMY_DELTA_IS_ALIVE_MASK) != 0 && delta.hasIsAlive()) {
+            builder.setIsAlive(delta.getIsAlive());
+        }
+        enemyStateCache.put(enemyId, builder.build());
+    }
+
+    private void requestDeltaResync(String reason) {
+        if (game == null) {
+            return;
+        }
+        long now = TimeUtils.millis();
+        if ((now - lastDeltaResyncRequestMs) < DELTA_RESYNC_COOLDOWN_MS) {
+            return;
+        }
+        lastDeltaResyncRequestMs = now;
+        game.requestFullGameStateSync("delta:" + reason);
+    }
+
     public void onGameEvent(Message.MessageType type, Object message) {
         switch (type) {
             case MSG_S2C_PLAYER_HURT:
@@ -891,6 +1019,7 @@ public class GameScreen implements Screen {
         initialStateCriticalLogged = false;
         initialStateFailureLogged = false;
         initialStateRequestCount = 0;
+        lastDeltaResyncRequestMs = 0L;
         maybeSendInitialStateRequest(initialStateStartMs, "initial_enter");
     }
 
@@ -901,6 +1030,7 @@ public class GameScreen implements Screen {
         initialStateCriticalLogged = false;
         initialStateFailureLogged = false;
         initialStateRequestCount = 0;
+        lastDeltaResyncRequestMs = 0L;
     }
 
     private void maybeRequestInitialStateResync() {

@@ -4,7 +4,9 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -21,10 +23,8 @@ class UdpServer {
   void Start();
 
   // 广播游戏状态到指定房间的已登记终端
-  void BroadcastState(uint32_t room_id,
-                      const lawnmower::S2C_GameStateSync& sync);
-  // 标记某个 room 已经有 UDP 端点，便于上层决定何时只用 UDP
-  bool HasAnyEndpoint(uint32_t room_id) const;
+  std::size_t BroadcastState(uint32_t room_id,
+                             const lawnmower::S2C_GameStateSync& sync);
 
  private:
   struct EndpointInfo {
@@ -38,7 +38,8 @@ class UdpServer {
                     const udp::endpoint& from);
   void HandlePlayerInput(const lawnmower::Packet& packet,
                          const udp::endpoint& from);
-  void SendPacket(const lawnmower::Packet& packet, const udp::endpoint& to);
+  void SendPacket(const std::shared_ptr<const std::string>& data,
+                  const udp::endpoint& to);
   std::vector<udp::endpoint> EndpointsForRoom(uint32_t room_id);
 
   asio::io_context& io_context_;

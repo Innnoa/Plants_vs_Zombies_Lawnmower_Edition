@@ -66,6 +66,7 @@ enum MessageType{
   MSG_S2C_PLAYER_LEVEL_UP = 43; // 广播： 玩家升级
   MSG_S2C_DROPPED_ITEM = 44; // 广播： 掉落道具
   MSG_S2C_GAME_OVER = 45; // 广播： 游戏结束
+  MSG_S2C_GAME_STATE_DELTA_SYNC = 46; // 广播：高频 Delta 同步（仅变化字段）
 }   
 
 // =============================
@@ -253,6 +254,62 @@ message ItemState {
     Vector2 position = 3;          // 位置
     bool is_picked = 4;            // 是否已被拾取
     int32 value = 5;               // 数值
+}
+
+// =============================
+// 高频 Delta 同步（仅变化字段）
+// =============================
+
+// PlayerStateDelta / EnemyStateDelta 使用 changed_mask + optional 字段来表达“只更新部分字段”：
+// - changed_mask 用位图表示本消息携带了哪些字段，便于快速分支处理
+// - optional 允许字段即使为默认值（例如 0/false）也能表达“确实被更新/清空”
+//
+// 注意：Vector2 等 message 类型在 proto3 天生具有 presence（可通过 has_xxx 判断）
+
+enum PlayerDeltaMask {
+  PLAYER_DELTA_NONE = 0;
+  PLAYER_DELTA_POSITION = 1;                 // 位置更新
+  PLAYER_DELTA_ROTATION = 2;                 // 朝向更新
+  PLAYER_DELTA_IS_ALIVE = 4;                 // 存活状态更新
+  PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ = 8; // 输入确认序号更新
+}
+
+enum EnemyDeltaMask {
+  ENEMY_DELTA_NONE = 0;
+  ENEMY_DELTA_POSITION = 1;  // 位置更新
+  ENEMY_DELTA_HEALTH = 2;    // 血量更新（可选）
+  ENEMY_DELTA_IS_ALIVE = 4;  // 存活状态更新
+}
+
+// 高频玩家状态增量（主要用于 UDP 高频同步）
+message PlayerStateDelta {
+  uint32 player_id = 1;
+  uint32 changed_mask = 2;
+
+  Vector2 position = 3;
+  optional float rotation = 4;
+  optional bool is_alive = 5;
+  optional int32 last_processed_input_seq = 6;
+}
+
+// 高频敌人状态增量（主要用于 UDP 高频同步）
+message EnemyStateDelta {
+  uint32 enemy_id = 1;
+  uint32 changed_mask = 2;
+
+  Vector2 position = 3;
+  optional int32 health = 4;
+  optional bool is_alive = 5;
+}
+
+// 高频同步包：只包含玩家/敌人的 Delta（字段级增量）
+message S2C_GameStateDeltaSync {
+  Timestamp sync_time = 1;
+  uint32 room_id = 2;
+  uint64 server_time_ms = 3;
+
+  repeated PlayerStateDelta players = 4;
+  repeated EnemyStateDelta enemies = 5;
 }
 
 // --------------客户端->服务器--------------

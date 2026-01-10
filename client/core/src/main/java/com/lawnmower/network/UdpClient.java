@@ -3,7 +3,6 @@ package com.lawnmower.network;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
 import com.lawnmower.Config;
-import lawnmower.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -11,6 +11,8 @@ client/out/
 *.iml
 .eclipse/
 .settings/
+.ccache/
+.ccache-tmp/
 
 # 编译产物
 *.o
