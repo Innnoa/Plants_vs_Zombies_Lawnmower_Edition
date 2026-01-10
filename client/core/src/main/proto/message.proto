@@ -82,6 +82,7 @@ message S2C_LoginResult {
     bool success = 1; // 登陆结果
     uint32 player_id= 2; // 玩家ID
     string message_login = 3; // 信息
+    string session_token = 4; // 会话令牌（后续 UDP/重连校验）
 }
 
 // 客户端 -> 服务器： 心跳消息
@@ -264,6 +265,7 @@ message C2S_PlayerInput {
     Timestamp input_time = 4;      // 输入时间戳（用于延迟补偿）
     uint32 input_seq = 5;          // 输入序号（客户端递增，用于去重/乱序处理）
     uint32 delta_ms = 6;           // 距上一次输入的时间间隔（ms，客户端估算，0 表示未知）
+    string session_token = 7;      // 会话令牌（登录后下发，用于 UDP 鉴权）
 }
 
 // --------------服务器->客户端--------------

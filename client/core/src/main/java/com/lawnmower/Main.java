@@ -3,6 +3,8 @@ package com.lawnmower;
 import com.badlogic.gdx.Game;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.UnknownFieldSet;
 
 import com.lawnmower.network.TcpClient;
 import com.lawnmower.network.UdpClient;
@@ -22,11 +24,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main extends Game {
     private static final Logger log = LoggerFactory.getLogger(Main.class);
+    private static final int LOGIN_RESULT_SESSION_TOKEN_FIELD_NUMBER = 4;
+    private static final int PLAYER_INPUT_SESSION_TOKEN_FIELD_NUMBER = 7;
     private Skin skin;
     private TcpClient tcpClient;
     private UdpClient udpClient;
     private String playerName = "Player";
     private int playerId = -1; // 未登录时为 -1
+    private String sessionToken = "";
     private long lastSocketWaitLogMs = 0L;
     private long lastUdpSyncTick = -1L;
     private long lastUdpServerTimeMs = -1L;
@@ -131,6 +136,8 @@ public class Main extends Game {
             networkRunning.set(false);
             stopUdpClient();
             Gdx.app.postRunnable(() -> {
+                setPlayerId(-1);
+                setSessionToken("");
                 // 可选：提示连接断开，返回主菜单等
                 if (!(getScreen() instanceof MainMenuScreen)) {
                     setScreen(new MainMenuScreen(Main.this, skin));
@@ -254,14 +261,18 @@ public class Main extends Game {
         if (input == null) {
             return false;
         }
-        if (udpClient != null && udpClient.isRunning()) {
-            if (udpClient.sendPlayerInput(input)) {
+
+        Message.C2S_PlayerInput withToken = attachSessionToken(input, sessionToken);
+        boolean hasToken = sessionToken != null && !sessionToken.isBlank();
+
+        if (udpClient != null && udpClient.isRunning() && hasToken) {
+            if (udpClient.sendPlayerInput(withToken)) {
                 return true;
             }
         }
         if (tcpClient != null) {
             try {
-                tcpClient.sendPlayerInput(input);
+                tcpClient.sendPlayerInput(withToken);
                 return true;
             } catch (IOException e) {
                 log.warn("Failed to send input via TCP fallback", e);
@@ -314,6 +325,51 @@ public class Main extends Game {
         this.playerId = id;
     }
 
+    public String getSessionToken() {
+        return sessionToken;
+    }
+
+    private void setSessionToken(String token) {
+        this.sessionToken = token == null ? "" : token;
+    }
+
+    private static String extractSessionToken(Message.S2C_LoginResult result) {
+        if (result == null) {
+            return "";
+        }
+        UnknownFieldSet unknownFields = result.getUnknownFields();
+        if (unknownFields == null) {
+            return "";
+        }
+        UnknownFieldSet.Field tokenField =
+                unknownFields.getField(LOGIN_RESULT_SESSION_TOKEN_FIELD_NUMBER);
+        if (tokenField == null || tokenField.getLengthDelimitedList().isEmpty()) {
+            return "";
+        }
+        ByteString bytes = tokenField.getLengthDelimitedList().get(0);
+        return bytes == null ? "" : bytes.toStringUtf8();
+    }
+
+    private static Message.C2S_PlayerInput attachSessionToken(Message.C2S_PlayerInput input,
+                                                             String token) {
+        if (input == null) {
+            return null;
+        }
+        if (token == null || token.isBlank()) {
+            return input;
+        }
+
+        UnknownFieldSet.Field tokenField = UnknownFieldSet.Field.newBuilder()
+                .addLengthDelimited(ByteString.copyFromUtf8(token))
+                .build();
+        UnknownFieldSet extra = UnknownFieldSet.newBuilder()
+                .addField(PLAYER_INPUT_SESSION_TOKEN_FIELD_NUMBER, tokenField)
+                .build();
+        return input.toBuilder()
+                .mergeUnknownFields(extra)
+                .build();
+    }
+
     // ———————— 网络消息处理入口（由网络线程调用） ————————
 
     public void handleNetworkMessage(Message.MessageType type, Object message) {
@@ -323,10 +379,15 @@ public class Main extends Game {
                     Message.S2C_LoginResult result = (Message.S2C_LoginResult) message;
                     if (result.getSuccess()) {
                         setPlayerId(result.getPlayerId());
-                        setPlayerName(result.getMessageLogin());
+                        setSessionToken(extractSessionToken(result));
+                        if (sessionToken.isBlank()) {
+                            log.warn("Login succeeded but server did not provide session_token; UDP input may be rejected");
+                        }
                         // 登录成功，跳转到房间列表
                         setScreen(new RoomListScreen(Main.this, skin));
                     } else {
+                        setPlayerId(-1);
+                        setSessionToken("");
                         // 登录失败：返回主菜单并提示
                         if (getScreen() instanceof MainMenuScreen mainMenu) {
                             mainMenu.showError("登录失败: " + result.getMessageLogin());
