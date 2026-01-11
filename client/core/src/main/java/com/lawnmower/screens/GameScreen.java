@@ -19,6 +19,7 @@ import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.TimeUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
+import com.lawnmower.enemies.EnemyDefinitions;
 import com.lawnmower.enemies.EnemyView;
 import com.lawnmower.Main;
 import com.lawnmower.players.PlayerInputCommand;
@@ -42,7 +43,9 @@ public class GameScreen implements Screen {
     private static final float MIN_COMMAND_DURATION = 1f / 120f;
     private static final long SNAPSHOT_RETENTION_MS = 400L;
     private static final long MAX_EXTRAPOLATION_MS = 150L;
-    private static final int DEFAULT_ENEMY_ID = 1;
+    private static final int PLACEHOLDER_ENEMY_ID = -1;
+    private static final long ENEMY_TIMEOUT_MS = 5000L;
+    private static final int DEFAULT_ENEMY_TYPE_ID = EnemyDefinitions.getDefaultTypeId();
     private static final long INTERP_DELAY_MIN_MS = 60L;
     private static final long INTERP_DELAY_MAX_MS = 180L;
 
@@ -64,6 +67,7 @@ public class GameScreen implements Screen {
     private final Map<Integer, Message.PlayerState> serverPlayerStates = new HashMap<>();
     private final Map<Integer, Message.EnemyState> enemyStateCache = new HashMap<>();
     private final Map<Integer, EnemyView> enemyViews = new HashMap<>();
+    private final Map<Integer, Long> enemyLastSeen = new HashMap<>();
     private final Map<Integer, Deque<ServerPlayerSnapshot>> remotePlayerServerSnapshots = new HashMap<>();
     private final Map<Integer, Boolean> remoteFacingRight = new HashMap<>();
     private final Map<Integer, Long> remotePlayerLastSeen = new HashMap<>();
@@ -81,8 +85,8 @@ public class GameScreen implements Screen {
     private Animation<TextureRegion> playerIdleAnimation;
     private TextureRegion playerTextureRegion;
     private Texture backgroundTexture;
-    private TextureAtlas zombieWalkAtlas;
-    private Animation<TextureRegion> zombieWalkAnimation;
+    private final Map<Integer, Animation<TextureRegion>> enemyAnimations = new HashMap<>();
+    private final Map<String, TextureAtlas> enemyAtlasCache = new HashMap<>();
     private Texture enemyFallbackTexture;
     private TextureRegion enemyFallbackRegion;
     private float playerAnimationTime = 0f;
@@ -199,9 +203,8 @@ public class GameScreen implements Screen {
 
         loadEnemyAssets();
         enemyViews.clear();
-        EnemyView defaultEnemy = ensureEnemyView(DEFAULT_ENEMY_ID);
-        renderBuffer.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
-        defaultEnemy.teleport(renderBuffer, TimeUtils.millis());
+        enemyLastSeen.clear();
+        spawnPlaceholderEnemy();
 
         predictedPosition.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
         displayPosition.set(predictedPosition);
@@ -239,7 +242,6 @@ public class GameScreen implements Screen {
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         batch.draw(backgroundTexture, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-        renderEnemies(renderDelta);
 
         playerAnimationTime += renderDelta;
         TextureRegion currentFrame = playerIdleAnimation != null
@@ -253,6 +255,7 @@ public class GameScreen implements Screen {
 
         long estimatedServerTimeMs = estimateServerTimeMs();
         long renderServerTimeMs = estimatedServerTimeMs - computeRenderDelayMs();
+        renderEnemies(renderDelta, renderServerTimeMs);
         renderRemotePlayers(renderServerTimeMs, currentFrame, renderDelta);
         drawCharacterFrame(currentFrame, displayPosition.x, displayPosition.y, facingRight);
 
@@ -437,49 +440,100 @@ public class GameScreen implements Screen {
         }
     }
 
-    private void renderEnemies(float delta) {
+    private void renderEnemies(float delta, long renderServerTimeMs) {
         if (batch == null || enemyViews.isEmpty()) {
             return;
         }
         for (EnemyView view : enemyViews.values()) {
-            view.render(batch, delta);
+            view.render(batch, delta, renderServerTimeMs);
         }
     }
 
-    private EnemyView ensureEnemyView(int enemyId) {
+    private void spawnPlaceholderEnemy() {
+        EnemyView placeholder = new EnemyView(PLACEHOLDER_ENEMY_ID, WORLD_WIDTH, WORLD_HEIGHT);
+        placeholder.setVisual(DEFAULT_ENEMY_TYPE_ID,
+                resolveEnemyAnimation(DEFAULT_ENEMY_TYPE_ID),
+                getEnemyFallbackRegion());
+        renderBuffer.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
+        placeholder.snapTo(renderBuffer, TimeUtils.millis());
+        enemyViews.put(PLACEHOLDER_ENEMY_ID, placeholder);
+    }
+
+    private void removePlaceholderEnemy() {
+        enemyViews.remove(PLACEHOLDER_ENEMY_ID);
+        enemyLastSeen.remove(PLACEHOLDER_ENEMY_ID);
+    }
+
+    private void removeEnemy(int enemyId) {
+        enemyViews.remove(enemyId);
+        enemyStateCache.remove(enemyId);
+        enemyLastSeen.remove(enemyId);
+    }
+
+    private void purgeStaleEnemies(long serverTimeMs) {
+        Iterator<Map.Entry<Integer, Long>> iterator = enemyLastSeen.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Integer, Long> entry = iterator.next();
+            if ((serverTimeMs - entry.getValue()) > ENEMY_TIMEOUT_MS) {
+                int enemyId = entry.getKey();
+                iterator.remove();
+                enemyViews.remove(enemyId);
+                enemyStateCache.remove(enemyId);
+            }
+        }
+    }
+
+    private EnemyView ensureEnemyView(Message.EnemyState enemyState) {
+        int enemyId = (int) enemyState.getEnemyId();
         EnemyView view = enemyViews.get(enemyId);
-        TextureRegion fallback = getEnemyFallbackRegion();
         if (view == null) {
-            Vector2 spawn = new Vector2(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
-            view = new EnemyView(enemyId, spawn, zombieWalkAnimation, fallback);
+            view = new EnemyView(enemyId, WORLD_WIDTH, WORLD_HEIGHT);
             enemyViews.put(enemyId, view);
-        } else {
-            view.setAnimation(zombieWalkAnimation, fallback);
         }
         return view;
     }
 
     private void loadEnemyAssets() {
-        if (zombieWalkAtlas != null) {
-            zombieWalkAtlas.dispose();
-            zombieWalkAtlas = null;
+        disposeEnemyAtlases();
+        enemyAnimations.clear();
+        for (EnemyDefinitions.Definition definition : EnemyDefinitions.all()) {
+            Animation<TextureRegion> animation = createEnemyAnimation(definition);
+            if (animation != null) {
+                enemyAnimations.put(definition.getTypeId(), animation);
+            }
         }
-        zombieWalkAnimation = null;
+    }
+
+    private Animation<TextureRegion> createEnemyAnimation(EnemyDefinitions.Definition definition) {
+        if (definition == null) {
+            return null;
+        }
+        String atlasPath = definition.getAtlasPath();
+        String regionPrefix = definition.getRegionPrefix();
+        if (atlasPath == null || regionPrefix == null) {
+            return null;
+        }
         try {
-            zombieWalkAtlas = new TextureAtlas(Gdx.files.internal("Zombie/NormalZombie/Walk/walk.atlas"));
-            Array<TextureAtlas.AtlasRegion> regions = zombieWalkAtlas.findRegions("zombie");
-            if (regions != null && regions.size > 0) {
-                zombieWalkAnimation = new Animation<>(0.08f, regions, Animation.PlayMode.LOOP);
-            } else {
-                Gdx.app.log(TAG, "Zombie atlas missing region 'zombie', fallback sprite will be used");
+            TextureAtlas atlas = enemyAtlasCache.computeIfAbsent(
+                    atlasPath, path -> new TextureAtlas(Gdx.files.internal(path)));
+            Array<TextureAtlas.AtlasRegion> regions = atlas.findRegions(regionPrefix);
+            if (regions == null || regions.size == 0) {
+                Gdx.app.log(TAG, "Enemy atlas missing region '" + regionPrefix + "' for " + atlasPath);
+                return null;
             }
+            return new Animation<>(definition.getFrameDuration(), regions, Animation.PlayMode.LOOP);
         } catch (Exception e) {
-            Gdx.app.log(TAG, "Failed to load zombie animation", e);
-            if (zombieWalkAtlas != null) {
-                zombieWalkAtlas.dispose();
-                zombieWalkAtlas = null;
-            }
+            Gdx.app.log(TAG, "Failed to load enemy animation: " + atlasPath, e);
+            return null;
         }
+    }
+
+    private Animation<TextureRegion> resolveEnemyAnimation(int typeId) {
+        Animation<TextureRegion> animation = enemyAnimations.get(typeId);
+        if (animation == null) {
+            animation = enemyAnimations.get(DEFAULT_ENEMY_TYPE_ID);
+        }
+        return animation;
     }
 
     private TextureRegion getEnemyFallbackRegion() {
@@ -492,6 +546,13 @@ public class GameScreen implements Screen {
             pixmap.dispose();
         }
         return enemyFallbackRegion;
+    }
+
+    private void disposeEnemyAtlases() {
+        for (TextureAtlas atlas : enemyAtlasCache.values()) {
+            atlas.dispose();
+        }
+        enemyAtlasCache.clear();
     }
 
     private void drawCharacterFrame(TextureRegion frame, float centerX, float centerY, boolean faceRight) {
@@ -756,20 +817,38 @@ public class GameScreen implements Screen {
 
     private void syncEnemyViews(Collection<Message.EnemyState> enemies, long serverTimeMs) {
         if (enemies == null || enemies.isEmpty()) {
+            purgeStaleEnemies(serverTimeMs);
             return;
         }
+
+        removePlaceholderEnemy();
+
         for (Message.EnemyState enemy : enemies) {
-            if (enemy == null) {
+            if (enemy == null || !enemy.hasPosition()) {
                 continue;
             }
-            EnemyView view = ensureEnemyView((int) enemy.getEnemyId());
-            if (!enemy.hasPosition()) {
+            int enemyId = (int) enemy.getEnemyId();
+            if (!enemy.getIsAlive()) {
+                removeEnemy(enemyId);
                 continue;
             }
+            EnemyView view = ensureEnemyView(enemy);
             renderBuffer.set(enemy.getPosition().getX(), enemy.getPosition().getY());
             clampPositionToMap(renderBuffer);
-            view.applyServerState(renderBuffer, enemy.getIsAlive(), serverTimeMs);
+            view.updateFromServer(
+                    (int) enemy.getTypeId(),
+                    enemy.getIsAlive(),
+                    enemy.getHealth(),
+                    enemy.getMaxHealth(),
+                    renderBuffer,
+                    serverTimeMs,
+                    resolveEnemyAnimation((int) enemy.getTypeId()),
+                    getEnemyFallbackRegion()
+            );
+            enemyLastSeen.put(enemyId, serverTimeMs);
         }
+
+        purgeStaleEnemies(serverTimeMs);
     }
 
     private void applySelfStateFromServer(Message.PlayerState selfStateFromServer) {
@@ -1026,10 +1105,8 @@ public class GameScreen implements Screen {
         if (batch != null) batch.dispose();
         if (playerTexture != null) playerTexture.dispose();
         if (playerAtlas != null) playerAtlas.dispose();
-        if (zombieWalkAtlas != null) {
-            zombieWalkAtlas.dispose();
-            zombieWalkAtlas = null;
-        }
+        disposeEnemyAtlases();
+        enemyAnimations.clear();
         if (enemyFallbackTexture != null) {
             enemyFallbackTexture.dispose();
             enemyFallbackTexture = null;
