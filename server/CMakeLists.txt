@@ -11,7 +11,11 @@ find_package(Protobuf REQUIRED)
 find_package(spdlog REQUIRED)
 
 # Protobuf 代码生成
-set(PROTO_DIR ${CMAKE_SOURCE_DIR}/proto)
+get_filename_component(REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(PROTO_DIR "${REPO_ROOT}/proto")
+if(NOT EXISTS "${PROTO_DIR}")
+    message(FATAL_ERROR "Proto directory not found: ${PROTO_DIR}")
+endif()
 set(GEN_DIR ${CMAKE_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${GEN_DIR})
 

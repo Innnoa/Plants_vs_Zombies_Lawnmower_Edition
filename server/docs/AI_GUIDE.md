@@ -6,7 +6,7 @@
 - **网络层**：`TcpServer` 负责监听/接受连接；`TcpSession` 负责单个客户端的收发、包装/拆包、消息分发。使用 Asio 异步 IO，包格式为 `[uint32_t length][Packet protobuf payload]`。
 - **房间层**：`RoomManager`（线程安全单例）管理房间创建/加入/准备/离开，生成房间快照和广播房间变更，开始游戏时校验房主与准备状态。
 - **游戏层**：`GameManager`（线程安全单例）按房间创建场景、分配出生点、接收玩家输入队列、按固定 tick 推进并定期广播状态同步。
-- **协议**：位于 `proto/message.proto`，编译生成的 `message.pb.*` 提供所有消息/状态结构体。消息类型枚举 `MessageType` 驱动服务器分发。
+- **协议**：位于仓库根目录 `proto/message.proto`，编译生成的 `message.pb.*` 提供所有消息/状态结构体。消息类型枚举 `MessageType` 驱动服务器分发。
 
 ## 主要数据流
 - 登录：`MSG_C2S_LOGIN` → 校验重复登录 → 回执 `MSG_S2C_LOGIN_RESULT`，分配自增 `player_id`。

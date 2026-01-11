@@ -7,7 +7,7 @@
 
 ## 协议（proto）调整
 
-文件：`proto/message.proto`
+文件：仓库根目录 `proto/message.proto`
 
 - 新增 `SceneInfo`：描述场景基础信息（尺寸、tick_rate、state_sync_rate）。
 - 扩展 `S2C_GameStart`：新增 `success/message_start/scene` 字段，用于开始游戏成功/失败回执以及下发场景信息。

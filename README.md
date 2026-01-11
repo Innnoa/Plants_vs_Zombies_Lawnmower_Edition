@@ -134,6 +134,10 @@ message Packet {
 }
 ```
 
+协议文件（单一来源）位于仓库根目录 `proto/message.proto`：
+- 服务端：CMake 构建时自动通过 `protoc` 生成 `message.pb.*`（输出到 `server/build*/generated/`）。
+- 客户端：当前仓库提交了生成后的 `client/core/src/main/java/lawnmower/Message.java`；当 proto 有变更时可用 `protoc --java_out=client/core/src/main/java -I proto proto/message.proto` 重新生成。
+
 ### 通信流程
 
 1. **TCP**：用于可靠消息（登录、房间管理、游戏事件）
