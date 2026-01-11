@@ -1,7 +1,7 @@
 #pragma once
 
-#include <asio.hpp>
 #include <array>
+#include <asio.hpp>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -34,8 +34,7 @@ class UdpServer {
   };
 
   void DoReceive();
-  void HandlePacket(const lawnmower::Packet& packet,
-                    const udp::endpoint& from);
+  void HandlePacket(const lawnmower::Packet& packet, const udp::endpoint& from);
   void HandlePlayerInput(const lawnmower::Packet& packet,
                          const udp::endpoint& from);
   void SendPacket(const std::shared_ptr<const std::string>& data,

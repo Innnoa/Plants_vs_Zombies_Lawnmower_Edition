@@ -1,7 +1,7 @@
 #include "network/tcp/tcp_session.hpp"
 
-#include <arpa/inet.h>
 #include <algorithm>
+#include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
 #include <random>
@@ -14,9 +14,9 @@
 #include "network/udp/udp_server.hpp"
 
 namespace {
-constexpr std::size_t kMaxPacketSize = 64 * 1024;   // 设定最大包大小
-constexpr std::size_t kMaxWriteQueueSize = 1024;    // 防止慢连接无限堆积
-constexpr std::size_t kTokenBytes = 16;             // 128bit 令牌
+constexpr std::size_t kMaxPacketSize = 64 * 1024;  // 设定最大包大小
+constexpr std::size_t kMaxWriteQueueSize = 1024;   // 防止慢连接无限堆积
+constexpr std::size_t kTokenBytes = 16;            // 128bit 令牌
 
 // 类型转字符串
 std::string MessageTypeToString(lawnmower::MessageType type) {
@@ -378,25 +378,26 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
           auto timer = std::make_shared<asio::steady_timer>(*io);
           timer->expires_after(std::chrono::milliseconds(
               static_cast<int>(1000.0 / scene_info.state_sync_rate())));
-          timer->async_wait(
-              [room_id = snapshot->room_id, timer](const asio::error_code& ec) {
-                if (ec == asio::error::operation_aborted) {
-                  return;
-                }
-                lawnmower::S2C_GameStateSync retry_sync;
-                if (GameManager::Instance().BuildFullState(room_id, &retry_sync)) {
-                  bool sent_retry_udp = false;
-                  if (auto udp = GameManager::Instance().GetUdpServer()) {
-                    sent_retry_udp = udp->BroadcastState(room_id, retry_sync) > 0;
-                  }
-                  if (!sent_retry_udp) {
-                    const auto retry_sessions =
-                        RoomManager::Instance().GetRoomSessions(room_id);
-                    BroadcastToRoom(retry_sessions,
-                                    MessageType::MSG_S2C_GAME_STATE_SYNC, retry_sync);
-                  }
-                }
-              });
+          timer->async_wait([room_id = snapshot->room_id,
+                             timer](const asio::error_code& ec) {
+            if (ec == asio::error::operation_aborted) {
+              return;
+            }
+            lawnmower::S2C_GameStateSync retry_sync;
+            if (GameManager::Instance().BuildFullState(room_id, &retry_sync)) {
+              bool sent_retry_udp = false;
+              if (auto udp = GameManager::Instance().GetUdpServer()) {
+                sent_retry_udp = udp->BroadcastState(room_id, retry_sync) > 0;
+              }
+              if (!sent_retry_udp) {
+                const auto retry_sessions =
+                    RoomManager::Instance().GetRoomSessions(room_id);
+                BroadcastToRoom(retry_sessions,
+                                MessageType::MSG_S2C_GAME_STATE_SYNC,
+                                retry_sync);
+              }
+            }
+          });
         }
       }
       spdlog::info("房间 {} 游戏开始", snapshot->room_id);

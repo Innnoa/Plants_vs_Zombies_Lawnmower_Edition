@@ -1,8 +1,7 @@
 #include "network/udp/udp_server.hpp"
 
-#include <spdlog/spdlog.h>
-
 #include <algorithm>
+#include <spdlog/spdlog.h>
 #include <string>
 
 #include "game/managers/game_manager.hpp"
@@ -17,12 +16,14 @@ constexpr int kUdpSocketBufferBytes = 256 * 1024;
 UdpServer::UdpServer(asio::io_context& io, uint16_t port)
     : io_context_(io), socket_(io_context_, udp::endpoint(udp::v4(), port)) {
   asio::error_code ec;
-  socket_.set_option(asio::socket_base::receive_buffer_size(kUdpSocketBufferBytes), ec);
+  socket_.set_option(
+      asio::socket_base::receive_buffer_size(kUdpSocketBufferBytes), ec);
   if (ec) {
     spdlog::warn("UDP 设置接收缓冲区失败: {}", ec.message());
   }
   ec.clear();
-  socket_.set_option(asio::socket_base::send_buffer_size(kUdpSocketBufferBytes), ec);
+  socket_.set_option(asio::socket_base::send_buffer_size(kUdpSocketBufferBytes),
+                     ec);
   if (ec) {
     spdlog::warn("UDP 设置发送缓冲区失败: {}", ec.message());
   }
@@ -57,7 +58,8 @@ void UdpServer::HandlePacket(const lawnmower::Packet& packet,
       HandlePlayerInput(packet, from);
       break;
     default:
-      spdlog::debug("UDP 收到未处理消息类型 {}", static_cast<int>(packet.msg_type()));
+      spdlog::debug("UDP 收到未处理消息类型 {}",
+                    static_cast<int>(packet.msg_type()));
       break;
   }
 }
@@ -100,8 +102,8 @@ void UdpServer::HandlePlayerInput(const lawnmower::Packet& packet,
   }
 }
 
-std::size_t UdpServer::BroadcastState(uint32_t room_id,
-                                      const lawnmower::S2C_GameStateSync& sync) {
+std::size_t UdpServer::BroadcastState(
+    uint32_t room_id, const lawnmower::S2C_GameStateSync& sync) {
   const auto targets = EndpointsForRoom(room_id);
   if (targets.empty()) {
     return 0;
@@ -115,8 +117,8 @@ std::size_t UdpServer::BroadcastState(uint32_t room_id,
       std::make_shared<std::string>(packet.SerializeAsString());
 
   if (spdlog::should_log(spdlog::level::debug)) {
-    spdlog::debug("UDP 广播房间 {} 状态，玩家数 {}，目标端点 {}",
-                  room_id, sync.players_size(), targets.size());
+    spdlog::debug("UDP 广播房间 {} 状态，玩家数 {}，目标端点 {}", room_id,
+                  sync.players_size(), targets.size());
   }
   for (const auto& endpoint : targets) {
     SendPacket(data, endpoint);

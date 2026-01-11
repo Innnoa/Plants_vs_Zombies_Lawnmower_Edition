@@ -25,11 +25,13 @@ void ExtractUint(const std::string& content, std::string_view key, T* out) {
   }
 }
 
-void ExtractFloat(const std::string& content, std::string_view key, float* out) {
+void ExtractFloat(const std::string& content, std::string_view key,
+                  float* out) {
   if (out == nullptr) {
     return;
   }
-  std::regex re(std::string("\"") + std::string(key) + "\"\\s*:\\s*(\\d+\\.?\\d*)");
+  std::regex re(std::string("\"") + std::string(key) +
+                "\"\\s*:\\s*(\\d+\\.?\\d*)");
   std::smatch match;
   if (std::regex_search(content, match, re) && match.size() > 1) {
     try {

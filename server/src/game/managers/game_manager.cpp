@@ -344,7 +344,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       bool consumed_input = false;
       double processed_seconds = 0.0;
 
-      // 消耗输入队列，尽量在当前 tick 内吃掉完整的输入 delta（上限 kMaxTickDeltaSeconds）
+      // 消耗输入队列，尽量在当前 tick 内吃掉完整的输入 delta（上限
+      // kMaxTickDeltaSeconds）
       while (!runtime.pending_inputs.empty() &&
              processed_seconds < kMaxTickDeltaSeconds) {
         auto& input = runtime.pending_inputs.front();
@@ -352,11 +353,10 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         const float dy_raw = input.move_direction().y();
         const float len_sq = dx_raw * dx_raw + dy_raw * dy_raw;
 
-        const double reported_dt =
-            input.delta_ms() > 0
-                ? std::clamp(input.delta_ms() / 1000.0, 0.0,
-                             kMaxInputDeltaSeconds)
-                : tick_interval_seconds;
+        const double reported_dt = input.delta_ms() > 0
+                                       ? std::clamp(input.delta_ms() / 1000.0,
+                                                    0.0, kMaxInputDeltaSeconds)
+                                       : tick_interval_seconds;
         const double remaining_budget =
             kMaxTickDeltaSeconds - processed_seconds;
         const double input_dt = std::min(reported_dt, remaining_budget);
@@ -403,10 +403,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         const double remaining_dt = reported_dt - input_dt;
         if (remaining_dt > 1e-5) {
           // 当前 tick 只消耗了一部分，保留剩余 delta_ms 在队首
-          const uint32_t remaining_ms = static_cast<uint32_t>(
-              std::clamp(std::llround(remaining_dt * 1000.0), 1LL,
-                         static_cast<long long>(kMaxInputDeltaSeconds *
-                                                 1000.0)));
+          const uint32_t remaining_ms = static_cast<uint32_t>(std::clamp(
+              std::llround(remaining_dt * 1000.0), 1LL,
+              static_cast<long long>(kMaxInputDeltaSeconds * 1000.0)));
           input.set_delta_ms(remaining_ms);
           break;
         } else {
@@ -473,7 +472,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     return;
   }
 
-  if (udp_server_ != nullptr && udp_server_->BroadcastState(room_id, sync) > 0) {
+  if (udp_server_ != nullptr &&
+      udp_server_->BroadcastState(room_id, sync) > 0) {
     return;
   }
 
