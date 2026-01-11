@@ -30,4 +30,3 @@ inline const EnemyType* FindEnemyType(uint32_t type_id) {
   }
   return nullptr;
 }
-

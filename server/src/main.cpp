@@ -10,22 +10,31 @@
 int main() {
   try {
     ServerConfig config;
+    // 加载配置
     const bool loaded = LoadServerConfig(&config);
     if (!loaded) {
       spdlog::warn("未找到配置文件，使用默认配置");
     }
 
+    // 设置io上下文
     asio::io_context io;
+    // 设置游戏管理与房间管理基本配置
     GameManager::Instance().SetConfig(config);
     RoomManager::Instance().SetConfig(config);
 
+    // 单例设置游戏管理io上下文
     GameManager::Instance().SetIoContext(&io);
+    // 设置udp服务器io上下文与端口
     UdpServer udp_server(io, config.udp_port);
+    // 单例设置游戏管理udp服务器
     GameManager::Instance().SetUdpServer(&udp_server);
+    // 设置tcp服务器io上下文与端口
     TcpServer tcp_server(io, config.tcp_port);
 
+    // 设置日志默认等级
     spdlog::level::level_enum level = spdlog::level::info;
     try {
+      // 获取配置中日志等级
       level = spdlog::level::from_str(config.log_level);
     } catch (...) {
       spdlog::warn("日志等级 {} 不合法，使用 info", config.log_level);
@@ -40,6 +49,7 @@ int main() {
     udp_server.Start();
     tcp_server.start();
 
+    // 不知道干什么用的
     io.run();
   } catch (std::exception& e) {
     spdlog::error("错误: {}", e.what());

@@ -7,7 +7,7 @@
 
 // 为什么提取函数要放在namespace里
 namespace {
-  // 搜寻config文件
+// 搜寻config文件
 constexpr std::array<const char*, 3> kConfigPaths = {
     "config/server_config.json", "../config/server_config.json",
     "server/config/server_config.json"};
@@ -72,6 +72,7 @@ void ExtractString(const std::string& content, std::string_view key,
 }
 }  // namespace
 
+// 加载服务器配置
 bool LoadServerConfig(ServerConfig* out) {
   if (out == nullptr) {
     return false;
@@ -79,6 +80,7 @@ bool LoadServerConfig(ServerConfig* out) {
 
   ServerConfig cfg;
   std::ifstream file;
+  // 查找可用配置路径
   for (const auto* path : kConfigPaths) {
     file = std::ifstream(path);
     if (file.is_open()) {
@@ -90,9 +92,11 @@ bool LoadServerConfig(ServerConfig* out) {
     return false;
   }
 
+  // string特殊构造，接受两个迭代器，迭代器活动并将内容存至content
   const std::string content((std::istreambuf_iterator<char>(file)),
                             std::istreambuf_iterator<char>());
 
+  // 提取各配置
   ExtractUint(content, "tcp_port", &cfg.tcp_port);
   ExtractUint(content, "udp_port", &cfg.udp_port);
   ExtractUint(content, "max_players_per_room", &cfg.max_players_per_room);

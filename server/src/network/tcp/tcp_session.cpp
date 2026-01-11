@@ -41,24 +41,33 @@ void BroadcastToRoom(std::span<const std::weak_ptr<TcpSession>> sessions,
 
 // 用于给 player 赋 id，next_player_id_ 是静态的
 std::atomic<uint32_t> TcpSession::next_player_id_{1};
-// 当前活跃会话数
+// 当前活跃会话数,原子量
 std::atomic<uint32_t> TcpSession::active_sessions_{0};
+// 会话token
 std::unordered_map<uint32_t, std::string> TcpSession::session_tokens_{};
+// mutex互斥锁
 std::mutex TcpSession::token_mutex_;
 
+// 构造
 TcpSession::TcpSession(tcp::socket socket) : socket_(std::move(socket)) {}
 
 // 服务器入口函数
 void TcpSession::start() {
+  // fetch_add 原子加，memory_order_relaxed 宽松操作
   active_sessions_.fetch_add(1, std::memory_order_relaxed);
   read_header();
 }
 
+// 生成Token
 std::string TcpSession::GenerateToken() {
   std::array<uint8_t, kTokenBytes> buf{};
+  // 生成静态随机数使用梅森旋转算法，大小为unsigned longlong,
+  // rng重载了（）运算符，random_device{}()为种子
   static thread_local std::mt19937_64 rng(std::random_device{}());
   for (std::size_t i = 0; i < kTokenBytes; i += sizeof(uint64_t)) {
-    const uint64_t v = rng();
+    const uint64_t v = rng();  // 获取随机数
+
+    // 看不懂
     std::memcpy(buf.data() + i, &v,
                 std::min(sizeof(uint64_t), kTokenBytes - i));
   }

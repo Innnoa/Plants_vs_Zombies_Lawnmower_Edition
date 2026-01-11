@@ -25,7 +25,7 @@ constexpr float kDirectionEpsilonSq = 1e-6f;
 constexpr float kMaxDirectionLengthSq = 1.21f;    // 略放宽，防止浮点误差
 constexpr uint32_t kFullSyncIntervalTicks = 180;  // ~3s @60Hz
 
-constexpr int kNavCellSize = 100;  // px
+constexpr int kNavCellSize = 100;          // px
 constexpr float kEnemySpawnInset = 10.0f;  // 避免精确落在边界导致 clamp 抖动
 constexpr std::size_t kMaxEnemiesAlive = 256;
 constexpr double kWaveIntervalSeconds = 15.0;
@@ -35,7 +35,8 @@ constexpr double kEnemySpawnWaveGrowthPerSecond = 0.2;
 constexpr std::size_t kMaxEnemySpawnPerTick = 4;
 constexpr double kEnemyReplanIntervalSeconds = 0.25;
 constexpr float kEnemyWaypointReachRadius = 12.0f;
-constexpr uint32_t kEnemySpawnForceSyncCount = 6;  // 新刷怪多发几次，降低 UDP 丢包影响
+constexpr uint32_t kEnemySpawnForceSyncCount =
+    6;  // 新刷怪多发几次，降低 UDP 丢包影响
 
 // 计算朝向
 float DegreesFromDirection(float x, float y) {
@@ -77,18 +78,20 @@ int ClampInt(int v, int lo, int hi) { return std::min(std::max(v, lo), hi); }
 int ToIndex(const NavGrid& grid, int x, int y) { return y * grid.cells_x + x; }
 
 std::pair<int, int> WorldToCell(const NavGrid& grid, float x, float y) {
-  const int cx = ClampInt(static_cast<int>(x / static_cast<float>(grid.cell_size)),
-                          0, std::max(0, grid.cells_x - 1));
-  const int cy = ClampInt(static_cast<int>(y / static_cast<float>(grid.cell_size)),
-                          0, std::max(0, grid.cells_y - 1));
+  const int cx =
+      ClampInt(static_cast<int>(x / static_cast<float>(grid.cell_size)), 0,
+               std::max(0, grid.cells_x - 1));
+  const int cy =
+      ClampInt(static_cast<int>(y / static_cast<float>(grid.cell_size)), 0,
+               std::max(0, grid.cells_y - 1));
   return {cx, cy};
 }
 
 std::pair<float, float> CellCenterWorld(const NavGrid& grid, int cx, int cy) {
-  const float fx = (static_cast<float>(cx) + 0.5f) *
-                   static_cast<float>(grid.cell_size);
-  const float fy = (static_cast<float>(cy) + 0.5f) *
-                   static_cast<float>(grid.cell_size);
+  const float fx =
+      (static_cast<float>(cx) + 0.5f) * static_cast<float>(grid.cell_size);
+  const float fy =
+      (static_cast<float>(cy) + 0.5f) * static_cast<float>(grid.cell_size);
   return {fx, fy};
 }
 
@@ -101,8 +104,7 @@ float Heuristic(const std::pair<int, int>& a, const std::pair<int, int>& b) {
 bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
                    const std::pair<int, int>& goal,
                    std::vector<std::pair<int, int>>* out_path,
-                   std::vector<int>& came_from,
-                   std::vector<float>& g_score,
+                   std::vector<int>& came_from, std::vector<float>& g_score,
                    std::vector<uint8_t>& closed) {
   if (out_path == nullptr) {
     return false;
@@ -124,7 +126,8 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
 
   const int start_idx = ToIndex(grid, start.first, start.second);
   const int goal_idx = ToIndex(grid, goal.first, goal.second);
-  if (start_idx < 0 || start_idx >= total || goal_idx < 0 || goal_idx >= total) {
+  if (start_idx < 0 || start_idx >= total || goal_idx < 0 ||
+      goal_idx >= total) {
     return false;
   }
 
@@ -140,8 +143,14 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
   open.push(OpenNode{start_idx, Heuristic(start, goal), 0.0f});
 
   constexpr std::array<std::pair<int, int>, 8> kDirs = {{
-      {1, 0},  {-1, 0}, {0, 1},  {0, -1},
-      {1, 1},  {1, -1}, {-1, 1}, {-1, -1},
+      {1, 0},
+      {-1, 0},
+      {0, 1},
+      {0, -1},
+      {1, 1},
+      {1, -1},
+      {-1, 1},
+      {-1, -1},
   }};
 
   bool found = false;
@@ -171,7 +180,8 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
         continue;
       }
 
-      const float step_cost = (dx == 0 || dy == 0) ? 1.0f : std::numbers::sqrt2_v<float>;
+      const float step_cost =
+          (dx == 0 || dy == 0) ? 1.0f : std::numbers::sqrt2_v<float>;
       const float tentative_g =
           g_score[static_cast<std::size_t>(cur.idx)] + step_cost;
       if (tentative_g < g_score[static_cast<std::size_t>(nidx)]) {
@@ -428,7 +438,7 @@ lawnmower::SceneInfo GameManager::CreateScene(
   }
 
   Scene scene;
-  scene.config = BuildDefaultConfig();           // 构建默认配置
+  scene.config = BuildDefaultConfig();  // 构建默认配置
   scene.next_enemy_id = 1;
   scene.elapsed = 0.0;
   scene.spawn_elapsed = 0.0;
@@ -438,9 +448,9 @@ lawnmower::SceneInfo GameManager::CreateScene(
     scene.rng_state = 1;
   }
 
-  scene.nav_cells_x =
-      std::max(1, static_cast<int>((scene.config.width + kNavCellSize - 1) /
-                                   kNavCellSize));
+  scene.nav_cells_x = std::max(
+      1,
+      static_cast<int>((scene.config.width + kNavCellSize - 1) / kNavCellSize));
   scene.nav_cells_y =
       std::max(1, static_cast<int>((scene.config.height + kNavCellSize - 1) /
                                    kNavCellSize));
@@ -450,7 +460,7 @@ lawnmower::SceneInfo GameManager::CreateScene(
   scene.nav_g_score.assign(nav_cells, 0.0f);
   scene.nav_closed.assign(nav_cells, 0);
 
-  PlacePlayers(snapshot, &scene);                // 放置玩家？
+  PlacePlayers(snapshot, &scene);  // 放置玩家？
 
   auto spawn_enemy = [&](uint32_t type_id) {
     if (scene.enemies.size() >= kMaxEnemiesAlive) {
@@ -506,8 +516,9 @@ lawnmower::SceneInfo GameManager::CreateScene(
   const std::size_t initial_enemy_count =
       std::max<std::size_t>(1, snapshot.players.size() * 2);
   for (std::size_t i = 0; i < initial_enemy_count; ++i) {
-    const std::size_t idx = static_cast<std::size_t>(NextRng(&scene.rng_state)) %
-                            kEnemyTypes.size();
+    const std::size_t idx =
+        static_cast<std::size_t>(NextRng(&scene.rng_state)) %
+        kEnemyTypes.size();
     spawn_enemy(kEnemyTypes[idx].type_id);
   }
   scenes_[snapshot.room_id] = std::move(scene);  // 房间对应会话map
@@ -685,9 +696,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     scene.wave_id = std::max<uint32_t>(
         1, 1u + static_cast<uint32_t>(scene.elapsed / kWaveIntervalSeconds));
 
-    const std::size_t alive_players =
-        std::count_if(scene.players.begin(), scene.players.end(),
-                      [](const auto& kv) { return kv.second.state.is_alive(); });
+    const std::size_t alive_players = std::count_if(
+        scene.players.begin(), scene.players.end(),
+        [](const auto& kv) { return kv.second.state.is_alive(); });
 
     auto spawn_enemy = [&](uint32_t type_id) {
       if (scene.enemies.size() >= kMaxEnemiesAlive) {
@@ -775,7 +786,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     }
 
     const NavGrid nav{scene.nav_cells_x, scene.nav_cells_y, kNavCellSize};
-    const float reach_sq = kEnemyWaypointReachRadius * kEnemyWaypointReachRadius;
+    const float reach_sq =
+        kEnemyWaypointReachRadius * kEnemyWaypointReachRadius;
 
     auto nearest_player_id = [&](float x, float y) -> uint32_t {
       uint32_t best_id = 0;
@@ -820,7 +832,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       const bool target_changed = (enemy.target_player_id != target_id);
       enemy.replan_elapsed += dt_seconds;
 
-      if (target_changed || enemy.replan_elapsed >= kEnemyReplanIntervalSeconds) {
+      if (target_changed ||
+          enemy.replan_elapsed >= kEnemyReplanIntervalSeconds) {
         enemy.target_player_id = target_id;
         enemy.replan_elapsed = 0.0;
 
@@ -881,13 +894,14 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         }
         const float speed = type->move_speed > 0.0f ? type->move_speed : 60.0f;
 
-        const auto new_pos = ClampToMap(
-            scene.config,
-            prev_x + dir_x * speed * static_cast<float>(dt_seconds),
-            prev_y + dir_y * speed * static_cast<float>(dt_seconds));
+        const auto new_pos =
+            ClampToMap(scene.config,
+                       prev_x + dir_x * speed * static_cast<float>(dt_seconds),
+                       prev_y + dir_y * speed * static_cast<float>(dt_seconds));
         const float new_x = new_pos.x();
         const float new_y = new_pos.y();
-        if (std::abs(new_x - prev_x) > 1e-4f || std::abs(new_y - prev_y) > 1e-4f) {
+        if (std::abs(new_x - prev_x) > 1e-4f ||
+            std::abs(new_y - prev_y) > 1e-4f) {
           pos->set_x(new_x);
           pos->set_y(new_y);
           enemy.dirty = true;
@@ -972,7 +986,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     return;
   }
 
-  // Full sync 往往包含完整敌人列表，UDP 易发生分片丢包；优先走 TCP（可靠）作为兜底快照。
+  // Full sync 往往包含完整敌人列表，UDP 易发生分片丢包；优先走
+  // TCP（可靠）作为兜底快照。
   if (!force_full_sync) {
     if (udp_server_ != nullptr &&
         udp_server_->BroadcastState(room_id, sync) > 0) {
