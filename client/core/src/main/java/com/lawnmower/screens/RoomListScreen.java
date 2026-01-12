@@ -232,6 +232,22 @@ public class RoomListScreen implements Screen {
         });
     }
 
+    public void onCreateRoomResult(Message.S2C_CreateRoomResult result) {
+        Gdx.app.postRunnable(() -> {
+            if (result.getSuccess()) {
+                Gdx.app.log("RoomList", "创建房间成功，等待进入房间 (roomId=" + result.getRoomId() + ")");
+                return;
+            }
+            if (errorPopup != null) {
+                String message = result.getMessageCreate();
+                if (message == null || message.isBlank()) {
+                    message = "创建房间失败，请稍后重试";
+                }
+                errorPopup.showError(message);
+            }
+        });
+    }
+
     private void openCreateRoomDialog() {
         float targetX = 750;
         float targetY = 400;

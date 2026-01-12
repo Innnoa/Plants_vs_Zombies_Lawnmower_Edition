@@ -157,6 +157,25 @@ public class GameRoomScreen implements Screen {
         });
     }
 
+    public void onSetReadyResult(Message.S2C_SetReadyResult result) {
+        Gdx.app.postRunnable(() -> {
+            if (!result.getSuccess()) {
+                if (errorController != null) {
+                    String message = result.getMessageReady();
+                    if (message == null || message.isBlank()) {
+                        message = "准备操作失败";
+                    }
+                    errorController.showError(message);
+                }
+                return;
+            }
+            amIReady = result.getIsReady();
+            if (readyButton != null) {
+                readyButton.setText(amIReady ? "取消准备" : "准备");
+            }
+        });
+    }
+
     private void updatePlayerSlotPosition() {
         playerSlotTable.validate();
         playerSlotTable.pack();

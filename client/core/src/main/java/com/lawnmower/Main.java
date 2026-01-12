@@ -187,6 +187,8 @@ public class Main extends Game {
                 return Message.S2C_LoginResult.parseFrom(packet.getPayload());
             case MSG_S2C_ROOM_LIST:
                 return Message.S2C_RoomList.parseFrom(packet.getPayload());
+            case MSG_S2C_CREATE_ROOM_RESULT:
+                return Message.S2C_CreateRoomResult.parseFrom(packet.getPayload());
             case MSG_S2C_ROOM_UPDATE:
                 return Message.S2C_RoomUpdate.parseFrom(packet.getPayload());
             case MSG_S2C_GAME_START:
@@ -205,6 +207,8 @@ public class Main extends Game {
                 return Message.S2C_DroppedItem.parseFrom(packet.getPayload());
             case MSG_S2C_GAME_OVER:
                 return Message.S2C_GameOver.parseFrom(packet.getPayload());
+            case MSG_S2C_SET_READY_RESULT:
+                return Message.S2C_SetReadyResult.parseFrom(packet.getPayload());
             default:
                 Gdx.app.log("NET", "Unknown message type: " + type);
                 return null;
@@ -425,6 +429,15 @@ public class Main extends Game {
                     }
                     break;
 
+                case MSG_S2C_CREATE_ROOM_RESULT:
+                    Message.S2C_CreateRoomResult createRoomResult = (Message.S2C_CreateRoomResult) message;
+                    if (getScreen() instanceof RoomListScreen roomListScreen) {
+                        roomListScreen.onCreateRoomResult(createRoomResult);
+                    } else if (!createRoomResult.getSuccess()) {
+                        log.warn("Create room failed (roomId={}): {}", createRoomResult.getRoomId(), createRoomResult.getMessageCreate());
+                    }
+                    break;
+
                 case MSG_S2C_ROOM_LIST:
                     if (getScreen() instanceof RoomListScreen roomList) {
                         Message.S2C_RoomList list = (Message.S2C_RoomList) message;
@@ -462,6 +475,15 @@ public class Main extends Game {
                     if (getScreen() instanceof GameScreen gameScreenDelta) {
                         Message.S2C_GameStateDeltaSync delta = (Message.S2C_GameStateDeltaSync) message;
                         gameScreenDelta.onGameStateDeltaReceived(delta);
+                    }
+                    break;
+
+                case MSG_S2C_SET_READY_RESULT:
+                    Message.S2C_SetReadyResult readyResult = (Message.S2C_SetReadyResult) message;
+                    if (getScreen() instanceof GameRoomScreen gameRoomScreen) {
+                        gameRoomScreen.onSetReadyResult(readyResult);
+                    } else if (!readyResult.getSuccess()) {
+                        log.warn("Set ready failed outside GameRoomScreen: {}", readyResult.getMessageReady());
                     }
                     break;
 
