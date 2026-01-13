@@ -137,9 +137,23 @@ class GameManager {
     std::shared_ptr<asio::steady_timer> loop_timer;
   };
 
+  static constexpr uint32_t kEnemySpawnForceSyncCount =
+      6;  // 新刷怪多发几次，降低 UDP 丢包影响
+  static uint32_t NextRng(uint32_t* state);
+  static float NextRngUnitFloat(uint32_t* state);
+
   SceneConfig BuildDefaultConfig() const;
   void PlacePlayers(const RoomManager::RoomSnapshot& snapshot, Scene* scene);
   void ProcessSceneTick(uint32_t room_id, double tick_interval_seconds);
+  void ProcessCombatAndProjectiles(
+      Scene& scene, double dt_seconds,
+      std::vector<lawnmower::S2C_PlayerHurt>* player_hurts,
+      std::vector<lawnmower::S2C_EnemyDied>* enemy_dieds,
+      std::vector<lawnmower::S2C_PlayerLevelUp>* level_ups,
+      std::optional<lawnmower::S2C_GameOver>* game_over,
+      std::vector<lawnmower::ProjectileState>* projectile_spawns,
+      std::vector<lawnmower::ProjectileDespawn>* projectile_despawns,
+      bool* has_dirty);
   void ScheduleGameTick(uint32_t room_id, std::chrono::microseconds interval,
                         const std::shared_ptr<asio::steady_timer>& timer,
                         double tick_interval_seconds);

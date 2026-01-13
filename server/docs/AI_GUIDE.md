@@ -26,7 +26,7 @@
 - 全局启用 `-std=c++20`，尽量使用现代工具：`std::array`、`std::string_view`、`std::optional`、`[[nodiscard]]` 等。
 - 模块分层：网络 (`include/src/network/tcp`)、房间管理 (`game/managers/room_manager.*`)、游戏逻辑 (`game/managers/game_manager.*`)、入口 (`src/main.cpp`)。
 - 避免改变协议/逻辑的同时拆分职责；使用 `spdlog` 记录关键路径（错误/警告/调试）。
-- 配置：`config/server_config.json` 支持读取地图尺寸、tick 频率、移动速度以及刷怪/波次参数（`ServerConfig` + `LoadServerConfig`）。
+- 配置：`config/server_config.json` 支持读取地图尺寸、tick 频率、移动速度，以及刷怪/波次与射弹/战斗参数（`ServerConfig` + `LoadServerConfig`），便于快速调参而无需重新编译。
 
 ## 扩展提示
 - 新消息类型：在 `TcpSession::handle_packet` 中增加 case，并在相应管理器实现处理逻辑；广播时优先使用弱引用会话列表。

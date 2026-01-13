@@ -12,5 +12,12 @@
     "enemy_spawn_wave_growth_per_second": 0.1,
     "max_enemies_alive": 20,
     "max_enemy_spawn_per_tick": 1,
+    "projectile_speed": 420.0,
+    "projectile_radius": 6.0,
+    "projectile_muzzle_offset": 22.0,
+    "projectile_ttl_seconds": 2.5,
+    "projectile_max_shots_per_tick": 4,
+    "projectile_attack_min_interval_seconds": 0.05,
+    "projectile_attack_max_interval_seconds": 2.0,
     "log_level": "debug"
 }

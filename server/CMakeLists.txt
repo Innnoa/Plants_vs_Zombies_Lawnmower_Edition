@@ -50,6 +50,7 @@ add_executable(server
   src/config/server_config.cpp
   src/game/managers/room_manager.cpp
   src/game/managers/game_manager.cpp
+  src/game/managers/game_manager_combat.cpp
 )
 target_include_directories(server PRIVATE include)
 target_compile_definitions(server PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
