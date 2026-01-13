@@ -67,6 +67,8 @@ enum MessageType{
   MSG_S2C_DROPPED_ITEM = 44; // 广播： 掉落道具
   MSG_S2C_GAME_OVER = 45; // 广播： 游戏结束
   MSG_S2C_GAME_STATE_DELTA_SYNC = 46; // 广播：高频 Delta 同步（仅变化字段）
+  MSG_S2C_PROJECTILE_SPAWN = 47; // 广播： 发射射弹（如豌豆）
+  MSG_S2C_PROJECTILE_DESPAWN = 48; // 广播： 射弹消失（命中/超界/过期）
 }   
 
 // =============================
@@ -235,6 +237,30 @@ message Projectile {
     uint32 damage = 5;              // 总伤害（服务端计算后下发）
 }
 
+// 射弹实例状态（用于发射/消失事件；方案二不做逐帧同步，由客户端本地模拟飞行）
+message ProjectileState {
+    uint32 projectile_id = 1;      // 射弹实例ID（运行时生成）
+    uint32 owner_player_id = 2;    // 发射者玩家ID
+    Vector2 position = 3;          // 发射时位置（像素）
+    float rotation = 4;            // 发射方向（角度，单位：度）
+    uint32 ttl_ms = 5;             // 生存时间（ms，客户端用于本地回收）
+    Projectile projectile = 6;     // 射弹属性（速度/伤害/buff 等）
+}
+
+enum ProjectileDespawnReason {
+    PROJECTILE_DESPAWN_UNKNOWN = 0;
+    PROJECTILE_DESPAWN_HIT = 1;          // 命中后消失
+    PROJECTILE_DESPAWN_OUT_OF_BOUNDS = 2; // 飞出地图
+    PROJECTILE_DESPAWN_EXPIRED = 3;       // 超时回收
+}
+
+message ProjectileDespawn {
+    uint32 projectile_id = 1;                // 射弹实例ID
+    ProjectileDespawnReason reason = 2;      // 消失原因
+    uint32 hit_enemy_id = 3;                 // 命中的敌人ID（无则为0）
+    Vector2 position = 4;                    // 消失位置（像素，用于特效）
+}
+
 // 敌人状态
 message EnemyState {
     uint32 enemy_id = 1;           // 敌人实例ID（运行时生成）
@@ -335,6 +361,22 @@ message S2C_GameStateSync {
   repeated ItemState items = 4;                // 道具状态（如新掉落或被拾取）,容器
   uint32 room_id = 5;                          // 所属房间ID（便于客户端路由/校验）
   uint64 server_time_ms = 6;                   // 服务器当前时间戳（毫秒）
+}
+
+// 射弹发射广播：客户端据此创建本地射弹并模拟飞行
+message S2C_ProjectileSpawn {
+  Timestamp sync_time = 1;
+  uint32 room_id = 2;
+  uint64 server_time_ms = 3;
+  repeated ProjectileState projectiles = 4;
+}
+
+// 射弹消失广播：客户端据此移除本地射弹（命中/超界/过期）
+message S2C_ProjectileDespawn {
+  Timestamp sync_time = 1;
+  uint32 room_id = 2;
+  uint64 server_time_ms = 3;
+  repeated ProjectileDespawn projectiles = 4;
 }
 
 // 玩家受伤广播

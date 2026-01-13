@@ -15,6 +15,8 @@
 - 开局：房主发送 `MSG_C2S_START_GAME` → 校验 → 生成房间快照 → `GameManager::CreateScene` → 广播 `MSG_S2C_GAME_START` + 初始 `MSG_S2C_GAME_STATE_SYNC`，随后进入逻辑循环。
 - 输入：玩家发送 `MSG_C2S_PLAYER_INPUT`，服务端入队（按照 `input_seq` 去重）并在逻辑帧内推进位置、限制边界，定期增量/全量同步 `MSG_S2C_GAME_STATE_SYNC`。
 - 敌人：服务端在 tick 内按波次/速率生成敌人，并基于寻路/追踪逻辑更新敌人坐标；敌人状态同样通过 `MSG_S2C_GAME_STATE_SYNC` 的 `enemies` 字段广播。
+- 战斗：服务端在 tick 内进行碰撞检测与伤害结算（射弹命中、敌人接触伤害），并通过事件广播告知客户端：`MSG_S2C_PLAYER_HURT` / `MSG_S2C_ENEMY_DIED` / `MSG_S2C_PLAYER_LEVEL_UP` / `MSG_S2C_GAME_OVER`（事件走 TCP 以保证可靠性）。
+- 射弹（方案二）：服务端权威生成/推进射弹并判定命中，同时广播 `MSG_S2C_PROJECTILE_SPAWN` / `MSG_S2C_PROJECTILE_DESPAWN`；客户端收到 spawn 后本地模拟飞行，收到 despawn 后移除射弹表现。
 
 ## 线程安全与时间
 - 房间/游戏状态通过 `std::mutex` 保护；网络 IO 依赖 Asio 的单线程 `io_context` 驱动。
@@ -24,7 +26,7 @@
 - 全局启用 `-std=c++20`，尽量使用现代工具：`std::array`、`std::string_view`、`std::optional`、`[[nodiscard]]` 等。
 - 模块分层：网络 (`include/src/network/tcp`)、房间管理 (`game/managers/room_manager.*`)、游戏逻辑 (`game/managers/game_manager.*`)、入口 (`src/main.cpp`)。
 - 避免改变协议/逻辑的同时拆分职责；使用 `spdlog` 记录关键路径（错误/警告/调试）。
-- 配置：`config/server_config.json` 支持读取地图尺寸、tick 频率与移动速度（`GameManager::LoadConfigFromFile`）。
+- 配置：`config/server_config.json` 支持读取地图尺寸、tick 频率、移动速度以及刷怪/波次参数（`ServerConfig` + `LoadServerConfig`）。
 
 ## 扩展提示
 - 新消息类型：在 `TcpSession::handle_packet` 中增加 case，并在相应管理器实现处理逻辑；广播时优先使用弱引用会话列表。

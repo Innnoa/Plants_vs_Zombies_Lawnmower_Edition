@@ -13,6 +13,7 @@ constexpr std::chrono::seconds kEndpointTtl{10};
 constexpr int kUdpSocketBufferBytes = 256 * 1024;
 }  // namespace
 
+// 构造
 UdpServer::UdpServer(asio::io_context& io, uint16_t port)
     : io_context_(io), socket_(io_context_, udp::endpoint(udp::v4(), port)) {
   asio::error_code ec;

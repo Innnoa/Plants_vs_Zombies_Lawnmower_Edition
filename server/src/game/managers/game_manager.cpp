@@ -27,16 +27,18 @@ constexpr uint32_t kFullSyncIntervalTicks = 180;  // ~3s @60Hz
 
 constexpr int kNavCellSize = 100;          // px
 constexpr float kEnemySpawnInset = 10.0f;  // 避免精确落在边界导致 clamp 抖动
-constexpr std::size_t kMaxEnemiesAlive = 256;
-constexpr double kWaveIntervalSeconds = 15.0;
-constexpr double kEnemySpawnBasePerSecond = 1.0;
-constexpr double kEnemySpawnPerPlayerPerSecond = 0.75;
-constexpr double kEnemySpawnWaveGrowthPerSecond = 0.2;
-constexpr std::size_t kMaxEnemySpawnPerTick = 4;
 constexpr double kEnemyReplanIntervalSeconds = 0.25;
 constexpr float kEnemyWaypointReachRadius = 12.0f;
 constexpr uint32_t kEnemySpawnForceSyncCount =
     6;  // 新刷怪多发几次，降低 UDP 丢包影响
+
+// 碰撞/战斗相关（后续可考虑挪到配置）
+constexpr float kPlayerCollisionRadius = 18.0f;
+constexpr float kEnemyCollisionRadius = 16.0f;
+constexpr double kEnemyAttackIntervalSeconds = 0.8;  // 同一敌人对同一玩家的伤害间隔
+constexpr double kEnemyDespawnDelaySeconds = 3.0;    // 死亡敌人保留时间（用于客户端表现）
+constexpr double kMinAttackIntervalSeconds = 0.05;   // clamp 极端攻速
+constexpr double kMaxAttackIntervalSeconds = 2.0;
 
 // 计算朝向
 float DegreesFromDirection(float x, float y) {
@@ -45,6 +47,17 @@ float DegreesFromDirection(float x, float y) {
   }
   const float angle_rad = std::atan2(y, x);
   return angle_rad * 180.0f / std::numbers::pi_v<float>;
+}
+
+float DistanceSq(float ax, float ay, float bx, float by) {
+  const float dx = ax - bx;
+  const float dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+bool CirclesOverlap(float ax, float ay, float ar, float bx, float by, float br) {
+  const float r = ar + br;
+  return DistanceSq(ax, ay, bx, by) <= r * r;
 }
 
 std::chrono::milliseconds NowMs() {
@@ -65,6 +78,16 @@ float NextRngUnitFloat(uint32_t* state) {
   const uint32_t r = NextRng(state);
   // Use high 24 bits to build [0,1) float.
   return static_cast<float>((r >> 8) & 0x00FFFFFF) * (1.0f / 16777216.0f);
+}
+
+double PlayerAttackIntervalSeconds(uint32_t attack_speed) {
+  // attack_speed 语义：数值越大越快（默认 1 表示 1 次/秒）。
+  if (attack_speed == 0) {
+    return 1.0;
+  }
+  const double interval = 1.0 / static_cast<double>(attack_speed);
+  return std::clamp(interval, kMinAttackIntervalSeconds,
+                    kMaxAttackIntervalSeconds);
 }
 
 struct NavGrid {
@@ -286,8 +309,25 @@ void GameManager::ScheduleGameTick(
     }
 
     ProcessSceneTick(room_id, tick_interval_seconds);
+    if (!ShouldRescheduleTick(room_id, timer)) {
+      return;
+    }
     ScheduleGameTick(room_id, interval, timer, tick_interval_seconds);
   });
+}
+
+bool GameManager::ShouldRescheduleTick(
+    uint32_t room_id, const std::shared_ptr<asio::steady_timer>& timer) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = scenes_.find(room_id);
+  if (it == scenes_.end()) {
+    return false;
+  }
+  const Scene& scene = it->second;
+  if (scene.game_over) {
+    return false;
+  }
+  return scene.loop_timer == timer;
 }
 
 void GameManager::StartGameLoop(uint32_t room_id) {
@@ -397,6 +437,9 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
     // 设置基本信息
     PlayerRuntime runtime;
     runtime.state.set_player_id(player.player_id);
+    runtime.player_name = player.player_name.empty()
+                              ? ("玩家" + std::to_string(player.player_id))
+                              : player.player_name;
     runtime.state.mutable_position()->set_x(clamped_pos.x());
     runtime.state.mutable_position()->set_y(clamped_pos.y());
     runtime.state.set_rotation(angle * 180.0f / std::numbers::pi_v<float>);
@@ -440,9 +483,11 @@ lawnmower::SceneInfo GameManager::CreateScene(
   Scene scene;
   scene.config = BuildDefaultConfig();  // 构建默认配置
   scene.next_enemy_id = 1;
+  scene.next_projectile_id = 1;
   scene.elapsed = 0.0;
   scene.spawn_elapsed = 0.0;
   scene.wave_id = 1;
+  scene.game_over = false;
   scene.rng_state = snapshot.room_id ^ static_cast<uint32_t>(NowMs().count());
   if (scene.rng_state == 0) {
     scene.rng_state = 1;
@@ -462,8 +507,11 @@ lawnmower::SceneInfo GameManager::CreateScene(
 
   PlacePlayers(snapshot, &scene);  // 放置玩家？
 
+  const std::size_t max_enemies_alive =
+      config_.max_enemies_alive > 0 ? config_.max_enemies_alive : 256;
+
   auto spawn_enemy = [&](uint32_t type_id) {
-    if (scene.enemies.size() >= kMaxEnemiesAlive) {
+    if (scene.enemies.size() >= max_enemies_alive) {
       return;
     }
     const EnemyType* type = FindEnemyType(type_id);
@@ -514,7 +562,8 @@ lawnmower::SceneInfo GameManager::CreateScene(
   };
 
   const std::size_t initial_enemy_count =
-      std::max<std::size_t>(1, snapshot.players.size() * 2);
+      std::min<std::size_t>(max_enemies_alive,
+                            std::max<std::size_t>(1, snapshot.players.size() * 2));
   for (std::size_t i = 0; i < initial_enemy_count; ++i) {
     const std::size_t idx =
         static_cast<std::size_t>(NextRng(&scene.rng_state)) %
@@ -576,6 +625,15 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   lawnmower::S2C_GameStateSync sync;
   bool force_full_sync = false;
   bool should_sync = false;
+  bool built_sync = false;
+
+  std::vector<lawnmower::S2C_PlayerHurt> player_hurts;
+  std::vector<lawnmower::S2C_EnemyDied> enemy_dieds;
+  std::vector<lawnmower::S2C_PlayerLevelUp> level_ups;
+  std::optional<lawnmower::S2C_GameOver> game_over;
+  std::vector<lawnmower::ProjectileState> projectile_spawns;
+  std::vector<lawnmower::ProjectileDespawn> projectile_despawns;
+  uint64_t event_tick = 0;
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -585,6 +643,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     }
 
     Scene& scene = scene_it->second;
+    if (scene.game_over) {
+      return;
+    }
     auto fill_player_high_freq = [](const PlayerRuntime& runtime,
                                     lawnmower::PlayerState* out) {
       if (out == nullptr) {
@@ -596,6 +657,24 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       out->set_rotation(runtime.state.rotation());
       out->set_is_alive(runtime.state.is_alive());
       out->set_last_processed_input_seq(runtime.last_input_seq);
+    };
+
+    auto fill_player_for_sync = [&](PlayerRuntime& runtime,
+                                   lawnmower::PlayerState* out) {
+      if (out == nullptr) {
+        return;
+      }
+      if (runtime.low_freq_dirty) {
+        *out = runtime.state;
+        out->set_last_processed_input_seq(runtime.last_input_seq);
+      } else {
+        fill_player_high_freq(runtime, out);
+      }
+    };
+
+    auto mark_player_low_freq_dirty = [](PlayerRuntime& runtime) {
+      runtime.low_freq_dirty = true;
+      runtime.dirty = true;
     };
 
     const auto now = std::chrono::steady_clock::now();
@@ -613,6 +692,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     bool has_dirty = false;
 
     for (auto& [_, runtime] : scene.players) {
+      runtime.attack_cooldown_seconds -= dt_seconds;
       bool moved = false;
       bool consumed_input = false;
       double processed_seconds = 0.0;
@@ -634,8 +714,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
             kMaxTickDeltaSeconds - processed_seconds;
         const double input_dt = std::min(reported_dt, remaining_budget);
 
+        const bool can_move = runtime.state.is_alive();
         if (len_sq >= kDirectionEpsilonSq && len_sq <= kMaxDirectionLengthSq &&
-            input_dt > 0.0) {
+            input_dt > 0.0 && can_move) {
           const float len = std::sqrt(len_sq);
           const float dx = dx_raw / len;
           const float dy = dy_raw / len;
@@ -686,22 +767,50 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         }
       }
 
-      if (moved || consumed_input) {
+      if (moved || consumed_input || runtime.low_freq_dirty) {
         runtime.dirty = true;
       }
-      has_dirty = has_dirty || runtime.dirty;
+      has_dirty = has_dirty || runtime.dirty || runtime.low_freq_dirty;
     }
 
     scene.elapsed += dt_seconds;
+    const double wave_interval_seconds =
+        config_.wave_interval_seconds > 0.0f
+            ? static_cast<double>(config_.wave_interval_seconds)
+            : 15.0;
     scene.wave_id = std::max<uint32_t>(
-        1, 1u + static_cast<uint32_t>(scene.elapsed / kWaveIntervalSeconds));
+        1, 1u + static_cast<uint32_t>(scene.elapsed / wave_interval_seconds));
 
     const std::size_t alive_players = std::count_if(
         scene.players.begin(), scene.players.end(),
         [](const auto& kv) { return kv.second.state.is_alive(); });
 
+    // 清理已死亡的敌人（在客户端收到死亡事件后可移除渲染）
+    for (auto it = scene.enemies.begin(); it != scene.enemies.end();) {
+      EnemyRuntime& enemy = it->second;
+      if (!enemy.state.is_alive()) {
+        enemy.dead_elapsed_seconds += dt_seconds;
+        if (enemy.force_sync_left == 0 &&
+            enemy.dead_elapsed_seconds >= kEnemyDespawnDelaySeconds) {
+          it = scene.enemies.erase(it);
+          continue;
+        }
+      }
+      ++it;
+    }
+
+    std::size_t alive_enemies = std::count_if(
+        scene.enemies.begin(), scene.enemies.end(),
+        [](const auto& kv) { return kv.second.state.is_alive(); });
+
+    const std::size_t max_enemies_alive =
+        config_.max_enemies_alive > 0 ? config_.max_enemies_alive : 256;
+    const std::size_t max_spawn_per_tick =
+        config_.max_enemy_spawn_per_tick > 0 ? config_.max_enemy_spawn_per_tick
+                                             : 4;
+
     auto spawn_enemy = [&](uint32_t type_id) {
-      if (scene.enemies.size() >= kMaxEnemiesAlive) {
+      if (alive_enemies >= max_enemies_alive) {
         return false;
       }
       if (alive_players == 0) {
@@ -753,25 +862,32 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       runtime.force_sync_left = kEnemySpawnForceSyncCount;
       runtime.dirty = true;
       scene.enemies.emplace(runtime.state.enemy_id(), std::move(runtime));
+      alive_enemies += 1;
       return true;
     };
 
     if (alive_players > 0) {
+      const double base_spawn = std::max(
+          0.0, static_cast<double>(config_.enemy_spawn_base_per_second));
+      const double per_player_spawn = std::max(
+          0.0,
+          static_cast<double>(config_.enemy_spawn_per_player_per_second));
+      const double wave_growth_spawn = std::max(
+          0.0,
+          static_cast<double>(config_.enemy_spawn_wave_growth_per_second));
       const double wave_boost =
           static_cast<double>(scene.wave_id > 0 ? scene.wave_id - 1 : 0);
       const double spawn_rate =
-          std::clamp(kEnemySpawnBasePerSecond +
-                         kEnemySpawnPerPlayerPerSecond *
-                             static_cast<double>(alive_players) +
-                         kEnemySpawnWaveGrowthPerSecond * wave_boost,
+          std::clamp(base_spawn +
+                         per_player_spawn * static_cast<double>(alive_players) +
+                         wave_growth_spawn * wave_boost,
                      0.0, 30.0);
       const double spawn_interval = spawn_rate > 1e-6 ? 1.0 / spawn_rate : 0.0;
 
       scene.spawn_elapsed += dt_seconds;
       std::size_t spawned = 0;
       while (spawn_interval > 0.0 && scene.spawn_elapsed >= spawn_interval &&
-             scene.enemies.size() < kMaxEnemiesAlive &&
-             spawned < kMaxEnemySpawnPerTick) {
+             alive_enemies < max_enemies_alive && spawned < max_spawn_per_tick) {
         scene.spawn_elapsed -= spawn_interval;
         const std::size_t idx =
             static_cast<std::size_t>(NextRng(&scene.rng_state)) %
@@ -811,6 +927,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       if (!enemy.state.is_alive()) {
         continue;
       }
+
+      enemy.attack_cooldown_seconds =
+          std::max(0.0, enemy.attack_cooldown_seconds - dt_seconds);
 
       auto* pos = enemy.state.mutable_position();
       const float prev_x = pos->x();
@@ -913,6 +1032,318 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       }
     }
 
+    // -----------------
+    // 战斗：玩家攻击 + 敌人接触伤害
+    // -----------------
+
+    auto grant_exp = [&](PlayerRuntime& player, uint32_t exp_reward) {
+      if (exp_reward == 0) {
+        return;
+      }
+      player.state.set_exp(player.state.exp() + exp_reward);
+      mark_player_low_freq_dirty(player);
+
+      // 升级：允许单次击杀连升多级
+      while (player.state.exp_to_next() > 0 &&
+             player.state.exp() >= player.state.exp_to_next()) {
+        player.state.set_exp(player.state.exp() - player.state.exp_to_next());
+        player.state.set_level(player.state.level() + 1);
+
+        const uint32_t next_exp =
+            static_cast<uint32_t>(std::llround(player.state.exp_to_next() * 1.25)) +
+            25u;
+        player.state.set_exp_to_next(std::max<uint32_t>(1, next_exp));
+
+        player.state.set_max_health(player.state.max_health() + 10);
+        player.state.set_health(player.state.max_health());
+        player.state.set_attack(player.state.attack() + 2);
+
+        lawnmower::S2C_PlayerLevelUp evt;
+        evt.set_player_id(player.state.player_id());
+        evt.set_new_level(player.state.level());
+        evt.set_exp_to_next(player.state.exp_to_next());
+        level_ups.push_back(std::move(evt));
+      }
+    };
+
+    // 玩家攻击（方案二）：生成射弹并广播 spawn，射弹碰撞由服务端权威结算。
+    constexpr float kProjectileSpeed = 420.0f;
+    constexpr float kProjectileRadius = 6.0f;
+    constexpr float kProjectileMuzzleOffset = 22.0f;
+    constexpr double kProjectileTtlSeconds = 2.5;
+    const uint32_t projectile_ttl_ms = static_cast<uint32_t>(
+        std::clamp(std::llround(kProjectileTtlSeconds * 1000.0), 1LL, 30000LL));
+
+    auto rotation_dir = [](float rotation_deg) -> std::pair<float, float> {
+      const float rad = rotation_deg * std::numbers::pi_v<float> / 180.0f;
+      return {std::cos(rad), std::sin(rad)};
+    };
+
+    auto spawn_projectile = [&](uint32_t owner_player_id, PlayerRuntime& player,
+                                int32_t damage) {
+      if (damage <= 0) {
+        return;
+      }
+      const float rotation = player.state.rotation();
+      const auto [dir_x, dir_y] = rotation_dir(rotation);
+      const float start_x =
+          player.state.position().x() + dir_x * kProjectileMuzzleOffset;
+      const float start_y =
+          player.state.position().y() + dir_y * kProjectileMuzzleOffset;
+
+      ProjectileRuntime proj;
+      proj.projectile_id = scene.next_projectile_id++;
+      proj.owner_player_id = owner_player_id;
+      proj.x = start_x;
+      proj.y = start_y;
+      proj.dir_x = dir_x;
+      proj.dir_y = dir_y;
+      proj.rotation = rotation;
+      proj.speed = kProjectileSpeed;
+      proj.damage = damage;
+      proj.has_buff = player.state.has_buff();
+      proj.buff_id = player.state.buff_id();
+      proj.is_friendly = true;
+      proj.remaining_seconds = kProjectileTtlSeconds;
+
+      scene.projectiles.emplace(proj.projectile_id, proj);
+
+      lawnmower::ProjectileState spawn;
+      spawn.set_projectile_id(proj.projectile_id);
+      spawn.set_owner_player_id(owner_player_id);
+      spawn.mutable_position()->set_x(start_x);
+      spawn.mutable_position()->set_y(start_y);
+      spawn.set_rotation(rotation);
+      spawn.set_ttl_ms(projectile_ttl_ms);
+      auto* meta = spawn.mutable_projectile();
+      meta->set_speed(static_cast<uint32_t>(std::max(0.0f, proj.speed)));
+      meta->set_has_buff(proj.has_buff);
+      meta->set_buff_id(proj.buff_id);
+      meta->set_is_friendly(proj.is_friendly);
+      meta->set_damage(static_cast<uint32_t>(std::max<int32_t>(0, proj.damage)));
+      projectile_spawns.push_back(std::move(spawn));
+    };
+
+    // 开火：attack_speed 控制射速；dt 被 clamp 后最多补几发，避免掉帧时 DPS 丢失。
+    for (auto& [player_id, player] : scene.players) {
+      if (!player.state.is_alive() || !player.wants_attacking) {
+        continue;
+      }
+
+      const double interval =
+          PlayerAttackIntervalSeconds(player.state.attack_speed());
+      int fired = 0;
+      while (player.attack_cooldown_seconds <= 1e-6 && fired < 4) {
+        player.attack_cooldown_seconds += interval;
+        fired += 1;
+
+        int32_t damage = std::max<int32_t>(1, player.state.attack());
+        if (player.state.has_buff()) {
+          damage = static_cast<int32_t>(std::llround(damage * 1.2));
+        }
+
+        if (player.state.critical_hit_rate() > 0) {
+          const float chance =
+              std::clamp(static_cast<float>(player.state.critical_hit_rate()) /
+                             1000.0f,
+                         0.0f, 1.0f);
+          if (NextRngUnitFloat(&scene.rng_state) < chance) {
+            damage *= 2;
+          }
+        }
+
+        spawn_projectile(player_id, player, damage);
+      }
+    }
+
+    // 推进射弹并检测命中：方案二不做射弹逐帧同步，客户端收到 spawn 后本地模拟。
+    const float map_w = static_cast<float>(scene.config.width);
+    const float map_h = static_cast<float>(scene.config.height);
+
+    for (auto it = scene.projectiles.begin(); it != scene.projectiles.end();) {
+      ProjectileRuntime& proj = it->second;
+      proj.remaining_seconds -= dt_seconds;
+      proj.x +=
+          proj.dir_x * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
+      proj.y +=
+          proj.dir_y * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
+
+      bool despawn = false;
+      lawnmower::ProjectileDespawnReason reason =
+          lawnmower::PROJECTILE_DESPAWN_UNKNOWN;
+      uint32_t hit_enemy_id = 0;
+
+      if (proj.remaining_seconds <= 0.0) {
+        despawn = true;
+        reason = lawnmower::PROJECTILE_DESPAWN_EXPIRED;
+      } else if (proj.x < 0.0f || proj.y < 0.0f || proj.x > map_w ||
+                 proj.y > map_h) {
+        despawn = true;
+        reason = lawnmower::PROJECTILE_DESPAWN_OUT_OF_BOUNDS;
+      } else {
+        for (auto& [enemy_id, enemy] : scene.enemies) {
+          if (!enemy.state.is_alive()) {
+            continue;
+          }
+          const float ex = enemy.state.position().x();
+          const float ey = enemy.state.position().y();
+          if (!CirclesOverlap(proj.x, proj.y, kProjectileRadius, ex, ey,
+                              kEnemyCollisionRadius)) {
+            continue;
+          }
+
+          hit_enemy_id = enemy_id;
+          despawn = true;
+          reason = lawnmower::PROJECTILE_DESPAWN_HIT;
+
+          const int32_t prev_hp = enemy.state.health();
+          const int32_t dealt =
+              std::min(proj.damage, std::max<int32_t>(0, prev_hp));
+          enemy.state.set_health(std::max<int32_t>(0, prev_hp - proj.damage));
+          enemy.dirty = true;
+          has_dirty = true;
+
+          auto owner_it = scene.players.find(proj.owner_player_id);
+          if (owner_it != scene.players.end()) {
+            owner_it->second.damage_dealt += dealt;
+          }
+
+          if (enemy.state.health() <= 0) {
+            enemy.state.set_is_alive(false);
+            enemy.dead_elapsed_seconds = 0.0;
+            enemy.force_sync_left =
+                std::max(enemy.force_sync_left, kEnemySpawnForceSyncCount);
+            enemy.dirty = true;
+
+            lawnmower::S2C_EnemyDied died;
+            died.set_enemy_id(enemy.state.enemy_id());
+            died.set_killer_player_id(proj.owner_player_id);
+            died.set_wave_id(enemy.state.wave_id());
+            *died.mutable_position() = enemy.state.position();
+            enemy_dieds.push_back(std::move(died));
+
+            if (owner_it != scene.players.end()) {
+              owner_it->second.kill_count += 1;
+              const EnemyType* type = FindEnemyType(enemy.state.type_id());
+              const uint32_t exp_reward =
+                  static_cast<uint32_t>(std::max<int32_t>(
+                      0, type != nullptr ? type->exp_reward
+                                         : DefaultEnemyType().exp_reward));
+              grant_exp(owner_it->second, exp_reward);
+            }
+          }
+
+          break;  // 单体射弹：命中一个目标即消失
+        }
+      }
+
+      if (despawn) {
+        lawnmower::ProjectileDespawn evt;
+        evt.set_projectile_id(proj.projectile_id);
+        evt.set_reason(reason);
+        evt.set_hit_enemy_id(hit_enemy_id);
+        evt.mutable_position()->set_x(proj.x);
+        evt.mutable_position()->set_y(proj.y);
+        projectile_despawns.push_back(std::move(evt));
+
+        it = scene.projectiles.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    // 敌人接触伤害（范围：敌人与玩家碰撞）
+    for (auto& [enemy_id, enemy] : scene.enemies) {
+      if (!enemy.state.is_alive()) {
+        continue;
+      }
+      if (enemy.attack_cooldown_seconds > 1e-6) {
+        continue;
+      }
+
+      const float ex = enemy.state.position().x();
+      const float ey = enemy.state.position().y();
+
+      uint32_t best_player_id = 0;
+      float best_dist_sq = std::numeric_limits<float>::infinity();
+      for (auto& [pid, player] : scene.players) {
+        if (!player.state.is_alive()) {
+          continue;
+        }
+        const float px = player.state.position().x();
+        const float py = player.state.position().y();
+        if (!CirclesOverlap(px, py, kPlayerCollisionRadius, ex, ey,
+                            kEnemyCollisionRadius)) {
+          continue;
+        }
+        const float dist_sq = DistanceSq(px, py, ex, ey);
+        if (dist_sq < best_dist_sq) {
+          best_dist_sq = dist_sq;
+          best_player_id = pid;
+        }
+      }
+
+      if (best_player_id == 0) {
+        continue;
+      }
+
+      auto player_it = scene.players.find(best_player_id);
+      if (player_it == scene.players.end()) {
+        continue;
+      }
+      PlayerRuntime& player = player_it->second;
+      if (!player.state.is_alive()) {
+        continue;
+      }
+
+      const EnemyType* type = FindEnemyType(enemy.state.type_id());
+      const int32_t damage =
+          std::max<int32_t>(1, type != nullptr ? type->damage
+                                              : DefaultEnemyType().damage);
+      const int32_t prev_hp = player.state.health();
+      const int32_t dealt = std::min(damage, std::max<int32_t>(0, prev_hp));
+
+      player.state.set_health(std::max<int32_t>(0, prev_hp - damage));
+      mark_player_low_freq_dirty(player);
+
+      lawnmower::S2C_PlayerHurt hurt;
+      hurt.set_player_id(best_player_id);
+      hurt.set_damage(static_cast<uint32_t>(dealt));
+      hurt.set_remaining_health(player.state.health());
+      hurt.set_source_id(enemy_id);
+      player_hurts.push_back(std::move(hurt));
+
+      if (player.state.health() <= 0) {
+        player.state.set_is_alive(false);
+        player.wants_attacking = false;
+        mark_player_low_freq_dirty(player);
+      }
+
+      enemy.attack_cooldown_seconds = kEnemyAttackIntervalSeconds;
+      has_dirty = true;
+    }
+
+    // 游戏结束判断：所有玩家死亡则 GameOver
+    const std::size_t alive_after_combat = std::count_if(
+        scene.players.begin(), scene.players.end(),
+        [](const auto& kv) { return kv.second.state.is_alive(); });
+    if (alive_after_combat == 0 && !scene.players.empty()) {
+      scene.game_over = true;
+
+      lawnmower::S2C_GameOver over;
+      over.set_victory(false);
+      over.set_survive_time(static_cast<uint32_t>(std::max(0.0, scene.elapsed)));
+      for (const auto& [pid, player] : scene.players) {
+        auto* score = over.add_scores();
+        score->set_player_id(pid);
+        score->set_player_name(player.player_name);
+        score->set_final_level(static_cast<int32_t>(player.state.level()));
+        score->set_kill_count(player.kill_count);
+        score->set_damage_dealt(player.damage_dealt);
+      }
+      game_over = std::move(over);
+    }
+
     scene.tick += 1;
     scene.sync_accumulator += dt_seconds;
     scene.full_sync_elapsed += dt_seconds;
@@ -935,50 +1366,122 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     force_full_sync = full_sync_interval_seconds > 0.0 &&
                       scene.full_sync_elapsed >= full_sync_interval_seconds;
 
-    if (!should_sync && !force_full_sync) {
-      return;
+    const bool want_sync = should_sync || force_full_sync;
+    const bool need_sync = want_sync && (force_full_sync || has_dirty);
+    if (need_sync) {
+      FillSyncTiming(room_id, scene.tick, &sync);
+
+      if (force_full_sync) {
+        for (auto& [_, runtime] : scene.players) {
+          fill_player_for_sync(runtime, sync.add_players());
+          runtime.dirty = false;
+          runtime.low_freq_dirty = false;
+        }
+        for (auto& [_, enemy] : scene.enemies) {
+          auto* out = sync.add_enemies();
+          *out = enemy.state;
+          enemy.dirty = false;
+          if (enemy.force_sync_left > 0) {
+            enemy.force_sync_left -= 1;
+          }
+        }
+        scene.full_sync_elapsed = 0.0;
+      } else {
+        for (auto& [_, runtime] : scene.players) {
+          if (!runtime.dirty && !runtime.low_freq_dirty) {
+            continue;
+          }
+          fill_player_for_sync(runtime, sync.add_players());
+          runtime.dirty = false;
+          runtime.low_freq_dirty = false;
+        }
+        for (auto& [_, enemy] : scene.enemies) {
+          if (!enemy.dirty && enemy.force_sync_left == 0) {
+            continue;
+          }
+          auto* out = sync.add_enemies();
+          *out = enemy.state;
+          enemy.dirty = false;
+          if (enemy.force_sync_left > 0) {
+            enemy.force_sync_left -= 1;
+          }
+        }
+      }
+      built_sync = true;
     }
 
-    if (!force_full_sync && !has_dirty) {
-      return;
-    }
+    event_tick = scene.tick;
+  }
 
-    FillSyncTiming(room_id, scene.tick, &sync);
+  const auto event_now_ms = NowMs();
+  const uint64_t event_now_count = static_cast<uint64_t>(event_now_ms.count());
 
-    if (force_full_sync) {
-      for (auto& [_, runtime] : scene.players) {
-        fill_player_high_freq(runtime, sync.add_players());
-        runtime.dirty = false;
+  lawnmower::S2C_ProjectileSpawn projectile_spawn_msg;
+  const bool has_projectile_spawn = !projectile_spawns.empty();
+  if (has_projectile_spawn) {
+    projectile_spawn_msg.set_room_id(room_id);
+    projectile_spawn_msg.set_server_time_ms(event_now_count);
+    projectile_spawn_msg.mutable_sync_time()->set_server_time(event_now_count);
+    projectile_spawn_msg.mutable_sync_time()->set_tick(
+        static_cast<uint32_t>(event_tick));
+    for (const auto& spawn : projectile_spawns) {
+      *projectile_spawn_msg.add_projectiles() = spawn;
+    }
+  }
+
+  lawnmower::S2C_ProjectileDespawn projectile_despawn_msg;
+  const bool has_projectile_despawn = !projectile_despawns.empty();
+  if (has_projectile_despawn) {
+    projectile_despawn_msg.set_room_id(room_id);
+    projectile_despawn_msg.set_server_time_ms(event_now_count);
+    projectile_despawn_msg.mutable_sync_time()->set_server_time(event_now_count);
+    projectile_despawn_msg.mutable_sync_time()->set_tick(
+        static_cast<uint32_t>(event_tick));
+    for (const auto& despawn : projectile_despawns) {
+      *projectile_despawn_msg.add_projectiles() = despawn;
+    }
+  }
+
+  if (game_over.has_value()) {
+    spdlog::info("房间 {} 游戏结束，survive_time={}s，scores={}", room_id,
+                 game_over->survive_time(), game_over->scores_size());
+  }
+
+  if (has_projectile_spawn || has_projectile_despawn || !player_hurts.empty() ||
+      !enemy_dieds.empty() || !level_ups.empty() || game_over.has_value()) {
+    const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
+    for (const auto& weak_session : sessions) {
+      auto session = weak_session.lock();
+      if (!session) {
+        continue;
       }
-      for (auto& [_, enemy] : scene.enemies) {
-        auto* out = sync.add_enemies();
-        *out = enemy.state;
-        enemy.dirty = false;
-        if (enemy.force_sync_left > 0) {
-          enemy.force_sync_left -= 1;
-        }
+      if (has_projectile_spawn) {
+        session->SendProto(lawnmower::MessageType::MSG_S2C_PROJECTILE_SPAWN,
+                           projectile_spawn_msg);
       }
-      scene.full_sync_elapsed = 0.0;
-    } else {
-      for (auto& [_, runtime] : scene.players) {
-        if (!runtime.dirty) {
-          continue;
-        }
-        fill_player_high_freq(runtime, sync.add_players());
-        runtime.dirty = false;
+      if (has_projectile_despawn) {
+        session->SendProto(lawnmower::MessageType::MSG_S2C_PROJECTILE_DESPAWN,
+                           projectile_despawn_msg);
       }
-      for (auto& [_, enemy] : scene.enemies) {
-        if (!enemy.dirty && enemy.force_sync_left == 0) {
-          continue;
-        }
-        auto* out = sync.add_enemies();
-        *out = enemy.state;
-        enemy.dirty = false;
-        if (enemy.force_sync_left > 0) {
-          enemy.force_sync_left -= 1;
-        }
+      for (const auto& hurt : player_hurts) {
+        session->SendProto(lawnmower::MessageType::MSG_S2C_PLAYER_HURT, hurt);
+      }
+      for (const auto& died : enemy_dieds) {
+        session->SendProto(lawnmower::MessageType::MSG_S2C_ENEMY_DIED, died);
+      }
+      for (const auto& level_up : level_ups) {
+        session->SendProto(lawnmower::MessageType::MSG_S2C_PLAYER_LEVEL_UP,
+                           level_up);
+      }
+      if (game_over.has_value()) {
+        session->SendProto(lawnmower::MessageType::MSG_S2C_GAME_OVER,
+                           *game_over);
       }
     }
+  }
+
+  if (!built_sync) {
+    return;
   }
 
   if (sync.players_size() == 0 && sync.enemies_size() == 0 &&
@@ -1045,6 +1548,9 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
                   player_id, seq, runtime.last_input_seq);
     return false;
   }
+
+  // 战斗相关：即便不移动也要同步攻击意图（例如原地攻击/抬手取消）。
+  runtime.wants_attacking = input.is_attacking();
 
   const float dx_raw = input.move_direction().x();  // 获取x轴向量
   const float dy_raw = input.move_direction().y();  // 获取y轴向量

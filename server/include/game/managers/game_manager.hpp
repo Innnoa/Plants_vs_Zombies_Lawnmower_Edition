@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -69,8 +70,14 @@ class GameManager {
 
   struct PlayerRuntime {
     lawnmower::PlayerState state;
+    std::string player_name;
     uint32_t last_input_seq = 0;
     std::deque<lawnmower::C2S_PlayerInput> pending_inputs;
+    bool wants_attacking = false;
+    double attack_cooldown_seconds = 0.0;
+    int32_t kill_count = 0;
+    int32_t damage_dealt = 0;
+    bool low_freq_dirty = false;
     bool dirty = false;
   };
 
@@ -80,8 +87,26 @@ class GameManager {
     std::vector<std::pair<int, int>> path;
     std::size_t path_index = 0;
     double replan_elapsed = 0.0;
+    double attack_cooldown_seconds = 0.0;
+    double dead_elapsed_seconds = 0.0;
     uint32_t force_sync_left = 0;
     bool dirty = false;
+  };
+
+  struct ProjectileRuntime {
+    uint32_t projectile_id = 0;
+    uint32_t owner_player_id = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float dir_x = 1.0f;
+    float dir_y = 0.0f;
+    float rotation = 0.0f;
+    float speed = 0.0f;
+    int32_t damage = 0;
+    bool has_buff = false;
+    uint32_t buff_id = 0;
+    bool is_friendly = true;
+    double remaining_seconds = 0.0;
   };
 
   struct Scene {
@@ -89,11 +114,14 @@ class GameManager {
     std::unordered_map<uint32_t, PlayerRuntime>
         players;  // 玩家对应玩家运行状态
     std::unordered_map<uint32_t, EnemyRuntime> enemies;
+    std::unordered_map<uint32_t, ProjectileRuntime> projectiles;
     uint32_t next_enemy_id = 1;
+    uint32_t next_projectile_id = 1;
     uint32_t wave_id = 0;
     double elapsed = 0.0;
     double spawn_elapsed = 0.0;
     uint32_t rng_state = 1;
+    bool game_over = false;
     int nav_cells_x = 0;
     int nav_cells_y = 0;
     std::vector<int> nav_came_from;
@@ -115,6 +143,8 @@ class GameManager {
   void ScheduleGameTick(uint32_t room_id, std::chrono::microseconds interval,
                         const std::shared_ptr<asio::steady_timer>& timer,
                         double tick_interval_seconds);
+  [[nodiscard]] bool ShouldRescheduleTick(
+      uint32_t room_id, const std::shared_ptr<asio::steady_timer>& timer) const;
   void StopGameLoop(uint32_t room_id);
   lawnmower::Vector2 ClampToMap(const SceneConfig& cfg, float x, float y) const;
 

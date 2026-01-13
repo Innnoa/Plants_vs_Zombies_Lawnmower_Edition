@@ -105,6 +105,15 @@ bool LoadServerConfig(ServerConfig* out) {
   ExtractUint(content, "map_width", &cfg.map_width);
   ExtractUint(content, "map_height", &cfg.map_height);
   ExtractFloat(content, "move_speed", &cfg.move_speed);
+  ExtractFloat(content, "wave_interval_seconds", &cfg.wave_interval_seconds);
+  ExtractFloat(content, "enemy_spawn_base_per_second",
+               &cfg.enemy_spawn_base_per_second);
+  ExtractFloat(content, "enemy_spawn_per_player_per_second",
+               &cfg.enemy_spawn_per_player_per_second);
+  ExtractFloat(content, "enemy_spawn_wave_growth_per_second",
+               &cfg.enemy_spawn_wave_growth_per_second);
+  ExtractUint(content, "max_enemies_alive", &cfg.max_enemies_alive);
+  ExtractUint(content, "max_enemy_spawn_per_tick", &cfg.max_enemy_spawn_per_tick);
   ExtractString(content, "log_level", &cfg.log_level);
 
   *out = cfg;
