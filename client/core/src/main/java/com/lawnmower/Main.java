@@ -315,7 +315,10 @@ public class Main extends Game {
         requestFullGameStateSync(null);
     }
 
-    //请求全量同步
+    /**
+     * 请求全量同步
+     * @param reason
+     */
     public void requestFullGameStateSync(String reason) {
         if (tcpClient == null) {
             return;
