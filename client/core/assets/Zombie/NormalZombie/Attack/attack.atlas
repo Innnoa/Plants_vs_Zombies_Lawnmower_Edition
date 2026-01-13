@@ -1,0 +1,153 @@
+
+attack.png
+size: 512, 1024
+format: RGBA8888
+filter: Nearest, Nearest
+repeat: none
+ZombieAttack
+  rotate: false
+  xy: 2, 878
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 0
+ZombieAttack
+  rotate: false
+  xy: 2, 732
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 1
+ZombieAttack
+  rotate: false
+  xy: 170, 878
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 2
+ZombieAttack
+  rotate: false
+  xy: 2, 586
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 3
+ZombieAttack
+  rotate: false
+  xy: 170, 732
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 4
+ZombieAttack
+  rotate: false
+  xy: 338, 878
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 5
+ZombieAttack
+  rotate: false
+  xy: 2, 440
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 6
+ZombieAttack
+  rotate: false
+  xy: 170, 586
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 7
+ZombieAttack
+  rotate: false
+  xy: 338, 732
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 8
+ZombieAttack
+  rotate: false
+  xy: 2, 294
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 9
+ZombieAttack
+  rotate: false
+  xy: 170, 440
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 10
+ZombieAttack
+  rotate: false
+  xy: 338, 586
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 11
+ZombieAttack
+  rotate: false
+  xy: 2, 148
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 12
+ZombieAttack
+  rotate: false
+  xy: 2, 2
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 13
+ZombieAttack
+  rotate: false
+  xy: 170, 294
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 14
+ZombieAttack
+  rotate: false
+  xy: 338, 440
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 15
+ZombieAttack
+  rotate: false
+  xy: 170, 148
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 16
+ZombieAttack
+  rotate: false
+  xy: 170, 2
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 17
+ZombieAttack
+  rotate: false
+  xy: 338, 294
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 18
+ZombieAttack
+  rotate: false
+  xy: 338, 148
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 19
+ZombieAttack
+  rotate: false
+  xy: 338, 2
+  size: 166, 144
+  orig: 166, 144
+  offset: 0, 0
+  index: 20

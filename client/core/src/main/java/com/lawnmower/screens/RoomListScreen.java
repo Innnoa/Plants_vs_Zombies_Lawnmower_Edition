@@ -152,7 +152,7 @@ public class RoomListScreen implements Screen {
         mainTable.row();
         mainTable.add(backButton).width(btnWidth).height(btnHeight).pad(pad);
         mainTable.row();
-        mainTable.setPosition(2100, 1100);
+        mainTable.setPosition(2100, 1200);
 
         prevPageBtn.setPosition(900, 80);
         pageInfoLabel.setPosition(1150, 95);

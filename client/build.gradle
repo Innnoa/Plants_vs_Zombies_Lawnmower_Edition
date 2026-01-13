@@ -133,9 +133,21 @@ project(":desktop") {
         args = ['../assets-raw/Zombie/NormalZombie/Walk', '../core/assets/Zombie/NormalZombie/Walk', 'walk']
     }
 
+    task packPea(type: JavaExec) {
+        mainClass = 'com.badlogic.gdx.tools.texturepacker.TexturePacker'
+        classpath = configurations.texturePacker
+        args = ['../assets-raw/Plants/PeaShooter/Pea', '../core/assets/Plants/PeaShooter/Pea', 'pea']
+    }
+
+    task packNormalZombieAttack(type: JavaExec) {
+        mainClass = 'com.badlogic.gdx.tools.texturepacker.TexturePacker'
+        classpath = configurations.texturePacker
+        args = ['../assets-raw/Zombie/NormalZombie/Attack', '../core/assets/Zombie/NormalZombie/Attack', 'attack']
+    }
+
     // 一键打包所有
     task runTexturePacker {
-        dependsOn packNormalZombie
+        dependsOn packPea,packNormalZombieAttack
         doLast {
             logger.lifecycle("PeaShooter atlas packed.")
         }
