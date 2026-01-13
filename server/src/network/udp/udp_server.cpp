@@ -102,6 +102,7 @@ void UdpServer::HandlePlayerInput(const lawnmower::Packet& packet,
   }
 }
 
+// UDP广播
 std::size_t UdpServer::BroadcastState(
     uint32_t room_id, const lawnmower::S2C_GameStateSync& sync) {
   const auto targets = EndpointsForRoom(room_id);

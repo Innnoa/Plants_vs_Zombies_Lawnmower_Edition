@@ -6,5 +6,5 @@
     "state_sync_rate": 30,
     "map_width": 1280,
     "map_height": 720,
-    "log_level": "info"
+    "log_level": "debug"
 }

@@ -64,71 +64,85 @@ std::string TcpSession::GenerateToken() {
   // 生成静态随机数使用梅森旋转算法，大小为unsigned longlong,
   // rng重载了（）运算符，random_device{}()为种子
   static thread_local std::mt19937_64 rng(std::random_device{}());
+  // 每轮写入 8 字节（uint64_t），两轮即可填满 16 字节（128bit token）。
   for (std::size_t i = 0; i < kTokenBytes; i += sizeof(uint64_t)) {
     const uint64_t v = rng();  // 获取随机数
 
-    // 看不懂
+    // 把随机数v的原始字节拷贝至buf的第i段
+    // std::min的意义是让代码对任意token长度都安全，如果将来kTokenBytes不是8的倍数，
+    // 则最后一轮只拷贝剩余的字节数，避免越界
     std::memcpy(buf.data() + i, &v,
                 std::min(sizeof(uint64_t), kTokenBytes - i));
   }
-  std::ostringstream oss;
-  oss << std::hex;
+  std::ostringstream oss;  // 用于将各种数据类型转化为string格式
+  oss << std::hex;  // ostringstream重载了 << 用于将数据存至对象中/设置进制格式
   for (auto b : buf) {
+    // 输出为两位 hex（如 0x0A -> "0a"）；width 仅对下一次插入生效，因此放在循环内。
     oss.width(2);
     oss.fill('0');
-    oss << static_cast<int>(b);
+    oss << static_cast<int>(b);  // 避免按字符输出
   }
-  return oss.str();
+  return oss.str();  // 返回oss内容
 }
 
+// 注册Token
 void TcpSession::RegisterToken(uint32_t player_id, std::string token) {
-  std::lock_guard<std::mutex> lock(token_mutex_);
-  session_tokens_[player_id] = std::move(token);
+  std::lock_guard<std::mutex> lock(token_mutex_);  // 互斥锁-上锁
+  session_tokens_[player_id] = std::move(token);   // 添加该节点
 }
 
+// 验证Token
 bool TcpSession::VerifyToken(uint32_t player_id, std::string_view token) {
-  std::lock_guard<std::mutex> lock(token_mutex_);
-  const auto it = session_tokens_.find(player_id);
+  std::lock_guard<std::mutex> lock(token_mutex_);   // 互斥锁-上锁
+  const auto it = session_tokens_.find(player_id);  // 寻找该节点
   return it != session_tokens_.end() && it->second == token;
 }
 
+// 撤销Token
 void TcpSession::RevokeToken(uint32_t player_id) {
-  std::lock_guard<std::mutex> lock(token_mutex_);
-  session_tokens_.erase(player_id);
+  std::lock_guard<std::mutex> lock(token_mutex_);  // 互斥锁-上锁
+  session_tokens_.erase(player_id);                // 擦除该节点
 }
 
-// 专门用于发送 Packet 包，设置 Message_type 类型 + payload 内容
+// 专门用于填充 Packet 包，设置 Message_type 类型 + payload 内容
 void TcpSession::SendProto(lawnmower::MessageType type,
                            const google::protobuf::Message& message) {
   if (closed_) {
     return;
   }
   lawnmower::Packet packet;
-  packet.set_msg_type(type);
-  packet.set_payload(message.SerializeAsString());
-  send_packet(packet);
+  packet.set_msg_type(type);  // 设置包类型
+  packet.set_payload(
+      message.SerializeAsString());  // message 序列化为字符串并存至packet
+  send_packet(packet);               // 发包
 }
 
+// 断开连接
 void TcpSession::handle_disconnect() {
   if (closed_) {
     return;
   }
   closed_ = true;
 
+  // 清除该play_id 有关的结构
   if (player_id_ != 0) {
     RevokeToken(player_id_);
     GameManager::Instance().RemovePlayer(player_id_);
     RoomManager::Instance().RemovePlayer(player_id_);
   }
 
+  // 标准断开连接
   asio::error_code ignored_ec;
   socket_.shutdown(tcp::socket::shutdown_both, ignored_ec);
   socket_.close(ignored_ec);
-  active_sessions_.fetch_sub(1, std::memory_order_relaxed);
+  active_sessions_.fetch_sub(1, std::memory_order_relaxed);  // 原子减1
 }
 
+// 读包头
 void TcpSession::read_header() {
+  // 从当前对象拿到一个std::shared_ptr<TcpSession>, 防止this指针悬空，延长对象生命周期
   auto self = shared_from_this();
+  // asio::buffer是设置异步缓冲区
   asio::async_read(socket_, asio::buffer(length_buffer_),
                    [this, self](const asio::error_code& ec, std::size_t) {
                      spdlog::debug("开始读取包长度");
@@ -141,6 +155,7 @@ void TcpSession::read_header() {
                      uint32_t net_len = 0;
                      std::memcpy(&net_len, length_buffer_.data(),
                                  sizeof(net_len));
+                     // ntohl 是把网络字节序(大端) 转成主机字节序
                      const uint32_t body_len = ntohl(net_len);
                      spdlog::debug("收到包长度: {}", body_len);
                      if (body_len == 0 || body_len > kMaxPacketSize) {
@@ -156,11 +171,13 @@ void TcpSession::read_header() {
                    });
 }
 
+// 读包体
 void TcpSession::read_body(std::size_t length) {
-  auto self = shared_from_this();
+  auto self = shared_from_this();  // 保活：确保异步回调执行时会话对象仍存在
   asio::async_read(
       socket_, asio::buffer(read_buffer_, length),
       [this, self, length](const asio::error_code& ec, std::size_t) {
+        // 一系列差错检测
         spdlog::debug("开始解析包体，长度 {} bytes", length);
         if (ec) {
           spdlog::warn("解析包体失败: {}", ec.message());
@@ -182,6 +199,7 @@ void TcpSession::read_body(std::size_t length) {
               MessageTypeToString(packet.msg_type()), packet.payload().size(),
               length);
         }
+        // 识别包类型
         handle_packet(packet);
         if (closed_ || !socket_.is_open()) {
           return;
@@ -190,8 +208,9 @@ void TcpSession::read_body(std::size_t length) {
       });
 }
 
+// 写操作
 void TcpSession::do_write() {
-  auto self = shared_from_this();
+  auto self = shared_from_this();  // 保活：确保异步回调执行时会话对象仍存在
   asio::async_write(socket_, asio::buffer(write_queue_.front()),
                     [this, self](const asio::error_code& ec, std::size_t) {
                       if (ec) {
@@ -199,16 +218,19 @@ void TcpSession::do_write() {
                         handle_disconnect();
                         return;
                       }
-                      write_queue_.pop_front();
+                      write_queue_.pop_front();  // 弹出双端队列头
+                      // 非空，仍有内容，继续写
                       if (!write_queue_.empty()) {
                         do_write();
                       }
                     });
 }
 
+// 识别包类型
 void TcpSession::handle_packet(const lawnmower::Packet& packet) {
   using lawnmower::MessageType;
   spdlog::debug("开始处理消息 {}", MessageTypeToString(packet.msg_type()));
+  // 感觉这个switch有点臃肿了，可以化为函数
   switch (packet.msg_type()) {
     case MessageType::MSG_C2S_LOGIN: {
       lawnmower::C2S_Login login;
@@ -226,11 +248,14 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
         break;
       }
 
-      player_id_ = next_player_id_.fetch_add(1);
+      player_id_ = next_player_id_.fetch_add(1);  // 原子加1
+      // 设置玩家名，若未输入玩家名则为玩家+id,否则则为玩家名
       player_name_ = login.player_name().empty()
                          ? ("玩家" + std::to_string(player_id_))
                          : login.player_name();
+      // 获取Token
       session_token_ = GenerateToken();
+      // 注册Token
       RegisterToken(player_id_, session_token_);
 
       lawnmower::S2C_LoginResult result;
@@ -366,10 +391,14 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
 
       const lawnmower::SceneInfo scene_info =
           GameManager::Instance().CreateScene(*snapshot);
+
+      // mutable_scene() 返回 SceneInfo*（指向 result 内部的子消息），解引用后整体赋值。
+      // 等价写法：result.mutable_scene()->CopyFrom(scene_info);
       *result.mutable_scene() = scene_info;
 
       const auto sessions =
           RoomManager::Instance().GetRoomSessions(snapshot->room_id);
+      // 广播
       BroadcastToRoom(sessions, MessageType::MSG_S2C_GAME_START, result);
 
       lawnmower::S2C_GameStateSync sync;
@@ -383,7 +412,7 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
           BroadcastToRoom(sessions, MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
         }
         GameManager::Instance().StartGameLoop(snapshot->room_id);
-        // 再延迟一个 tick 推送一次全量同步，防止客户端切屏阶段错过首帧
+        // 启动后再延迟一个同步周期重发一次全量同步，避免客户端切屏/UDP未打通时错过首帧。
         if (auto io = GameManager::Instance().GetIoContext()) {
           auto timer = std::make_shared<asio::steady_timer>(*io);
           timer->expires_after(std::chrono::milliseconds(
@@ -447,6 +476,7 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
   spdlog::debug("完成处理消息 {}", MessageTypeToString(packet.msg_type()));
 }
 
+// 发包
 void TcpSession::send_packet(const lawnmower::Packet& packet) {
   const std::string data = packet.SerializeAsString();
   const uint32_t net_len = htonl(static_cast<uint32_t>(data.size()));
@@ -454,19 +484,22 @@ void TcpSession::send_packet(const lawnmower::Packet& packet) {
   if (spdlog::should_log(spdlog::level::debug)) {
     const auto payload_len = packet.payload().size();
     const auto body_len = data.size();
+    // 打印分层长度：payload（业务消息）/ Packet 序列化后（含 msg_type 等）/ 加 4 字节帧头后的总大小。
     spdlog::debug(
-        "发送包 {}，payload长度 {} bytes，序列化后长度 {} "
+        "TCP发送包 {}，payload长度 {} bytes，序列化后长度 {} "
         "bytes（含4字节包长总计 {} "
         "bytes）",
         MessageTypeToString(packet.msg_type()), payload_len, body_len,
         body_len + sizeof(net_len));
   }
 
+  // 写内容
   std::string framed;
   framed.resize(sizeof(net_len) + data.size());
   std::memcpy(framed.data(), &net_len, sizeof(net_len));
   std::memcpy(framed.data() + sizeof(net_len), data.data(), data.size());
 
+  // 记录当前写队列状态，若为空，则之后做写操作
   const bool write_in_progress = !write_queue_.empty();
   if (write_queue_.size() >= kMaxWriteQueueSize) {
     spdlog::warn("发送队列过长({})，断开玩家 {}", write_queue_.size(),
@@ -474,6 +507,7 @@ void TcpSession::send_packet(const lawnmower::Packet& packet) {
     handle_disconnect();
     return;
   }
+  // 尾压入写队列
   write_queue_.push_back(std::move(framed));
   if (!write_in_progress) {
     do_write();

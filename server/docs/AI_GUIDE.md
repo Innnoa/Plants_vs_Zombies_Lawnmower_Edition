@@ -30,5 +30,5 @@
 - 新消息类型：在 `TcpSession::handle_packet` 中增加 case，并在相应管理器实现处理逻辑；广播时优先使用弱引用会话列表。
 - 新场景/玩法：在 `GameManager` 内新增场景属性或 tick 处理，保持线程安全和输入去重。
 - 新敌人类型：在 `server/include/game/entities/enemy_types.hpp` 增加配置，并在 `GameManager` 的生成逻辑中选择对应 `type_id`。
-- 调试：`SPDLOG_ACTIVE_LEVEL` 已在 CMake 中设为 `DEBUG`，可在 `main.cpp` 调整默认日志级别。
+- 调试：`SPDLOG_ACTIVE_LEVEL` 已在 CMake 中设为 `DEBUG`, 无需修改
 - 注释问题： 不要轻易删除注释，除非它错误/位置有问题，若需移动代码，请把注释也同步过去
