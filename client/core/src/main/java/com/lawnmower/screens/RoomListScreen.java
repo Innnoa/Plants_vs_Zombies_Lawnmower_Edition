@@ -78,6 +78,14 @@ public class RoomListScreen implements Screen {
             }
         });
 
+        TextButton refreshBtn = new TextButton("刷新列表", backButtonStyle);
+        refreshBtn.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                requestRoomListFromServer();
+            }
+        });
+
         TextButton createBtn = new TextButton("创建房间", backButtonStyle);
         createBtn.addListener(new ClickListener() {
             @Override
@@ -138,11 +146,13 @@ public class RoomListScreen implements Screen {
         float btnHeight = 120;
         float pad = 15;
 
+        mainTable.add(refreshBtn).width(btnWidth).height(btnHeight).pad(pad);
+        mainTable.row();
         mainTable.add(createBtn).width(btnWidth).height(btnHeight).pad(pad);
         mainTable.row();
         mainTable.add(backButton).width(btnWidth).height(btnHeight).pad(pad);
         mainTable.row();
-        mainTable.setPosition(2100, 1150);
+        mainTable.setPosition(2100, 1100);
 
         prevPageBtn.setPosition(900, 80);
         pageInfoLabel.setPosition(1150, 95);
@@ -154,12 +164,7 @@ public class RoomListScreen implements Screen {
 
         updatePageButtonStatus();
 
-        try {
-            game.getTcpClient().sendGetRoomList();
-        } catch (IOException e) {
-            Gdx.app.error("NET", "请求房间列表失败", e);
-            errorPopup.showError("无法加载房间列表");
-        }
+        requestRoomListFromServer();
     }
 
     private int getTotalPages() {
@@ -222,6 +227,17 @@ public class RoomListScreen implements Screen {
 
         prevPageBtn.setDisabled(currentPage == 0);
         nextPageBtn.setDisabled(totalPages <= 1 || currentPage >= totalPages - 1);
+    }
+
+    private void requestRoomListFromServer() {
+        try {
+            game.getTcpClient().sendGetRoomList();
+        } catch (IOException e) {
+            Gdx.app.error("NET", "请求房间列表失败", e);
+            if (errorPopup != null) {
+                errorPopup.showError("无法加载房间列表");
+            }
+        }
     }
 
     public void onRoomListReceived(List<Message.RoomInfo> rooms) {
