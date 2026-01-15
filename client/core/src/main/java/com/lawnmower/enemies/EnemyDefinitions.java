@@ -16,17 +16,26 @@ public final class EnemyDefinitions {
         private final String atlasPath;
         private final String regionPrefix;
         private final float frameDuration;
+        private final String attackAtlasPath;
+        private final String attackRegionPrefix;
+        private final float attackFrameDuration;
 
         private Definition(int typeId,
                            String name,
                            String atlasPath,
                            String regionPrefix,
-                           float frameDuration) {
+                           float frameDuration,
+                           String attackAtlasPath,
+                           String attackRegionPrefix,
+                           float attackFrameDuration) {
             this.typeId = typeId;
             this.name = name;
             this.atlasPath = atlasPath;
             this.regionPrefix = regionPrefix;
             this.frameDuration = frameDuration;
+            this.attackAtlasPath = attackAtlasPath;
+            this.attackRegionPrefix = attackRegionPrefix;
+            this.attackFrameDuration = attackFrameDuration;
         }
 
         public int getTypeId() {
@@ -48,6 +57,18 @@ public final class EnemyDefinitions {
         public float getFrameDuration() {
             return frameDuration;
         }
+
+        public String getAttackAtlasPath() {
+            return attackAtlasPath;
+        }
+
+        public String getAttackRegionPrefix() {
+            return attackRegionPrefix;
+        }
+
+        public float getAttackFrameDuration() {
+            return attackFrameDuration;
+        }
     }
 
     private static final Map<Integer, Definition> DEFINITIONS = new LinkedHashMap<>();
@@ -60,6 +81,9 @@ public final class EnemyDefinitions {
                 "Normal Zombie",
                 "Zombie/NormalZombie/Walk/walk.atlas",
                 "zombie",
+                0.08f,
+                "Zombie/NormalZombie/Attack/attack.atlas",
+                "ZombieAttack",
                 0.08f
         ));
 
@@ -69,6 +93,9 @@ public final class EnemyDefinitions {
                 "Cone Zombie",
                 "Zombie/NormalZombie/Walk/walk.atlas",
                 "zombie",
+                0.08f,
+                "Zombie/NormalZombie/Attack/attack.atlas",
+                "ZombieAttack",
                 0.08f
         ));
 
@@ -78,6 +105,9 @@ public final class EnemyDefinitions {
                 "Bucket Zombie",
                 "Zombie/NormalZombie/Walk/walk.atlas",
                 "zombie",
+                0.08f,
+                "Zombie/NormalZombie/Attack/attack.atlas",
+                "ZombieAttack",
                 0.08f
         ));
 
@@ -87,6 +117,9 @@ public final class EnemyDefinitions {
                 "Football Zombie",
                 "Zombie/NormalZombie/Walk/walk.atlas",
                 "zombie",
+                0.08f,
+                "Zombie/NormalZombie/Attack/attack.atlas",
+                "ZombieAttack",
                 0.08f
         ));
     }

@@ -93,6 +93,7 @@ public class GameScreen implements Screen {
     private TextureRegion playerTextureRegion;
     private Texture backgroundTexture;
     private final Map<Integer, Animation<TextureRegion>> enemyAnimations = new HashMap<>();
+    private final Map<Integer, Animation<TextureRegion>> enemyAttackAnimations = new HashMap<>();
     private final Map<String, TextureAtlas> enemyAtlasCache = new HashMap<>();
     private Texture enemyFallbackTexture;
     private TextureRegion enemyFallbackRegion;
@@ -589,15 +590,22 @@ public class GameScreen implements Screen {
         }
     }
 
+    /**
+     * 批量渲染投射物
+     */
     private void renderProjectiles() {
+        //前置条件
         if (projectileViews.isEmpty() || batch == null) {
             return;
         }
+        //遍历投射物
         for (ProjectileView view : projectileViews.values()) {
             TextureRegion frame = resolveProjectileFrame(view);
+            //动态解析贴图帧
             if (frame == null) {
                 continue;
             }
+            //获取尺寸绘制位置
             float width = frame.getRegionWidth();
             float height = frame.getRegionHeight();
             float drawX = view.position.x - width / 2f;
@@ -609,7 +617,12 @@ public class GameScreen implements Screen {
         }
     }
 
+    /**
+     * 渲染投射物命中目标时的瞬间特效
+     * @param delta
+     */
     private void renderProjectileImpacts(float delta) {
+        //安全检查
         if (projectileImpacts.isEmpty() || batch == null) {
             return;
         }
@@ -617,14 +630,17 @@ public class GameScreen implements Screen {
             projectileImpacts.clear();
             return;
         }
+        //反向遍历更新生命周期
         for (int i = projectileImpacts.size - 1; i >= 0; i--) {
             ProjectileImpact impact = projectileImpacts.get(i);
             impact.elapsed += delta;
+            //获取当前动画帧
             TextureRegion frame = projectileImpactAnimation.getKeyFrame(impact.elapsed, false);
             if (frame == null || projectileImpactAnimation.isAnimationFinished(impact.elapsed)) {
                 projectileImpacts.removeIndex(i);
                 continue;
             }
+            //渲染
             float width = frame.getRegionWidth();
             float height = frame.getRegionHeight();
             float drawX = impact.position.x - width / 2f;
@@ -634,7 +650,9 @@ public class GameScreen implements Screen {
             batch.draw(frame, drawX, drawY, originX, originY, width, height, 1f, 1f, 0f);
         }
     }
-
+    /**
+     * 投射物动画帧解析器
+     */
     private TextureRegion resolveProjectileFrame(ProjectileView view) {
         if (projectileAnimation != null) {
             return projectileAnimation.getKeyFrame(view.animationTime, true);
@@ -642,12 +660,21 @@ public class GameScreen implements Screen {
         return projectileFallbackRegion;
     }
 
+    /**
+     * 判断投射物是否飞出边界
+     * @param position
+     * @return
+     */
     private boolean isProjectileOutOfBounds(Vector2 position) {
         float margin = 32f;
         return position.x < -margin || position.x > WORLD_WIDTH + margin
                 || position.y < -margin || position.y > WORLD_HEIGHT + margin;
     }
 
+    /**
+     * 指定坐标触发命中特效
+     * @param position
+     */
     private void spawnImpactEffect(Vector2 position) {
         if (projectileImpactAnimation == null || position == null) {
             return;
@@ -657,21 +684,33 @@ public class GameScreen implements Screen {
         projectileImpacts.add(impact);
     }
 
+    /**
+     * ui资源反馈组件
+     * @param delta
+     */
     private void renderStatusToast(float delta) {
+        //更新倒计时
         if (statusToastTimer > 0f) {
             statusToastTimer -= delta;
         }
+        //多重退出条件
         if (statusToastTimer <= 0f || loadingFont == null || statusToastMessage == null
                 || statusToastMessage.isBlank() || batch == null) {
             return;
         }
+        //文字颜色
         loadingFont.setColor(Color.WHITE);
+        //屏幕左上角的世界坐标
         float padding = 20f;
         float drawX = camera.position.x - WORLD_WIDTH / 2f + padding;
         float drawY = camera.position.y + WORLD_HEIGHT / 2f - padding;
         loadingFont.draw(batch, statusToastMessage, drawX, drawY);
     }
 
+    /**
+     * 状态提示方法,比如连接成功,技能已经解锁
+     * @param message
+     */
     private void showStatusToast(String message) {
         if (message == null || message.isBlank()) {
             return;
@@ -680,6 +719,9 @@ public class GameScreen implements Screen {
         statusToastTimer = STATUS_TOAST_DURATION;
     }
 
+    /**
+     * 投射物在客户端轻量的视图
+     */
     private static final class ProjectileView {
         final long projectileId;
         final Vector2 position = new Vector2();
@@ -694,6 +736,9 @@ public class GameScreen implements Screen {
         }
     }
 
+    /**
+     * 投射物命中的瞬间特效
+     */
     private static final class ProjectileImpact {
         final Vector2 position = new Vector2();
         float elapsed;
@@ -706,6 +751,7 @@ public class GameScreen implements Screen {
         EnemyView placeholder = new EnemyView(PLACEHOLDER_ENEMY_ID, WORLD_WIDTH, WORLD_HEIGHT);
         placeholder.setVisual(DEFAULT_ENEMY_TYPE_ID,
                 resolveEnemyAnimation(DEFAULT_ENEMY_TYPE_ID),
+                resolveEnemyAttackAnimation(DEFAULT_ENEMY_TYPE_ID),
                 getEnemyFallbackRegion());
         renderBuffer.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
         placeholder.snapTo(renderBuffer, TimeUtils.millis());
@@ -768,10 +814,25 @@ public class GameScreen implements Screen {
     private void loadEnemyAssets() {
         disposeEnemyAtlases();
         enemyAnimations.clear();
+        enemyAttackAnimations.clear();
+        enemyAttackAnimations.clear();
         for (EnemyDefinitions.Definition definition : EnemyDefinitions.all()) {
-            Animation<TextureRegion> animation = createEnemyAnimation(definition);
-            if (animation != null) {
-                enemyAnimations.put(definition.getTypeId(), animation);
+            Animation<TextureRegion> walkAnimation = createEnemyAnimation(
+                    definition.getAtlasPath(),
+                    definition.getRegionPrefix(),
+                    definition.getFrameDuration());
+            if (walkAnimation != null) {
+                enemyAnimations.put(definition.getTypeId(), walkAnimation);
+            }
+
+            Animation<TextureRegion> attackAnimation = createEnemyAnimation(
+                    definition.getAttackAtlasPath(),
+                    definition.getAttackRegionPrefix(),
+                    definition.getAttackFrameDuration());
+            if (attackAnimation != null) {
+                enemyAttackAnimations.put(definition.getTypeId(), attackAnimation);
+            } else if (walkAnimation != null) {
+                enemyAttackAnimations.put(definition.getTypeId(), walkAnimation);
             }
         }
     }
@@ -781,28 +842,21 @@ public class GameScreen implements Screen {
      * @param definition
      * @return
      */
-    private Animation<TextureRegion> createEnemyAnimation(EnemyDefinitions.Definition definition) {
-        //空值和配置检验
-        if (definition == null) {
-            return null;
-        }
-        String atlasPath = definition.getAtlasPath();
-        String regionPrefix = definition.getRegionPrefix();
+    private Animation<TextureRegion> createEnemyAnimation(String atlasPath,
+                                                          String regionPrefix,
+                                                          float frameDuration) {
         if (atlasPath == null || regionPrefix == null) {
             return null;
         }
         try {
-            //图集缓存
             TextureAtlas atlas = enemyAtlasCache.computeIfAbsent(
                     atlasPath, path -> new TextureAtlas(Gdx.files.internal(path)));
-            //查找动画帧区域
             Array<TextureAtlas.AtlasRegion> regions = atlas.findRegions(regionPrefix);
             if (regions == null || regions.size == 0) {
                 Gdx.app.log(TAG, "Enemy atlas missing region '" + regionPrefix + "' for " + atlasPath);
                 return null;
             }
-            //创建LibGDX对象
-            return new Animation<>(definition.getFrameDuration(), regions, Animation.PlayMode.LOOP);
+            return new Animation<>(frameDuration, regions, Animation.PlayMode.LOOP);
         } catch (Exception e) {
             Gdx.app.log(TAG, "Failed to load enemy animation: " + atlasPath, e);
             return null;
@@ -818,6 +872,14 @@ public class GameScreen implements Screen {
         Animation<TextureRegion> animation = enemyAnimations.get(typeId);
         if (animation == null) {
             animation = enemyAnimations.get(DEFAULT_ENEMY_TYPE_ID);
+        }
+        return animation;
+    }
+
+    private Animation<TextureRegion> resolveEnemyAttackAnimation(int typeId) {
+        Animation<TextureRegion> animation = enemyAttackAnimations.get(typeId);
+        if (animation == null) {
+            animation = enemyAttackAnimations.get(DEFAULT_ENEMY_TYPE_ID);
         }
         return animation;
     }
@@ -847,6 +909,9 @@ public class GameScreen implements Screen {
         enemyAtlasCache.clear();
     }
 
+    /**
+     * 加载攻击资源
+     */
     private void loadProjectileAssets() {
         disposeProjectileAssets();
         try {
@@ -1311,14 +1376,16 @@ public class GameScreen implements Screen {
             renderBuffer.set(enemy.getPosition().getX(), enemy.getPosition().getY());
             clampPositionToMap(renderBuffer);
             //渲染服务器状态到视图
+            int typeId = (int) enemy.getTypeId();
             view.updateFromServer(
-                    (int) enemy.getTypeId(),
+                    typeId,
                     enemy.getIsAlive(),
                     enemy.getHealth(),
                     enemy.getMaxHealth(),
                     renderBuffer,
                     serverTimeMs,
-                    resolveEnemyAnimation((int) enemy.getTypeId()),
+                    resolveEnemyAnimation(typeId),
+                    resolveEnemyAttackAnimation(typeId),
                     getEnemyFallbackRegion()
             );
             //记录最后可见时间
@@ -1669,6 +1736,19 @@ public class GameScreen implements Screen {
                 ? "你受到 " + hurt.getDamage() + " 点伤害，剩余 " + hurt.getRemainingHealth()
                 : "玩家 " + playerId + " 受到 " + hurt.getDamage() + " 伤害";
         showStatusToast(toast);
+        triggerEnemyAttackAnimation(hurt.getSourceId());
+    }
+
+    private void triggerEnemyAttackAnimation(long sourceId) {
+        if (sourceId <= 0) {
+            return;
+        }
+        EnemyView attacker = enemyViews.get((int) sourceId);
+        if (attacker == null) {
+            return;
+        }
+        long serverTimeMs = estimateServerTimeMs();
+        attacker.triggerAttack(serverTimeMs, attacker.getAttackAnimationDurationMs());
     }
 
     private void handleEnemyDied(Message.S2C_EnemyDied died) {

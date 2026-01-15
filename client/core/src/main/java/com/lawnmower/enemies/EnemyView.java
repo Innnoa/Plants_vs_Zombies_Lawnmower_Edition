@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.utils.TimeUtils;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -18,6 +19,7 @@ public class EnemyView {
     private static final float DISPLAY_SNAP_DISTANCE = 4f;
     private static final long SNAPSHOT_RETENTION_MS = 800L;
     private static final long MAX_EXTRAPOLATION_MS = 150L;
+    private static final long DEFAULT_ATTACK_DURATION_MS = 600L;
 
     private final int enemyId;
     private final float worldWidth;
@@ -28,11 +30,15 @@ public class EnemyView {
     private final Deque<EnemySnapshot> snapshots = new ArrayDeque<>();
 
     private Animation<TextureRegion> walkAnimation;
+    private Animation<TextureRegion> attackAnimation;
     private TextureRegion fallbackFrame;
-    private float animationTime = 0f;
+    private float walkAnimationTime = 0f;
+    private float attackAnimationTime = 0f;
     private long lastServerUpdateMs = 0L;
     private boolean alive = true;
     private boolean facingRight = true;
+    private boolean attacking = false;
+    private long attackEndServerTime = 0L;
     private int typeId = 0;
     private int health = 0;
     private int maxHealth = 1;
@@ -43,9 +49,25 @@ public class EnemyView {
         this.worldHeight = worldHeight;
     }
 
-    public void setVisual(int typeId, Animation<TextureRegion> animation, TextureRegion fallback) {
+    public void setVisual(int typeId,
+                          Animation<TextureRegion> walkAnimation,
+                          Animation<TextureRegion> attackAnimation,
+                          TextureRegion fallback) {
         this.typeId = typeId;
-        this.walkAnimation = animation;
+        if (walkAnimation != null) {
+            if (this.walkAnimation != walkAnimation) {
+                walkAnimationTime = 0f;
+            }
+            this.walkAnimation = walkAnimation;
+        }
+        if (attackAnimation != null) {
+            if (this.attackAnimation != attackAnimation) {
+                attackAnimationTime = 0f;
+            }
+            this.attackAnimation = attackAnimation;
+        } else if (this.attackAnimation == null) {
+            this.attackAnimation = this.walkAnimation;
+        }
         if (fallback != null) {
             this.fallbackFrame = fallback;
         }
@@ -57,9 +79,10 @@ public class EnemyView {
                                  int maxHealth,
                                  Vector2 serverPosition,
                                  long serverTimeMs,
-                                 Animation<TextureRegion> animation,
+                                 Animation<TextureRegion> walkAnimation,
+                                 Animation<TextureRegion> attackAnimation,
                                  TextureRegion fallback) {
-        setVisual(typeId, animation, fallback);
+        setVisual(typeId, walkAnimation, attackAnimation, fallback);
         pushSnapshot(serverPosition, serverTimeMs);
         this.alive = isAlive;
         this.health = health;
@@ -90,7 +113,8 @@ public class EnemyView {
             return;
         }
 
-        TextureRegion frame = resolveFrame(delta);
+        boolean playingAttack = isAttackActive(renderServerTimeMs);
+        TextureRegion frame = resolveFrame(delta, playingAttack);
         if (frame == null) {
             return;
         }
@@ -156,16 +180,65 @@ public class EnemyView {
         }
     }
 
-    private TextureRegion resolveFrame(float delta) {
-        TextureRegion frame = null;
+    public void triggerAttack(long serverTimeMs, long durationMs) {
+        Animation<TextureRegion> animation = attackAnimation != null ? attackAnimation : walkAnimation;
+        if (animation == null) {
+            return;
+        }
+        long animDurationMs = durationMs > 0 ? durationMs
+                : (long) (animation.getAnimationDuration() * 1000f);
+        if (animDurationMs <= 0L) {
+            animDurationMs = DEFAULT_ATTACK_DURATION_MS;
+        }
+        long referenceTime = serverTimeMs > 0L ? serverTimeMs : TimeUtils.millis();
+        attackEndServerTime = referenceTime + animDurationMs;
+        attacking = true;
+        attackAnimationTime = 0f;
+    }
+
+    public long getAttackAnimationDurationMs() {
+        if (attackAnimation != null) {
+            return (long) (attackAnimation.getAnimationDuration() * 1000f);
+        }
+        if (walkAnimation != null) {
+            return (long) (walkAnimation.getAnimationDuration() * 1000f);
+        }
+        return 0L;
+    }
+
+    private boolean isAttackActive(long renderServerTimeMs) {
+        if (!attacking) {
+            return false;
+        }
+        if (attackAnimation == null) {
+            attacking = false;
+            return false;
+        }
+        long referenceTime = renderServerTimeMs > 0L ? renderServerTimeMs : TimeUtils.millis();
+        if (referenceTime >= attackEndServerTime) {
+            attacking = false;
+            return false;
+        }
+        return true;
+    }
+
+    private TextureRegion resolveFrame(float delta, boolean playingAttack) {
+        float clampedDelta = Math.max(0f, delta);
+        if (playingAttack && attackAnimation != null && attackAnimation.getKeyFrames().length > 0) {
+            attackAnimationTime += clampedDelta;
+            TextureRegion frame = attackAnimation.getKeyFrame(attackAnimationTime, true);
+            if (frame != null) {
+                return frame;
+            }
+        }
         if (walkAnimation != null && walkAnimation.getKeyFrames().length > 0) {
-            animationTime += Math.max(0f, delta);
-            frame = walkAnimation.getKeyFrame(animationTime, true);
+            walkAnimationTime += clampedDelta;
+            TextureRegion frame = walkAnimation.getKeyFrame(walkAnimationTime, true);
+            if (frame != null) {
+                return frame;
+            }
         }
-        if (frame == null) {
-            frame = fallbackFrame;
-        }
-        return frame;
+        return fallbackFrame;
     }
 
     private Vector2 samplePosition(long renderServerTimeMs) {
