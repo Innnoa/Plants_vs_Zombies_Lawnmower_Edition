@@ -9,8 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "game/entities/enemy_types.hpp"
-
 namespace {
 constexpr double kEnemyReplanIntervalSeconds = 0.25;
 constexpr float kEnemyWaypointReachRadius = 12.0f;
@@ -174,6 +172,51 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
 }
 }  // namespace
 
+const EnemyTypeConfig& GameManager::ResolveEnemyType(uint32_t type_id) const {
+  static const EnemyTypeConfig kFallback{
+      .type_id = 1,
+      .name = "默认僵尸",
+      .max_health = 30,
+      .move_speed = 60.0f,
+      .damage = 0,
+      .exp_reward = 10,
+  };
+
+  if (type_id != 0) {
+    auto it = enemy_types_config_.enemies.find(type_id);
+    if (it != enemy_types_config_.enemies.end()) {
+      return it->second;
+    }
+  }
+
+  const uint32_t default_id =
+      enemy_types_config_.default_type_id > 0 ? enemy_types_config_.default_type_id
+                                              : kFallback.type_id;
+  auto it = enemy_types_config_.enemies.find(default_id);
+  if (it != enemy_types_config_.enemies.end()) {
+    return it->second;
+  }
+
+  if (!enemy_types_config_.enemies.empty()) {
+    return enemy_types_config_.enemies.begin()->second;
+  }
+
+  return kFallback;
+}
+
+uint32_t GameManager::PickSpawnEnemyTypeId(uint32_t* rng_state) const {
+  if (rng_state == nullptr) {
+    return ResolveEnemyType(0).type_id;
+  }
+
+  const auto& ids = enemy_types_config_.spawn_type_ids;
+  if (ids.empty()) {
+    return ResolveEnemyType(0).type_id;
+  }
+
+  return ids[static_cast<std::size_t>(NextRng(rng_state)) % ids.size()];
+}
+
 void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
                                  bool* has_dirty) {
   if (has_dirty == nullptr) {
@@ -223,10 +266,7 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
       return false;
     }
 
-    const EnemyType* type = FindEnemyType(type_id);
-    if (type == nullptr) {
-      type = &DefaultEnemyType();
-    }
+    const EnemyTypeConfig& type = ResolveEnemyType(type_id);
 
     const float map_w = static_cast<float>(scene.config.width);
     const float map_h = static_cast<float>(scene.config.height);
@@ -256,12 +296,12 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
 
     EnemyRuntime runtime;
     runtime.state.set_enemy_id(scene.next_enemy_id++);
-    runtime.state.set_type_id(type->type_id);
+    runtime.state.set_type_id(type.type_id);
     const auto clamped_pos = ClampToMap(scene.config, x, y);
     runtime.state.mutable_position()->set_x(clamped_pos.x());
     runtime.state.mutable_position()->set_y(clamped_pos.y());
-    runtime.state.set_health(type->max_health);
-    runtime.state.set_max_health(type->max_health);
+    runtime.state.set_health(type.max_health);
+    runtime.state.set_max_health(type.max_health);
     runtime.state.set_is_alive(true);
     runtime.state.set_wave_id(scene.wave_id);
     runtime.state.set_is_friendly(false);
@@ -289,12 +329,10 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
 
     scene.spawn_elapsed += dt_seconds;
     std::size_t spawned = 0;
-    while (spawn_interval > 0.0 && scene.spawn_elapsed >= spawn_interval &&
+      while (spawn_interval > 0.0 && scene.spawn_elapsed >= spawn_interval &&
            alive_enemies < max_enemies_alive && spawned < max_spawn_per_tick) {
       scene.spawn_elapsed -= spawn_interval;
-      const std::size_t idx =
-          static_cast<std::size_t>(NextRng(&scene.rng_state)) % kEnemyTypes.size();
-      if (spawn_enemy(kEnemyTypes[idx].type_id)) {
+      if (spawn_enemy(PickSpawnEnemyTypeId(&scene.rng_state))) {
         spawned += 1;
         *has_dirty = true;
       } else {
@@ -407,11 +445,8 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
       const float dir_x = dx * inv_len;
       const float dir_y = dy * inv_len;
 
-      const EnemyType* type = FindEnemyType(enemy.state.type_id());
-      if (type == nullptr) {
-        type = &DefaultEnemyType();
-      }
-      const float speed = type->move_speed > 0.0f ? type->move_speed : 60.0f;
+      const EnemyTypeConfig& type = ResolveEnemyType(enemy.state.type_id());
+      const float speed = type.move_speed > 0.0f ? type.move_speed : 60.0f;
 
       const auto new_pos =
           ClampToMap(scene.config,
@@ -432,4 +467,3 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     }
   }
 }
-

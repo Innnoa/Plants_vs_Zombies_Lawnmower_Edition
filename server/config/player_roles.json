@@ -1,0 +1,52 @@
+{
+    "__comment_default_role_id": "默认职业 ID（客户端未选择职业时使用，会写入 PlayerState.role_id）",
+    "default_role_id": 1,
+
+    "__comment_roles": "职业列表：决定玩家初始属性（血量/攻击/攻速/移速/暴击等）。后续可扩展为技能/投射物类型等。",
+    "roles": [
+        {
+            "__comment_role_id": "职业ID（用于网络同步与资源映射，需全局唯一）",
+            "role_id": 1,
+            "__comment_name": "职业名称（主要用于日志/调试；客户端可用 role_id 映射 UI/模型）",
+            "name": "豌豆射手",
+            "__comment_max_health": "最大血量（玩家初始血量 = 最大血量）",
+            "max_health": 100,
+            "__comment_attack": "基础攻击力（射弹基础伤害）",
+            "attack": 10,
+            "__comment_attack_speed": "攻击速度（数值越大越快；1=每秒1次；服务端会用 1/attack_speed 计算间隔并进行 clamp）",
+            "attack_speed": 2,
+            "__comment_move_speed": "移动速度（像素/秒；<=0 表示使用 server_config.json 的 move_speed）",
+            "move_speed": 200.0,
+            "__comment_critical_hit_rate": "暴击率（单位：‰；例如 100=10%）",
+            "critical_hit_rate": 50
+        },
+        {
+            "role_id": 2,
+            "name": "坦克",
+            "max_health": 180,
+            "attack": 8,
+            "attack_speed": 1,
+            "move_speed": 170.0,
+            "critical_hit_rate": 0
+        },
+        {
+            "role_id": 3,
+            "name": "速射手",
+            "max_health": 80,
+            "attack": 6,
+            "attack_speed": 4,
+            "move_speed": 210.0,
+            "critical_hit_rate": 100
+        },
+        {
+            "role_id": 4,
+            "name": "狙击手",
+            "max_health": 90,
+            "attack": 18,
+            "attack_speed": 1,
+            "move_speed": 190.0,
+            "critical_hit_rate": 150
+        }
+    ]
+}
+

@@ -69,6 +69,7 @@ enum MessageType{
   MSG_S2C_GAME_STATE_DELTA_SYNC = 46; // 广播：高频 Delta 同步（仅变化字段）
   MSG_S2C_PROJECTILE_SPAWN = 47; // 广播： 发射射弹（如豌豆）
   MSG_S2C_PROJECTILE_DESPAWN = 48; // 广播： 射弹消失（命中/超界/过期）
+  MSG_S2C_ENEMY_ATTACK_STATE_SYNC = 49; // 广播： 敌人攻击状态变化（用于客户端播放/停止攻击动画）
 }   
 
 // =============================
@@ -377,6 +378,25 @@ message S2C_ProjectileDespawn {
   uint32 room_id = 2;
   uint64 server_time_ms = 3;
   repeated ProjectileDespawn projectiles = 4;
+}
+
+// =============================
+// 敌人攻击状态同步（用于表现）
+// =============================
+
+// 敌人攻击状态增量：用于客户端播放/停止攻击动画（幂等状态，不依赖 start/stop 两条消息）
+message EnemyAttackStateDelta {
+  uint32 enemy_id = 1;         // 敌人实例ID
+  bool is_attacking = 2;       // 是否处于攻击状态（通常表示“与玩家接触/在攻击范围内”）
+  uint32 target_player_id = 3; // 攻击目标玩家ID（无则为0；用于朝向/特效绑定）
+}
+
+// 敌人攻击状态同步包：只包含“发生变化”的敌人（delta）
+message S2C_EnemyAttackStateSync {
+  Timestamp sync_time = 1;
+  uint32 room_id = 2;
+  uint64 server_time_ms = 3;
+  repeated EnemyAttackStateDelta enemies = 4;
 }
 
 // 玩家受伤广播

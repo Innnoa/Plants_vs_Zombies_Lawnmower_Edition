@@ -14,10 +14,10 @@ struct EnemyType {
 };
 
 constexpr std::array<EnemyType, 4> kEnemyTypes = {{
-    {1, "普通僵尸", 30, 60.0f, 5, 10},
-    {2, "路障僵尸", 60, 50.0f, 8, 20},
-    {3, "铁桶僵尸", 120, 40.0f, 10, 40},
-    {4, "橄榄球僵尸", 80, 100.0f, 15, 50},
+    {1, "普通僵尸", 30, 60.0f, 0, 10},
+    {2, "路障僵尸", 60, 50.0f, 0, 20},
+    {3, "铁桶僵尸", 120, 40.0f, 0, 40},
+    {4, "橄榄球僵尸", 80, 100.0f, 0, 50},
 }};
 
 inline const EnemyType& DefaultEnemyType() { return kEnemyTypes.front(); }

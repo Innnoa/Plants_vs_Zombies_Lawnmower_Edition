@@ -7,7 +7,6 @@
 #include <span>
 #include <spdlog/spdlog.h>
 
-#include "game/entities/enemy_types.hpp"
 #include "network/tcp/tcp_session.hpp"
 #include "network/udp/udp_server.hpp"
 
@@ -225,6 +224,30 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
   const float center_y =
       static_cast<float>(scene->config.height) * 0.5f;  // 计算中心y
 
+  const auto resolve_default_role = [&]() -> const PlayerRoleConfig* {
+    const uint32_t desired_role_id =
+        player_roles_config_.default_role_id > 0
+            ? player_roles_config_.default_role_id
+            : 1u;
+
+    auto it = player_roles_config_.roles.find(desired_role_id);
+    if (it != player_roles_config_.roles.end()) {
+      return &it->second;
+    }
+
+    const PlayerRoleConfig* best = nullptr;
+    uint32_t best_id = 0;
+    for (const auto& [role_id, cfg] : player_roles_config_.roles) {
+      if (best == nullptr || role_id < best_id) {
+        best = &cfg;
+        best_id = role_id;
+      }
+    }
+    return best;
+  };
+
+  const PlayerRoleConfig* default_role = resolve_default_role();
+
   // 遍历每一个玩家
   for (std::size_t i = 0; i < count; ++i) {
     const auto& player = snapshot.players[i];
@@ -246,20 +269,38 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
     runtime.state.mutable_position()->set_x(clamped_pos.x());
     runtime.state.mutable_position()->set_y(clamped_pos.y());
     runtime.state.set_rotation(angle * 180.0f / std::numbers::pi_v<float>);
-    runtime.state.set_health(kDefaultMaxHealth);
-    runtime.state.set_max_health(kDefaultMaxHealth);
+
+    const int32_t max_health =
+        default_role != nullptr ? std::max<int32_t>(1, default_role->max_health)
+                                : kDefaultMaxHealth;
+    const uint32_t attack =
+        default_role != nullptr ? default_role->attack : kDefaultAttack;
+    const uint32_t attack_speed =
+        default_role != nullptr ? std::max<uint32_t>(1, default_role->attack_speed)
+                                : 1u;
+    const float move_speed =
+        default_role != nullptr && default_role->move_speed > 0.0f
+            ? default_role->move_speed
+            : scene->config.move_speed;
+    const uint32_t crit =
+        default_role != nullptr ? default_role->critical_hit_rate : 0u;
+    const uint32_t role_id =
+        default_role != nullptr ? default_role->role_id : 0u;
+
+    runtime.state.set_health(max_health);
+    runtime.state.set_max_health(max_health);
     runtime.state.set_level(1);
     runtime.state.set_exp(0);
     runtime.state.set_exp_to_next(kDefaultExpToNext);
     runtime.state.set_is_alive(true);
-    runtime.state.set_attack(kDefaultAttack);
+    runtime.state.set_attack(attack);
     runtime.state.set_is_friendly(true);
-    runtime.state.set_role_id(0);
-    runtime.state.set_critical_hit_rate(0);
+    runtime.state.set_role_id(role_id);
+    runtime.state.set_critical_hit_rate(crit);
     runtime.state.set_has_buff(false);
     runtime.state.set_buff_id(0);
-    runtime.state.set_attack_speed(1);
-    runtime.state.set_move_speed(scene->config.move_speed);
+    runtime.state.set_attack_speed(attack_speed);
+    runtime.state.set_move_speed(move_speed);
     runtime.state.set_last_processed_input_seq(0);
 
     // 将玩家对应玩家信息插入会话
@@ -317,10 +358,7 @@ lawnmower::SceneInfo GameManager::CreateScene(
     if (scene.enemies.size() >= max_enemies_alive) {
       return;
     }
-    const EnemyType* type = FindEnemyType(type_id);
-    if (type == nullptr) {
-      type = &DefaultEnemyType();
-    }
+    const EnemyTypeConfig& type = ResolveEnemyType(type_id);
 
     const float map_w = static_cast<float>(scene.config.width);
     const float map_h = static_cast<float>(scene.config.height);
@@ -350,12 +388,12 @@ lawnmower::SceneInfo GameManager::CreateScene(
 
     EnemyRuntime runtime;
     runtime.state.set_enemy_id(scene.next_enemy_id++);
-    runtime.state.set_type_id(type->type_id);
+    runtime.state.set_type_id(type.type_id);
     const auto clamped_pos = ClampToMap(scene.config, x, y);
     runtime.state.mutable_position()->set_x(clamped_pos.x());
     runtime.state.mutable_position()->set_y(clamped_pos.y());
-    runtime.state.set_health(type->max_health);
-    runtime.state.set_max_health(type->max_health);
+    runtime.state.set_health(type.max_health);
+    runtime.state.set_max_health(type.max_health);
     runtime.state.set_is_alive(true);
     runtime.state.set_wave_id(scene.wave_id);
     runtime.state.set_is_friendly(false);
@@ -368,10 +406,7 @@ lawnmower::SceneInfo GameManager::CreateScene(
       std::min<std::size_t>(max_enemies_alive,
                             std::max<std::size_t>(1, snapshot.players.size() * 2));
   for (std::size_t i = 0; i < initial_enemy_count; ++i) {
-    const std::size_t idx =
-        static_cast<std::size_t>(NextRng(&scene.rng_state)) %
-        kEnemyTypes.size();
-    spawn_enemy(kEnemyTypes[idx].type_id);
+    spawn_enemy(PickSpawnEnemyTypeId(&scene.rng_state));
   }
   scenes_[snapshot.room_id] = std::move(scene);  // 房间对应会话map
 
@@ -432,6 +467,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
 
   std::vector<lawnmower::S2C_PlayerHurt> player_hurts;
   std::vector<lawnmower::S2C_EnemyDied> enemy_dieds;
+  std::vector<lawnmower::EnemyAttackStateDelta> enemy_attack_states;
   std::vector<lawnmower::S2C_PlayerLevelUp> level_ups;
   std::optional<lawnmower::S2C_GameOver> game_over;
   std::vector<lawnmower::ProjectileState> projectile_spawns;
@@ -579,8 +615,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     // -----------------
 
     ProcessCombatAndProjectiles(scene, dt_seconds, &player_hurts, &enemy_dieds,
-                               &level_ups, &game_over, &projectile_spawns,
-                               &projectile_despawns, &has_dirty);
+                               &enemy_attack_states, &level_ups, &game_over,
+                               &projectile_spawns, &projectile_despawns,
+                               &has_dirty);
     scene.tick += 1;
     scene.sync_accumulator += dt_seconds;
     scene.full_sync_elapsed += dt_seconds;
@@ -679,13 +716,27 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     }
   }
 
+  lawnmower::S2C_EnemyAttackStateSync enemy_attack_state_msg;
+  const bool has_enemy_attack_state = !enemy_attack_states.empty();
+  if (has_enemy_attack_state) {
+    enemy_attack_state_msg.set_room_id(room_id);
+    enemy_attack_state_msg.set_server_time_ms(event_now_count);
+    enemy_attack_state_msg.mutable_sync_time()->set_server_time(event_now_count);
+    enemy_attack_state_msg.mutable_sync_time()->set_tick(
+        static_cast<uint32_t>(event_tick));
+    for (const auto& delta : enemy_attack_states) {
+      *enemy_attack_state_msg.add_enemies() = delta;
+    }
+  }
+
   if (game_over.has_value()) {
     spdlog::info("房间 {} 游戏结束，survive_time={}s，scores={}", room_id,
                  game_over->survive_time(), game_over->scores_size());
   }
 
   if (has_projectile_spawn || has_projectile_despawn || !player_hurts.empty() ||
-      !enemy_dieds.empty() || !level_ups.empty() || game_over.has_value()) {
+      has_enemy_attack_state || !enemy_dieds.empty() || !level_ups.empty() ||
+      game_over.has_value()) {
     const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
     for (const auto& weak_session : sessions) {
       auto session = weak_session.lock();
@@ -699,6 +750,11 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       if (has_projectile_despawn) {
         session->SendProto(lawnmower::MessageType::MSG_S2C_PROJECTILE_DESPAWN,
                            projectile_despawn_msg);
+      }
+      if (has_enemy_attack_state) {
+        session->SendProto(
+            lawnmower::MessageType::MSG_S2C_ENEMY_ATTACK_STATE_SYNC,
+            enemy_attack_state_msg);
       }
       for (const auto& hurt : player_hurts) {
         session->SendProto(lawnmower::MessageType::MSG_S2C_PLAYER_HURT, hurt);

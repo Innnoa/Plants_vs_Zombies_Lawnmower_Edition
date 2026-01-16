@@ -12,7 +12,9 @@
 #include <utility>
 #include <vector>
 
+#include "config/enemy_types_config.hpp"
 #include "config/server_config.hpp"
+#include "config/player_roles_config.hpp"
 #include "game/managers/room_manager.hpp"
 #include "message.pb.h"
 
@@ -41,6 +43,12 @@ class GameManager {
   [[nodiscard]] UdpServer* GetUdpServer() const { return udp_server_; }
   [[nodiscard]] asio::io_context* GetIoContext() const { return io_context_; }
   void SetConfig(const ServerConfig& cfg) { config_ = cfg; }
+  void SetPlayerRolesConfig(const PlayerRolesConfig& cfg) {
+    player_roles_config_ = cfg;
+  }
+  void SetEnemyTypesConfig(const EnemyTypesConfig& cfg) {
+    enemy_types_config_ = cfg;
+  }
 
   // 在游戏开始后为房间启动固定逻辑帧循环与状态同步
   void StartGameLoop(uint32_t room_id);
@@ -75,6 +83,8 @@ class GameManager {
     std::deque<lawnmower::C2S_PlayerInput> pending_inputs;
     bool wants_attacking = false;
     double attack_cooldown_seconds = 0.0;
+    uint32_t locked_target_enemy_id = 0;
+    double target_refresh_elapsed = 0.0;
     int32_t kill_count = 0;
     int32_t damage_dealt = 0;
     bool low_freq_dirty = false;
@@ -88,6 +98,8 @@ class GameManager {
     std::size_t path_index = 0;
     double replan_elapsed = 0.0;
     double attack_cooldown_seconds = 0.0;
+    bool is_attacking = false;
+    uint32_t attack_target_player_id = 0;
     double dead_elapsed_seconds = 0.0;
     uint32_t force_sync_left = 0;
     bool dirty = false;
@@ -146,12 +158,15 @@ class GameManager {
 
   SceneConfig BuildDefaultConfig() const;
   void PlacePlayers(const RoomManager::RoomSnapshot& snapshot, Scene* scene);
+  [[nodiscard]] const EnemyTypeConfig& ResolveEnemyType(uint32_t type_id) const;
+  [[nodiscard]] uint32_t PickSpawnEnemyTypeId(uint32_t* rng_state) const;
   void ProcessEnemies(Scene& scene, double dt_seconds, bool* has_dirty);
   void ProcessSceneTick(uint32_t room_id, double tick_interval_seconds);
   void ProcessCombatAndProjectiles(
       Scene& scene, double dt_seconds,
       std::vector<lawnmower::S2C_PlayerHurt>* player_hurts,
       std::vector<lawnmower::S2C_EnemyDied>* enemy_dieds,
+      std::vector<lawnmower::EnemyAttackStateDelta>* enemy_attack_states,
       std::vector<lawnmower::S2C_PlayerLevelUp>* level_ups,
       std::optional<lawnmower::S2C_GameOver>* game_over,
       std::vector<lawnmower::ProjectileState>* projectile_spawns,
@@ -172,4 +187,6 @@ class GameManager {
   asio::io_context* io_context_ = nullptr;
   UdpServer* udp_server_ = nullptr;
   ServerConfig config_;
+  PlayerRolesConfig player_roles_config_;
+  EnemyTypesConfig enemy_types_config_;
 };

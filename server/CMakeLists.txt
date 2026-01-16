@@ -48,6 +48,8 @@ add_executable(server
   src/network/tcp/tcp_server.cpp
   src/network/udp/udp_server.cpp
   src/config/server_config.cpp
+  src/config/player_roles_config.cpp
+  src/config/enemy_types_config.cpp
   src/game/managers/room_manager.cpp
   src/game/managers/game_manager.cpp
   src/game/managers/game_manager_enemy.cpp
