@@ -19,6 +19,7 @@ public final class EnemyDefinitions {
         private final String attackAtlasPath;
         private final String attackRegionPrefix;
         private final float attackFrameDuration;
+        private final float attackIntervalSeconds;
 
         private Definition(int typeId,
                            String name,
@@ -27,7 +28,8 @@ public final class EnemyDefinitions {
                            float frameDuration,
                            String attackAtlasPath,
                            String attackRegionPrefix,
-                           float attackFrameDuration) {
+                           float attackFrameDuration,
+                           float attackIntervalSeconds) {
             this.typeId = typeId;
             this.name = name;
             this.atlasPath = atlasPath;
@@ -36,6 +38,7 @@ public final class EnemyDefinitions {
             this.attackAtlasPath = attackAtlasPath;
             this.attackRegionPrefix = attackRegionPrefix;
             this.attackFrameDuration = attackFrameDuration;
+            this.attackIntervalSeconds = attackIntervalSeconds;
         }
 
         public int getTypeId() {
@@ -69,6 +72,10 @@ public final class EnemyDefinitions {
         public float getAttackFrameDuration() {
             return attackFrameDuration;
         }
+
+        public float getAttackIntervalSeconds() {
+            return attackIntervalSeconds;
+        }
     }
 
     private static final Map<Integer, Definition> DEFINITIONS = new LinkedHashMap<>();
@@ -84,7 +91,8 @@ public final class EnemyDefinitions {
                 0.08f,
                 "Zombie/NormalZombie/Attack/attack.atlas",
                 "ZombieAttack",
-                0.08f
+                0.08f,
+                0.8f
         ));
 
         // 2: Cone zombie (reuses normal assets for now)
@@ -96,7 +104,8 @@ public final class EnemyDefinitions {
                 0.08f,
                 "Zombie/NormalZombie/Attack/attack.atlas",
                 "ZombieAttack",
-                0.08f
+                0.08f,
+                0.8f
         ));
 
         // 3: Bucket zombie (reuses normal assets for now)
@@ -108,7 +117,8 @@ public final class EnemyDefinitions {
                 0.08f,
                 "Zombie/NormalZombie/Attack/attack.atlas",
                 "ZombieAttack",
-                0.08f
+                0.08f,
+                0.8f
         ));
 
         // 4: Football zombie (reuses normal assets for now)
@@ -120,7 +130,8 @@ public final class EnemyDefinitions {
                 0.08f,
                 "Zombie/NormalZombie/Attack/attack.atlas",
                 "ZombieAttack",
-                0.08f
+                0.08f,
+                0.8f
         ));
     }
 

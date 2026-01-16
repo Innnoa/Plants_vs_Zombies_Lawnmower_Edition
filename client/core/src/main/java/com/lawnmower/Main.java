@@ -116,6 +116,9 @@ public class Main extends Game {
                         case MSG_S2C_PROJECTILE_DESPAWN:
                             payload = Message.S2C_ProjectileDespawn.parseFrom(packet.getPayload());
                             break;
+                        case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
+                            payload = Message.S2C_EnemyAttackStateSync.parseFrom(packet.getPayload());
+                            break;
                         // 其他未来消息可继续添加
                         default:
                             Gdx.app.log("NET", "Unknown message type: " + type);
@@ -219,6 +222,8 @@ public class Main extends Game {
                 return Message.S2C_ProjectileSpawn.parseFrom(packet.getPayload());
             case MSG_S2C_PROJECTILE_DESPAWN:
                 return Message.S2C_ProjectileDespawn.parseFrom(packet.getPayload());
+            case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
+                return Message.S2C_EnemyAttackStateSync.parseFrom(packet.getPayload());
             default:
                 Gdx.app.log("NET", "Unknown message type: " + type);
                 return null;
@@ -507,6 +512,7 @@ public class Main extends Game {
                 case MSG_S2C_GAME_OVER:
                 case MSG_S2C_PROJECTILE_SPAWN:
                 case MSG_S2C_PROJECTILE_DESPAWN:
+                case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
                     // 暂时只打日志，后续由 GameScreen 处理
                     Gdx.app.log("GAME_EVENT", "Received game event: " + type);
                     if (getScreen() instanceof GameScreen gameScreen) {

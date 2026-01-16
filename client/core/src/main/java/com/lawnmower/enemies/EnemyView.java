@@ -39,6 +39,7 @@ public class EnemyView {
     private boolean facingRight = true;
     private boolean attacking = false;
     private long attackEndServerTime = 0L;
+    private boolean attackStateSynced = false;
     private int typeId = 0;
     private int health = 0;
     private int maxHealth = 1;
@@ -87,6 +88,10 @@ public class EnemyView {
         this.alive = isAlive;
         this.health = health;
         this.maxHealth = Math.max(1, maxHealth);
+    }
+
+    public int getTypeId() {
+        return typeId;
     }
 
     public void snapTo(Vector2 position, long timestampMs) {
@@ -181,6 +186,7 @@ public class EnemyView {
     }
 
     public void triggerAttack(long serverTimeMs, long durationMs) {
+        attackStateSynced = false;
         Animation<TextureRegion> animation = attackAnimation != null ? attackAnimation : walkAnimation;
         if (animation == null) {
             return;
@@ -196,6 +202,36 @@ public class EnemyView {
         attackAnimationTime = 0f;
     }
 
+    public void setAttacking(boolean active, long serverTimeMs, long expectedDurationMs) {
+        Animation<TextureRegion> animation = attackAnimation != null ? attackAnimation : walkAnimation;
+        if (animation == null) {
+            attackStateSynced = false;
+            attacking = false;
+            return;
+        }
+
+        attackStateSynced = true;
+        if (active && !attacking) {
+            attackAnimationTime = 0f;
+        } else if (!active && attacking) {
+            attackAnimationTime = 0f;
+        }
+        attacking = active;
+
+        long baseDuration = expectedDurationMs > 0L
+                ? expectedDurationMs
+                : (long) (animation.getAnimationDuration() * 1000f);
+        if (baseDuration <= 0L) {
+            baseDuration = DEFAULT_ATTACK_DURATION_MS;
+        }
+        long referenceTime = serverTimeMs > 0L ? serverTimeMs : TimeUtils.millis();
+        attackEndServerTime = referenceTime + baseDuration;
+    }
+
+    public boolean isAttackStateSynced() {
+        return attackStateSynced;
+    }
+
     public long getAttackAnimationDurationMs() {
         if (attackAnimation != null) {
             return (long) (attackAnimation.getAnimationDuration() * 1000f);
@@ -207,6 +243,9 @@ public class EnemyView {
     }
 
     private boolean isAttackActive(long renderServerTimeMs) {
+        if (attackStateSynced) {
+            return attacking;
+        }
         if (!attacking) {
             return false;
         }
@@ -220,6 +259,17 @@ public class EnemyView {
             return false;
         }
         return true;
+    }
+
+    public void faceTowards(Vector2 target) {
+        if (target == null) {
+            return;
+        }
+        float deltaX = target.x - displayPosition.x;
+        if (Math.abs(deltaX) <= 0.001f) {
+            return;
+        }
+        facingRight = deltaX >= 0f;
     }
 
     private TextureRegion resolveFrame(float delta, boolean playingAttack) {

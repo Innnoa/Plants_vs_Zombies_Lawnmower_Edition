@@ -48,6 +48,7 @@ public class GameScreen implements Screen {
     private static final int DEFAULT_ENEMY_TYPE_ID = EnemyDefinitions.getDefaultTypeId();
     private static final long INTERP_DELAY_MIN_MS = 60L;
     private static final long INTERP_DELAY_MAX_MS = 180L;
+    private static final int AUTO_ATTACK_TOGGLE_KEY = Input.Keys.C;
 
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
@@ -149,6 +150,7 @@ public class GameScreen implements Screen {
     private float pendingInputDuration = 0f;
     private long pendingInputStartMs = 0L;
     private boolean idleAckSent = true;
+    private boolean autoAttackToggle = false;
 
     private float clockOffsetMs = 0f;
     private float smoothedRttMs = 120f;
@@ -257,7 +259,11 @@ public class GameScreen implements Screen {
         float renderDelta = getStableDelta(delta);
         Vector2 dir = getMovementInput();
         isLocallyMoving = dir.len2() > 0.0001f;//判断是否在移动
-        boolean attacking = Gdx.input.isKeyJustPressed(Input.Keys.SPACE);//是否按下空格进行攻击
+        if (Gdx.input.isKeyJustPressed(AUTO_ATTACK_TOGGLE_KEY)) {
+            autoAttackToggle = !autoAttackToggle;
+            showStatusToast(autoAttackToggle ? "自动攻击已开启" : "自动攻击已关闭");
+        }
+        boolean attacking = Gdx.input.isKeyPressed(Input.Keys.SPACE) || autoAttackToggle;//支持长按或自动攻击
 
         /*
         预测操作
@@ -1747,8 +1753,62 @@ public class GameScreen implements Screen {
         if (attacker == null) {
             return;
         }
+        if (attacker.isAttackStateSynced()) {
+            return;
+        }
         long serverTimeMs = estimateServerTimeMs();
         attacker.triggerAttack(serverTimeMs, attacker.getAttackAnimationDurationMs());
+    }
+
+    private void handleEnemyAttackStateSync(Message.S2C_EnemyAttackStateSync sync) {
+        if (sync == null || sync.getEnemiesCount() == 0) {
+            return;
+        }
+        long serverTimeMs = sync.getServerTimeMs();
+        if (serverTimeMs <= 0L) {
+            serverTimeMs = estimateServerTimeMs();
+        }
+        for (Message.EnemyAttackStateDelta delta : sync.getEnemiesList()) {
+            if (delta == null) {
+                continue;
+            }
+            int enemyId = (int) delta.getEnemyId();
+            EnemyView view = enemyViews.get(enemyId);
+            if (view == null) {
+                continue;
+            }
+            long expectedDurationMs = resolveEnemyAttackDurationMs(view);
+            view.setAttacking(delta.getIsAttacking(), serverTimeMs, expectedDurationMs);
+            if (delta.getIsAttacking()) {
+                orientEnemyTowardsTarget(delta.getTargetPlayerId(), view);
+            }
+        }
+    }
+
+    private long resolveEnemyAttackDurationMs(EnemyView view) {
+        if (view == null) {
+            return 0L;
+        }
+        EnemyDefinitions.Definition definition = EnemyDefinitions.get(view.getTypeId());
+        if (definition != null) {
+            float intervalSeconds = Math.max(0f, definition.getAttackIntervalSeconds());
+            if (intervalSeconds > 0f) {
+                return (long) (intervalSeconds * 1000f);
+            }
+        }
+        return view.getAttackAnimationDurationMs();
+    }
+
+    private void orientEnemyTowardsTarget(int targetPlayerId, EnemyView view) {
+        if (targetPlayerId <= 0 || view == null) {
+            return;
+        }
+        Message.PlayerState target = serverPlayerStates.get(targetPlayerId);
+        if (target == null || !target.hasPosition()) {
+            return;
+        }
+        renderBuffer.set(target.getPosition().getX(), target.getPosition().getY());
+        view.faceTowards(renderBuffer);
     }
 
     private void handleEnemyDied(Message.S2C_EnemyDied died) {
@@ -1801,6 +1861,7 @@ public class GameScreen implements Screen {
         }
         projectileViews.clear();
         projectileImpacts.clear();
+        autoAttackToggle = false;
     }
     /**
      * 游戏环境状态的枚举判断
@@ -1829,6 +1890,9 @@ public class GameScreen implements Screen {
                 break;
             case MSG_S2C_PROJECTILE_DESPAWN:
                 handleProjectileDespawnEvent((Message.S2C_ProjectileDespawn) message);
+                break;
+            case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
+                handleEnemyAttackStateSync((Message.S2C_EnemyAttackStateSync) message);
                 break;
             default:
                 Gdx.app.log("GameEvent", "Unhandled game event: " + type);
