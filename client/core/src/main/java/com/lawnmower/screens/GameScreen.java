@@ -27,11 +27,18 @@ import com.lawnmower.players.PlayerStateSnapshot;
 import com.lawnmower.players.ServerPlayerSnapshot;
 import lawnmower.Message;
 
+import java.io.BufferedOutputStream;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.util.*;
 
 public class GameScreen implements Screen {
 
     private static final String TAG = "GameScreen";
+    static {
+        configureConsoleEncoding();
+    }
 
     private static final float WORLD_WIDTH = 1280f;
     private static final float WORLD_HEIGHT = 720f;
@@ -598,20 +605,31 @@ public class GameScreen implements Screen {
         if (projectileViews.isEmpty()) {
             return;
         }
+        long currentClientTimeMs = logicalTimeMs;
         Iterator<Map.Entry<Long, ProjectileView>> iterator = projectileViews.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, ProjectileView> entry = iterator.next();
             ProjectileView view = entry.getValue();
             view.animationTime += delta;
             view.position.mulAdd(view.velocity, delta);
-            boolean expired = view.expireServerTimeMs > 0 && serverTimeMs >= view.expireServerTimeMs;
+            boolean expiredClient = view.expireClientTimeMs > 0 && currentClientTimeMs >= view.expireClientTimeMs;
+            boolean expiredServer = view.expireServerTimeMs > 0 && serverTimeMs >= view.expireServerTimeMs;
             boolean outOfBounds = isProjectileOutOfBounds(view.position);
+            boolean expired = expiredClient || expiredServer;
             if (expired || outOfBounds) {
-                String reason = expired ? "expired" : "out_of_bounds";
+                String reason;
+                if (outOfBounds) {
+                    reason = "out_of_bounds";
+                } else if (expiredClient) {
+                    reason = "expired_client";
+                } else {
+                    reason = "expired_server";
+                }
                 Gdx.app.log(TAG, "ProjectileRemoved id=" + view.projectileId
                         + " reason=" + reason
                         + " pos=" + view.position
-                        + " serverTime=" + serverTimeMs);
+                        + " serverTime=" + serverTimeMs
+                        + " clientTime=" + currentClientTimeMs);
                 iterator.remove();
             }
         }
@@ -757,6 +775,8 @@ public class GameScreen implements Screen {
         float animationTime;
         long spawnServerTimeMs;
         long expireServerTimeMs;
+        long spawnClientTimeMs;
+        long expireClientTimeMs;
 
         ProjectileView(long projectileId) {
             this.projectileId = projectileId;
@@ -1718,17 +1738,19 @@ public class GameScreen implements Screen {
             }
             float dirX = MathUtils.cosDeg(rotationDeg);
             float dirY = MathUtils.sinDeg(rotationDeg);
-            if (Math.abs(dirX) > 0.001f || Math.abs(dirY) > 0.001f) {
-                view.velocity.set(dirX, dirY).nor().scl(speed);
-            } else {
-                view.velocity.setZero();
+            if (Math.abs(dirX) <= 0.001f && Math.abs(dirY) <= 0.001f) {
+                dirX = 1f;
+                dirY = 0f;
             }
+            view.velocity.set(dirX, dirY).nor().scl(speed);
             long ttlMs = Math.max(50L, state.getTtlMs());
             if (PROJECTILE_SPEED_SCALE > 0f) {
                 ttlMs = (long) Math.ceil(ttlMs / PROJECTILE_SPEED_SCALE);
             }
             view.spawnServerTimeMs = serverTimeMs;
             view.expireServerTimeMs = serverTimeMs + ttlMs;
+            view.spawnClientTimeMs = logicalTimeMs;
+            view.expireClientTimeMs = logicalTimeMs + ttlMs;
             projectileViews.put(projectileId, view);
             spawned++;
             Gdx.app.log(TAG, "ProjectileSpawn id=" + projectileId
@@ -1736,7 +1758,8 @@ public class GameScreen implements Screen {
                     + " vel=" + view.velocity
                     + " speed=" + speed
                     + " ttlMs=" + ttlMs
-                    + " serverTime=" + serverTimeMs);
+                    + " serverTime=" + serverTimeMs
+                    + " clientTime=" + logicalTimeMs);
             if (view.velocity.isZero(0.0001f)) {
                 Gdx.app.log(TAG, "Projectile " + projectileId + " has zero velocity; check lock direction.");
             }
@@ -2176,6 +2199,22 @@ public class GameScreen implements Screen {
             }
         }
         return bestId;
+    }
+
+    private static void configureConsoleEncoding() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (!os.contains("win")) {
+            return;
+        }
+        try {
+            PrintStream out = new PrintStream(
+                    new BufferedOutputStream(new FileOutputStream(FileDescriptor.out)), true, "GBK");
+            PrintStream err = new PrintStream(
+                    new BufferedOutputStream(new FileOutputStream(FileDescriptor.err)), true, "GBK");
+            System.setOut(out);
+            System.setErr(err);
+        } catch (Exception ignored) {
+        }
     }
 
     /**
