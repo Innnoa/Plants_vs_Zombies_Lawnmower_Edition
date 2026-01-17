@@ -49,6 +49,10 @@ public class GameScreen implements Screen {
     private static final long INTERP_DELAY_MIN_MS = 60L;
     private static final long INTERP_DELAY_MAX_MS = 180L;
     private static final int AUTO_ATTACK_TOGGLE_KEY = Input.Keys.C;
+    private static final float PROJECTILE_SPEED_SCALE = 2f / 3f;
+    private static final float AUTO_ATTACK_INTERVAL = 1f;
+    private static final float AUTO_ATTACK_HOLD_TIME = 0.18f;
+    private static final float TARGET_REFRESH_INTERVAL = 0.2f;
 
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
@@ -83,6 +87,7 @@ public class GameScreen implements Screen {
     private final Queue<PlayerStateSnapshot> snapshotHistory = new ArrayDeque<>();
     private final Map<Long, ProjectileView> projectileViews = new HashMap<>();
     private final Array<ProjectileImpact> projectileImpacts = new Array<>();
+    private final Vector2 targetingBuffer = new Vector2();
 
     private Main game;
     private OrthographicCamera camera;
@@ -150,7 +155,11 @@ public class GameScreen implements Screen {
     private float pendingInputDuration = 0f;
     private long pendingInputStartMs = 0L;
     private boolean idleAckSent = true;
-    private boolean autoAttackToggle = false;
+    private boolean autoAttackToggle = true;
+    private float autoAttackAccumulator = AUTO_ATTACK_INTERVAL;
+    private float autoAttackHoldTimer = 0f;
+    private int lockedEnemyId = 0;
+    private float targetRefreshTimer = TARGET_REFRESH_INTERVAL;
 
     private float clockOffsetMs = 0f;
     private float smoothedRttMs = 120f;
@@ -228,12 +237,14 @@ public class GameScreen implements Screen {
         enemyLastSeen.clear();
         projectileViews.clear();
         projectileImpacts.clear();
+        resetTargetingState();
         spawnPlaceholderEnemy();
 
         //设置人物初始位置为地图中央
         predictedPosition.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
         displayPosition.set(predictedPosition);
         resetInitialStateTracking();
+        resetAutoAttackState();
     }
 
     @Override
@@ -261,9 +272,15 @@ public class GameScreen implements Screen {
         isLocallyMoving = dir.len2() > 0.0001f;//判断是否在移动
         if (Gdx.input.isKeyJustPressed(AUTO_ATTACK_TOGGLE_KEY)) {
             autoAttackToggle = !autoAttackToggle;
+            if (autoAttackToggle) {
+                resetAutoAttackState();
+            } else {
+                autoAttackAccumulator = 0f;
+                autoAttackHoldTimer = 0f;
+            }
             showStatusToast(autoAttackToggle ? "自动攻击已开启" : "自动攻击已关闭");
         }
-        boolean attacking = Gdx.input.isKeyPressed(Input.Keys.SPACE) || autoAttackToggle;//支持长按或自动攻击
+        boolean attacking = resolveAttackingState(renderDelta);
 
         /*
         预测操作
@@ -278,6 +295,7 @@ public class GameScreen implements Screen {
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
         clampPositionToMap(predictedPosition);
+        updatePlayerFacing(renderDelta);
         updateDisplayPosition(renderDelta);
         clampPositionToMap(displayPosition);
         camera.position.set(displayPosition.x, displayPosition.y, 0);
@@ -355,9 +373,6 @@ public class GameScreen implements Screen {
         if (dir.len2() > 0.1f) {
             predictedPosition.add(dir.x * PLAYER_SPEED * delta, dir.y * PLAYER_SPEED * delta);
             predictedRotation = dir.angleDeg();
-            if (Math.abs(dir.x) > 0.01f) {
-                facingRight = dir.x >= 0f;
-            }
             clampPositionToMap(predictedPosition);
         }
     }
@@ -780,6 +795,9 @@ public class GameScreen implements Screen {
         enemyViews.remove(enemyId);
         enemyStateCache.remove(enemyId);
         enemyLastSeen.remove(enemyId);
+        if (enemyId == lockedEnemyId) {
+            lockedEnemyId = 0;
+        }
     }
 
     /**
@@ -1688,6 +1706,9 @@ public class GameScreen implements Screen {
             float rotationDeg = state.getRotation();
             view.rotationDeg = rotationDeg;
             float speed = state.hasProjectile() ? state.getProjectile().getSpeed() : 0f;
+            if (speed > 0f) {
+                speed *= PROJECTILE_SPEED_SCALE;
+            }
             float dirX = MathUtils.cosDeg(rotationDeg);
             float dirY = MathUtils.sinDeg(rotationDeg);
             if (Math.abs(dirX) > 0.001f || Math.abs(dirY) > 0.001f) {
@@ -1696,6 +1717,9 @@ public class GameScreen implements Screen {
                 view.velocity.setZero();
             }
             long ttlMs = Math.max(50L, state.getTtlMs());
+            if (PROJECTILE_SPEED_SCALE > 0f) {
+                ttlMs = (long) Math.ceil(ttlMs / PROJECTILE_SPEED_SCALE);
+            }
             view.spawnServerTimeMs = serverTimeMs;
             view.expireServerTimeMs = serverTimeMs + ttlMs;
             projectileViews.put(projectileId, view);
@@ -1820,6 +1844,9 @@ public class GameScreen implements Screen {
             projectileTempVector.set(died.getPosition().getX(), died.getPosition().getY());
             spawnImpactEffect(projectileTempVector);
         }
+        if (enemyId == lockedEnemyId) {
+            lockedEnemyId = 0;
+        }
         String toast = died.getKillerPlayerId() > 0
                 ? "敌人被玩家 " + died.getKillerPlayerId() + " 击败"
                 : "敌人 " + enemyId + " 被消灭";
@@ -1859,7 +1886,8 @@ public class GameScreen implements Screen {
         }
         projectileViews.clear();
         projectileImpacts.clear();
-        autoAttackToggle = false;
+        resetTargetingState();
+        resetAutoAttackState();
     }
     /**
      * 游戏环境状态的枚举判断
@@ -2049,6 +2077,87 @@ public class GameScreen implements Screen {
         pendingInputStartMs = 0L;
     }
 
+    private void resetAutoAttackState() {
+        autoAttackAccumulator = AUTO_ATTACK_INTERVAL;
+        autoAttackHoldTimer = 0f;
+    }
+
+    private boolean resolveAttackingState(float delta) {
+        if (Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
+            autoAttackHoldTimer = AUTO_ATTACK_HOLD_TIME;
+            return true;
+        }
+        if (!autoAttackToggle) {
+            return false;
+        }
+        autoAttackAccumulator += delta;
+        if (autoAttackAccumulator >= AUTO_ATTACK_INTERVAL) {
+            autoAttackAccumulator -= AUTO_ATTACK_INTERVAL;
+            autoAttackHoldTimer = AUTO_ATTACK_HOLD_TIME;
+        }
+        if (autoAttackHoldTimer > 0f) {
+            autoAttackHoldTimer = Math.max(0f, autoAttackHoldTimer - delta);
+            return true;
+        }
+        return false;
+    }
+
+    private void resetTargetingState() {
+        lockedEnemyId = 0;
+        targetRefreshTimer = TARGET_REFRESH_INTERVAL;
+    }
+
+    private void updatePlayerFacing(float delta) {
+        if (enemyViews.isEmpty()) {
+            lockedEnemyId = 0;
+            return;
+        }
+        targetRefreshTimer += delta;
+        EnemyView target = enemyViews.get(lockedEnemyId);
+        boolean needsRefresh = target == null
+                || !target.isAlive()
+                || lockedEnemyId == PLACEHOLDER_ENEMY_ID
+                || targetRefreshTimer >= TARGET_REFRESH_INTERVAL;
+        if (needsRefresh) {
+            lockedEnemyId = findNearestEnemyId();
+            targetRefreshTimer = 0f;
+            target = enemyViews.get(lockedEnemyId);
+        }
+        if (target == null || !target.isAlive()) {
+            return;
+        }
+        target.getDisplayPosition(targetingBuffer);
+        float dx = targetingBuffer.x - predictedPosition.x;
+        float dy = targetingBuffer.y - predictedPosition.y;
+        if (Math.abs(dx) <= 0.001f && Math.abs(dy) <= 0.001f) {
+            return;
+        }
+        predictedRotation = MathUtils.atan2(dy, dx) * MathUtils.radiansToDegrees;
+        facingRight = dx >= 0f;
+    }
+
+    private int findNearestEnemyId() {
+        float bestDistSq = Float.MAX_VALUE;
+        int bestId = 0;
+        for (Map.Entry<Integer, EnemyView> entry : enemyViews.entrySet()) {
+            int enemyId = entry.getKey();
+            if (enemyId == PLACEHOLDER_ENEMY_ID) {
+                continue;
+            }
+            EnemyView view = entry.getValue();
+            if (view == null || !view.isAlive()) {
+                continue;
+            }
+            view.getDisplayPosition(targetingBuffer);
+            float distSq = targetingBuffer.dst2(predictedPosition);
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq;
+                bestId = enemyId;
+            }
+        }
+        return bestId;
+    }
+
     /**
      * 重置客户端状态并发送全量请求
      */
@@ -2060,6 +2169,7 @@ public class GameScreen implements Screen {
         initialStateFailureLogged = false;
         initialStateRequestCount = 0;
         lastDeltaResyncRequestMs = 0L;
+        resetTargetingState();
         maybeSendInitialStateRequest(initialStateStartMs, "initial_enter");
     }
 

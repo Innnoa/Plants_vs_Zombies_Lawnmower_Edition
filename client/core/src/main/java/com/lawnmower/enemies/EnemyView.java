@@ -109,6 +109,13 @@ public class EnemyView {
         return alive;
     }
 
+    public Vector2 getDisplayPosition(Vector2 out) {
+        if (out == null) {
+            return new Vector2(displayPosition);
+        }
+        return out.set(displayPosition);
+    }
+
     public long getLastServerUpdateMs() {
         return lastServerUpdateMs;
     }
