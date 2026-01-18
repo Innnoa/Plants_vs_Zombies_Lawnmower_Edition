@@ -172,7 +172,9 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
 }
 }  // namespace
 
+// 解析敌人类型
 const EnemyTypeConfig& GameManager::ResolveEnemyType(uint32_t type_id) const {
+  // 后备配置
   static const EnemyTypeConfig kFallback{
       .type_id = 1,
       .name = "默认僵尸",
@@ -185,22 +187,28 @@ const EnemyTypeConfig& GameManager::ResolveEnemyType(uint32_t type_id) const {
   if (type_id != 0) {
     auto it = enemy_types_config_.enemies.find(type_id);
     if (it != enemy_types_config_.enemies.end()) {
+      // 找到了
       return it->second;
     }
   }
-
+  
+  // 查找是否有默认id
   const uint32_t default_id =
-      enemy_types_config_.default_type_id > 0 ? enemy_types_config_.default_type_id
+      enemy_types_config_.default_type_id > 1 ? enemy_types_config_.default_type_id
                                               : kFallback.type_id;
   auto it = enemy_types_config_.enemies.find(default_id);
   if (it != enemy_types_config_.enemies.end()) {
+    // 默认id对应类型存在
     return it->second;
   }
-
+  
+  // 判断类型容器是否有内容
   if (!enemy_types_config_.enemies.empty()) {
+    // 是否首数据
     return enemy_types_config_.enemies.begin()->second;
   }
-
+  
+  // 实在没有就使用后背配置
   return kFallback;
 }
 

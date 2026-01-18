@@ -15,25 +15,27 @@ constexpr float kSpawnRadius = 120.0f; // 生成半径
 constexpr int32_t kDefaultMaxHealth = 100000000; // 默认最大血量
 constexpr uint32_t kDefaultAttack = 10; // 默认攻击力
 constexpr uint32_t kDefaultExpToNext = 100; // 默认升级所需经验
-constexpr std::size_t kMaxPendingInputs = 64; // 
-constexpr float kDirectionEpsilonSq = 1e-6f; // 
-constexpr float kMaxDirectionLengthSq = 1.21f;    // 略放宽，防止浮点误差
-constexpr uint32_t kFullSyncIntervalTicks = 180;  // ~3s @60Hz
+constexpr std::size_t kMaxPendingInputs = 64; // 单个玩家输入队列的最大缓存条数
+constexpr float kDirectionEpsilonSq = 1e-6f; // 方向向量长度平方的极小阈值，小于此视为无效输入
+constexpr float kMaxDirectionLengthSq = 1.21f;    // 方向向量长度平方的上限
+constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
 
 // 计算朝向
 float DegreesFromDirection(float x, float y) {
-  if (std::abs(x) < 1e-6f && std::abs(y) < 1e-6f) {
+  if (std::abs(x) < kDirectionEpsilonSq && std::abs(y) < kDirectionEpsilonSq) {
     return 0.0f;
   }
   const float angle_rad = std::atan2(y, x);
   return angle_rad * 180.0f / std::numbers::pi_v<float>;
 }
 
+// 当前时间
 std::chrono::milliseconds NowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now().time_since_epoch());
 }
 
+// 填充同步时间
 void FillSyncTiming(uint32_t room_id, uint64_t tick,
                     lawnmower::S2C_GameStateSync* sync) {
   if (sync == nullptr) {
@@ -43,12 +45,14 @@ void FillSyncTiming(uint32_t room_id, uint64_t tick,
   const auto now_ms = NowMs();
   sync->set_room_id(room_id);
   sync->set_server_time_ms(static_cast<uint64_t>(now_ms.count()));
-
+  
+  // lawnmower::Timestamp* 类型
   auto* ts = sync->mutable_sync_time();
   ts->set_server_time(static_cast<uint64_t>(now_ms.count()));
   ts->set_tick(static_cast<uint32_t>(tick));
 }
 
+// 向各个会话发送同步消息
 void SendSyncToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
                         const lawnmower::S2C_GameStateSync& sync) {
   for (const auto& weak_session : sessions) {
@@ -59,18 +63,22 @@ void SendSyncToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
 }
 }  // namespace
 
+// 简单的伪随机数生成器, state 是随机数种子指针
 uint32_t GameManager::NextRng(uint32_t* state) {
   if (state == nullptr) {
     return 0;
   }
+  // 线性同余法
   // LCG: fast & deterministic for gameplay purposes.
   *state = (*state * 1664525u) + 1013904223u;
   return *state;
 }
 
+// 获取一个[0,1）的浮点随机值
 float GameManager::NextRngUnitFloat(uint32_t* state) {
   const uint32_t r = NextRng(state);
   // Use high 24 bits to build [0,1) float.
+  // 取r的高24位，再乘 2e-24 即可把整数映射为浮点数
   return static_cast<float>((r >> 8) & 0x00FFFFFF) * (1.0f / 16777216.0f);
 }
 
@@ -80,7 +88,7 @@ GameManager& GameManager::Instance() {
   return instance;
 }
 
-// 构建默认配置
+// 构建场景默认配置
 GameManager::SceneConfig GameManager::BuildDefaultConfig() const {
   SceneConfig cfg;
   cfg.width = config_.map_width;
@@ -91,10 +99,13 @@ GameManager::SceneConfig GameManager::BuildDefaultConfig() const {
   return cfg;
 }
 
+// 设置io上下文
 void GameManager::SetIoContext(asio::io_context* io) { io_context_ = io; }
 
+// 设置UDP服务器
 void GameManager::SetUdpServer(UdpServer* udp) { udp_server_ = udp; }
 
+// 游戏逻辑帧的定时调度器
 void GameManager::ScheduleGameTick(
     uint32_t room_id, std::chrono::microseconds interval,
     const std::shared_ptr<asio::steady_timer>& timer,
@@ -114,13 +125,15 @@ void GameManager::ScheduleGameTick(
     if (!ShouldRescheduleTick(room_id, timer)) {
       return;
     }
+    // 递归调用，如果游戏还在运行就继续调用
     ScheduleGameTick(room_id, interval, timer, tick_interval_seconds);
   });
 }
 
+// 判断是否需要重启
 bool GameManager::ShouldRescheduleTick(
     uint32_t room_id, const std::shared_ptr<asio::steady_timer>& timer) const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
   const auto it = scenes_.find(room_id);
   if (it == scenes_.end()) {
     return false;
@@ -139,12 +152,12 @@ void GameManager::StartGameLoop(uint32_t room_id) {
   }
 
   std::shared_ptr<asio::steady_timer> timer;
-  uint32_t tick_rate = 60;
-  uint32_t state_sync_rate = 20;
-  double tick_interval_seconds = 0.0;
+  uint32_t tick_rate = 60; // 默认tick_rate
+  uint32_t state_sync_rate = 20; // 默认state_sync_rate
+  double tick_interval_seconds = 0.0; // 默认tick_intelval_seconds
 
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
     auto scene_it = scenes_.find(room_id);
     if (scene_it == scenes_.end()) {
       spdlog::warn("房间 {} 未找到场景，无法启动游戏循环", room_id);
@@ -152,11 +165,13 @@ void GameManager::StartGameLoop(uint32_t room_id) {
     }
 
     Scene& scene = scene_it->second;
+    // 提取配置
     tick_rate = std::max<uint32_t>(1, scene.config.tick_rate);
     state_sync_rate = std::max<uint32_t>(1, scene.config.state_sync_rate);
     tick_interval_seconds = 1.0 / static_cast<double>(tick_rate);
     const auto tick_interval =
         std::chrono::duration<double>(tick_interval_seconds);
+    //  设置scene的配置
     scene.tick_interval = tick_interval;
     scene.sync_interval = std::chrono::duration<double>(
         1.0 / static_cast<double>(state_sync_rate));
@@ -181,27 +196,30 @@ void GameManager::StartGameLoop(uint32_t room_id) {
                 room_id, tick_rate, state_sync_rate);
 }
 
+// 停止游戏循环
 void GameManager::StopGameLoop(uint32_t room_id) {
   std::shared_ptr<asio::steady_timer> timer;
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
     auto scene_it = scenes_.find(room_id);
     if (scene_it == scenes_.end()) {
       return;
     }
     timer = scene_it->second.loop_timer;
-    scene_it->second.loop_timer.reset();
+    scene_it->second.loop_timer.reset(); // 置空
   }
 
   if (timer) {
-    timer->cancel();
+    timer->cancel(); // 因cansel会触发回调，故不在锁内执行
   }
+  // 锁内摘掉timer,锁外cansel,避免死锁并正确停止循环
 }
 
 // 将坐标限制在地图边界内
 lawnmower::Vector2 GameManager::ClampToMap(const SceneConfig& cfg, float x,
                                            float y) const {
   lawnmower::Vector2 pos;
+  // clamp 功能是把第一个参数限制在[第二个参数，第三个参数]
   pos.set_x(std::clamp(x, 0.0f, static_cast<float>(cfg.width)));
   pos.set_y(std::clamp(y, 0.0f, static_cast<float>(cfg.height)));
   return pos;
@@ -232,11 +250,13 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
 
     auto it = player_roles_config_.roles.find(desired_role_id);
     if (it != player_roles_config_.roles.end()) {
+      // 找到了
       return &it->second;
     }
 
     const PlayerRoleConfig* best = nullptr;
     uint32_t best_id = 0;
+    // 找最小的role_id
     for (const auto& [role_id, cfg] : player_roles_config_.roles) {
       if (best == nullptr || role_id < best_id) {
         best = &cfg;
@@ -248,7 +268,7 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
 
   const PlayerRoleConfig* default_role = resolve_default_role();
 
-  // 遍历每一个玩家
+  // 遍历每一个玩家, 计算初始位置
   for (std::size_t i = 0; i < count; ++i) {
     const auto& player = snapshot.players[i];
     const float angle =
@@ -258,7 +278,7 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
     // 计算实际x/y的位置
     const float x = center_x + std::cos(angle) * kSpawnRadius;
     const float y = center_y + std::sin(angle) * kSpawnRadius;
-    const auto clamped_pos = ClampToMap(scene->config, x, y);
+    const auto clamped_pos = ClampToMap(scene->config, x, y); // 限制边界
 
     // 设置基本信息
     PlayerRuntime runtime;
@@ -305,7 +325,7 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
 
     // 将玩家对应玩家信息插入会话
     scene->players.emplace(player.player_id, std::move(runtime));
-    player_scene_[player.player_id] = snapshot.room_id;  // 增加玩家对应房间
+    player_scene_[player.player_id] = snapshot.room_id;  // 增加玩家对应房间结构
   }
 }
 
@@ -349,24 +369,28 @@ lawnmower::SceneInfo GameManager::CreateScene(
   scene.nav_g_score.assign(nav_cells, 0.0f);
   scene.nav_closed.assign(nav_cells, 0);
 
-  PlacePlayers(snapshot, &scene);  // 放置玩家？
+  PlacePlayers(snapshot, &scene);  // 放置玩家
 
   const std::size_t max_enemies_alive =
       config_.max_enemies_alive > 0 ? config_.max_enemies_alive : 256;
-
+  
+  // 生成敌人lambda
   auto spawn_enemy = [&](uint32_t type_id) {
     if (scene.enemies.size() >= max_enemies_alive) {
       return;
     }
+
+    // 解析敌人类型
     const EnemyTypeConfig& type = ResolveEnemyType(type_id);
 
     const float map_w = static_cast<float>(scene.config.width);
     const float map_h = static_cast<float>(scene.config.height);
-    const float t = NextRngUnitFloat(&scene.rng_state);
-    const uint32_t edge = NextRng(&scene.rng_state) % 4u;
+    const float t = NextRngUnitFloat(&scene.rng_state); // 获取一个[0,1)的浮点随机值
+    const uint32_t edge = NextRng(&scene.rng_state) % 4u; // 获取一个0-3的随机值
 
     float x = 0.0f;
     float y = 0.0f;
+    // 根据随机选中的地图边界生成敌人
     switch (edge) {
       case 0:  // left
         x = kEnemySpawnInset;
@@ -380,16 +404,17 @@ lawnmower::SceneInfo GameManager::CreateScene(
         x = t * map_w;
         y = kEnemySpawnInset;
         break;
-      default:  // top
+      default:  // 3 - top
         x = t * map_w;
         y = std::max(0.0f, map_h - kEnemySpawnInset);
         break;
     }
 
     EnemyRuntime runtime;
+    // 敌人运行时状态配置信息
     runtime.state.set_enemy_id(scene.next_enemy_id++);
     runtime.state.set_type_id(type.type_id);
-    const auto clamped_pos = ClampToMap(scene.config, x, y);
+    const auto clamped_pos = ClampToMap(scene.config, x, y); // 限制边界
     runtime.state.mutable_position()->set_x(clamped_pos.x());
     runtime.state.mutable_position()->set_y(clamped_pos.y());
     runtime.state.set_health(type.max_health);
@@ -401,11 +426,13 @@ lawnmower::SceneInfo GameManager::CreateScene(
     runtime.dirty = true;
     scene.enemies.emplace(runtime.state.enemy_id(), std::move(runtime));
   };
-
+  
+  // 初始敌人数量
   const std::size_t initial_enemy_count =
       std::min<std::size_t>(max_enemies_alive,
                             std::max<std::size_t>(1, snapshot.players.size() * 2));
   for (std::size_t i = 0; i < initial_enemy_count; ++i) {
+    // 生成敌人
     spawn_enemy(PickSpawnEnemyTypeId(&scene.rng_state));
   }
   scenes_[snapshot.room_id] = std::move(scene);  // 房间对应会话map
@@ -458,6 +485,7 @@ constexpr double kMaxTickDeltaSeconds = 0.1;  // clamp 极端卡顿
 constexpr double kMaxInputDeltaSeconds = 0.1;
 }  // namespace
 
+// 进程场景计时器
 void GameManager::ProcessSceneTick(uint32_t room_id,
                                    double tick_interval_seconds) {
   lawnmower::S2C_GameStateSync sync;
