@@ -60,6 +60,9 @@ public class GameScreen implements Screen {
     private static final float AUTO_ATTACK_INTERVAL = 1f;
     private static final float AUTO_ATTACK_HOLD_TIME = 0.18f;
     private static final float TARGET_REFRESH_INTERVAL = 0.2f;
+    private static final float LOCAL_PEA_FIRE_INTERVAL = 1f;
+    private static final float LOCAL_PEA_SPEED = 200f;
+    private static final long LOCAL_PROJECTILE_ID_BASE = 1L << 40;
 
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
@@ -167,6 +170,8 @@ public class GameScreen implements Screen {
     private float autoAttackHoldTimer = 0f;
     private int lockedEnemyId = 0;
     private float targetRefreshTimer = TARGET_REFRESH_INTERVAL;
+    private long localProjectileSequence = 0L;
+    private float localPeaFireAccumulator = LOCAL_PEA_FIRE_INTERVAL;
 
     private float clockOffsetMs = 0f;
     private float smoothedRttMs = 120f;
@@ -252,6 +257,7 @@ public class GameScreen implements Screen {
         displayPosition.set(predictedPosition);
         resetInitialStateTracking();
         resetAutoAttackState();
+        resetLocalPeaSpawner();
     }
 
     @Override
@@ -305,6 +311,7 @@ public class GameScreen implements Screen {
         updatePlayerFacing(renderDelta);
         updateDisplayPosition(renderDelta);
         clampPositionToMap(displayPosition);
+        updateLocalPeaSpawner(renderDelta);
         camera.position.set(displayPosition.x, displayPosition.y, 0);
         camera.update();
 
@@ -633,6 +640,46 @@ public class GameScreen implements Screen {
                 iterator.remove();
             }
         }
+    }
+
+    private void updateLocalPeaSpawner(float delta) {
+        if (!hasReceivedInitialState) {
+            return;
+        }
+        localPeaFireAccumulator += delta;
+        while (localPeaFireAccumulator >= LOCAL_PEA_FIRE_INTERVAL) {
+            localPeaFireAccumulator -= LOCAL_PEA_FIRE_INTERVAL;
+            spawnLocalPeaProjectile(displayPosition.x, displayPosition.y);
+        }
+    }
+
+    private void spawnLocalPeaProjectile(float spawnX, float spawnY) {
+        long projectileId = LOCAL_PROJECTILE_ID_BASE + (localProjectileSequence++);
+        ProjectileView view = new ProjectileView(projectileId);
+        view.position.set(spawnX, spawnY);
+        view.velocity.set(LOCAL_PEA_SPEED, 0f);
+        view.rotationDeg = 0f;
+        view.animationTime = 0f;
+        view.spawnClientTimeMs = logicalTimeMs;
+        float margin = 32f;
+        float distance = (WORLD_WIDTH + margin) - spawnX;
+        if (distance < 0f) {
+            distance = 0f;
+        }
+        long ttlMs;
+        if (LOCAL_PEA_SPEED > 0f) {
+            float ttlSeconds = distance / LOCAL_PEA_SPEED;
+            ttlMs = (long) Math.ceil(ttlSeconds * 1000f);
+        } else {
+            ttlMs = 0L;
+        }
+        if (ttlMs < 50L) {
+            ttlMs = 50L;
+        }
+        view.expireClientTimeMs = logicalTimeMs + ttlMs;
+        view.spawnServerTimeMs = 0L;
+        view.expireServerTimeMs = 0L;
+        projectileViews.put(projectileId, view);
     }
 
     /**
@@ -1931,6 +1978,7 @@ public class GameScreen implements Screen {
         projectileImpacts.clear();
         resetTargetingState();
         resetAutoAttackState();
+        resetLocalPeaSpawner();
     }
     /**
      * 游戏环境状态的枚举判断
@@ -2123,6 +2171,11 @@ public class GameScreen implements Screen {
     private void resetAutoAttackState() {
         autoAttackAccumulator = AUTO_ATTACK_INTERVAL;
         autoAttackHoldTimer = 0f;
+    }
+
+    private void resetLocalPeaSpawner() {
+        localPeaFireAccumulator = LOCAL_PEA_FIRE_INTERVAL;
+        localProjectileSequence = 0L;
     }
 
     private boolean resolveAttackingState(float delta) {
