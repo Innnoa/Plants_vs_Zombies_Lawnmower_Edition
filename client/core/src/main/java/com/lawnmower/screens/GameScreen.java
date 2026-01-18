@@ -198,6 +198,8 @@ public class GameScreen implements Screen {
     private String statusToastMessage = "";
     private float statusToastTimer = 0f;
     private static final float STATUS_TOAST_DURATION = 2.75f;
+    private String lastProjectileDebugReason = "";
+    private long lastProjectileDebugLogMs = 0L;
 
     public GameScreen(Main game) {
         this.game = Objects.requireNonNull(game);
@@ -641,6 +643,7 @@ public class GameScreen implements Screen {
     private void renderProjectiles() {
         //前置条件
         if (projectileViews.isEmpty() || batch == null) {
+            logProjectileRenderState(projectileViews.isEmpty() ? "skip_empty" : "skip_batch_null");
             return;
         }
         //遍历投射物
@@ -648,6 +651,7 @@ public class GameScreen implements Screen {
             TextureRegion frame = resolveProjectileFrame(view);
             //动态解析贴图帧
             if (frame == null) {
+                logProjectileRenderState("skip_frame_null");
                 continue;
             }
             //获取尺寸绘制位置
@@ -660,6 +664,7 @@ public class GameScreen implements Screen {
             batch.draw(frame, drawX, drawY, originX, originY, width, height,
                     1f, 1f, view.rotationDeg);
         }
+        logProjectileRenderState("render");
     }
 
     /**
@@ -762,6 +767,38 @@ public class GameScreen implements Screen {
         }
         statusToastMessage = message;
         statusToastTimer = STATUS_TOAST_DURATION;
+    }
+
+    private void logProjectileRenderState(String reason) {
+        long now = TimeUtils.millis();
+        if (reason.equals(lastProjectileDebugReason)
+                && (now - lastProjectileDebugLogMs) < 400L) {
+            return;
+        }
+        lastProjectileDebugReason = reason;
+        lastProjectileDebugLogMs = now;
+        ProjectileView sample = null;
+        if (!projectileViews.isEmpty()) {
+            sample = projectileViews.values().iterator().next();
+        }
+        StringBuilder builder = new StringBuilder("[ProjectileRender] reason=")
+                .append(reason)
+                .append(" views=").append(projectileViews.size())
+                .append(" animReady=").append(projectileAnimation != null)
+                .append(" batchNull=").append(batch == null);
+        if (camera != null) {
+            builder.append(" cameraPos=")
+                    .append('(')
+                    .append(camera.position.x).append(',')
+                    .append(camera.position.y).append(',')
+                    .append(camera.position.z).append(')');
+        }
+        if (sample != null) {
+            builder.append(" samplePos=").append(sample.position)
+                    .append(" sampleVel=").append(sample.velocity)
+                    .append(" ttl(ms)=").append(sample.expireClientTimeMs - logicalTimeMs);
+        }
+        Gdx.app.log(TAG, builder.toString());
     }
 
     /**
