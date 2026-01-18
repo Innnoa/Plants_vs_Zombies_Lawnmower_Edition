@@ -616,6 +616,10 @@ public class GameScreen implements Screen {
             view.position.mulAdd(view.velocity, delta);
             boolean expiredClient = view.expireClientTimeMs > 0 && currentClientTimeMs >= view.expireClientTimeMs;
             boolean expiredServer = view.expireServerTimeMs > 0 && serverTimeMs >= view.expireServerTimeMs;
+            if (expiredServer && !expiredClient && view.expireClientTimeMs > currentClientTimeMs) {
+                // 服务端时间估算跳跃过大时，优先保证本地 TTL 让动画完整展示
+                expiredServer = false;
+            }
             boolean outOfBounds = isProjectileOutOfBounds(view.position);
             boolean expired = expiredClient || expiredServer;
             if (expired || outOfBounds) {
