@@ -56,13 +56,10 @@ public class GameScreen implements Screen {
     private static final long INTERP_DELAY_MIN_MS = 60L;
     private static final long INTERP_DELAY_MAX_MS = 180L;
     private static final int AUTO_ATTACK_TOGGLE_KEY = Input.Keys.C;
-    private static final float PROJECTILE_SPEED_SCALE = 2f / 3f;
     private static final float AUTO_ATTACK_INTERVAL = 1f;
     private static final float AUTO_ATTACK_HOLD_TIME = 0.18f;
     private static final float TARGET_REFRESH_INTERVAL = 0.2f;
-    private static final float LOCAL_PEA_FIRE_INTERVAL = 1f;
-    private static final float LOCAL_PEA_SPEED = 200f;
-    private static final long LOCAL_PROJECTILE_ID_BASE = 1L << 40;
+    private static final float PEA_PROJECTILE_SPEED = 200f;
 
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
@@ -170,8 +167,6 @@ public class GameScreen implements Screen {
     private float autoAttackHoldTimer = 0f;
     private int lockedEnemyId = 0;
     private float targetRefreshTimer = TARGET_REFRESH_INTERVAL;
-    private long localProjectileSequence = 0L;
-    private float localPeaFireAccumulator = LOCAL_PEA_FIRE_INTERVAL;
 
     private float clockOffsetMs = 0f;
     private float smoothedRttMs = 120f;
@@ -257,7 +252,6 @@ public class GameScreen implements Screen {
         displayPosition.set(predictedPosition);
         resetInitialStateTracking();
         resetAutoAttackState();
-        resetLocalPeaSpawner();
     }
 
     @Override
@@ -311,7 +305,6 @@ public class GameScreen implements Screen {
         updatePlayerFacing(renderDelta);
         updateDisplayPosition(renderDelta);
         clampPositionToMap(displayPosition);
-        updateLocalPeaSpawner(renderDelta);
         camera.position.set(displayPosition.x, displayPosition.y, 0);
         camera.update();
 
@@ -640,46 +633,6 @@ public class GameScreen implements Screen {
                 iterator.remove();
             }
         }
-    }
-
-    private void updateLocalPeaSpawner(float delta) {
-        if (!hasReceivedInitialState) {
-            return;
-        }
-        localPeaFireAccumulator += delta;
-        while (localPeaFireAccumulator >= LOCAL_PEA_FIRE_INTERVAL) {
-            localPeaFireAccumulator -= LOCAL_PEA_FIRE_INTERVAL;
-            spawnLocalPeaProjectile(displayPosition.x, displayPosition.y);
-        }
-    }
-
-    private void spawnLocalPeaProjectile(float spawnX, float spawnY) {
-        long projectileId = LOCAL_PROJECTILE_ID_BASE + (localProjectileSequence++);
-        ProjectileView view = new ProjectileView(projectileId);
-        view.position.set(spawnX, spawnY);
-        view.velocity.set(LOCAL_PEA_SPEED, 0f);
-        view.rotationDeg = 0f;
-        view.animationTime = 0f;
-        view.spawnClientTimeMs = logicalTimeMs;
-        float margin = 32f;
-        float distance = (WORLD_WIDTH + margin) - spawnX;
-        if (distance < 0f) {
-            distance = 0f;
-        }
-        long ttlMs;
-        if (LOCAL_PEA_SPEED > 0f) {
-            float ttlSeconds = distance / LOCAL_PEA_SPEED;
-            ttlMs = (long) Math.ceil(ttlSeconds * 1000f);
-        } else {
-            ttlMs = 0L;
-        }
-        if (ttlMs < 50L) {
-            ttlMs = 50L;
-        }
-        view.expireClientTimeMs = logicalTimeMs + ttlMs;
-        view.spawnServerTimeMs = 0L;
-        view.expireServerTimeMs = 0L;
-        projectileViews.put(projectileId, view);
     }
 
     /**
@@ -1779,21 +1732,21 @@ public class GameScreen implements Screen {
             }
             float rotationDeg = state.getRotation();
             view.rotationDeg = rotationDeg;
-            float speed = state.hasProjectile() ? state.getProjectile().getSpeed() : 0f;
-            if (speed > 0f) {
-                speed *= PROJECTILE_SPEED_SCALE;
-            }
+            float serverSpeed = state.hasProjectile() ? state.getProjectile().getSpeed() : 0f;
+            float appliedSpeed = PEA_PROJECTILE_SPEED > 0f ? PEA_PROJECTILE_SPEED : serverSpeed;
             float dirX = MathUtils.cosDeg(rotationDeg);
             float dirY = MathUtils.sinDeg(rotationDeg);
             if (Math.abs(dirX) <= 0.001f && Math.abs(dirY) <= 0.001f) {
                 dirX = 1f;
                 dirY = 0f;
             }
-            view.velocity.set(dirX, dirY).nor().scl(speed);
+            view.velocity.set(dirX, dirY).nor().scl(appliedSpeed);
             long ttlMs = Math.max(50L, state.getTtlMs());
-            if (PROJECTILE_SPEED_SCALE > 0f) {
-                ttlMs = (long) Math.ceil(ttlMs / PROJECTILE_SPEED_SCALE);
+            if (serverSpeed > 0f && appliedSpeed > 0f) {
+                float distanceScale = serverSpeed / appliedSpeed;
+                ttlMs = (long) Math.ceil(ttlMs * distanceScale);
             }
+            ttlMs = Math.max(50L, ttlMs);
             view.spawnServerTimeMs = serverTimeMs;
             view.expireServerTimeMs = serverTimeMs + ttlMs;
             view.spawnClientTimeMs = logicalTimeMs;
@@ -1803,7 +1756,7 @@ public class GameScreen implements Screen {
             Gdx.app.log(TAG, "ProjectileSpawn id=" + projectileId
                     + " pos=" + view.position
                     + " vel=" + view.velocity
-                    + " speed=" + speed
+                    + " speed=" + appliedSpeed
                     + " ttlMs=" + ttlMs
                     + " serverTime=" + serverTimeMs
                     + " clientTime=" + logicalTimeMs);
@@ -1978,7 +1931,6 @@ public class GameScreen implements Screen {
         projectileImpacts.clear();
         resetTargetingState();
         resetAutoAttackState();
-        resetLocalPeaSpawner();
     }
     /**
      * 游戏环境状态的枚举判断
@@ -2171,11 +2123,6 @@ public class GameScreen implements Screen {
     private void resetAutoAttackState() {
         autoAttackAccumulator = AUTO_ATTACK_INTERVAL;
         autoAttackHoldTimer = 0f;
-    }
-
-    private void resetLocalPeaSpawner() {
-        localPeaFireAccumulator = LOCAL_PEA_FIRE_INTERVAL;
-        localProjectileSequence = 0L;
     }
 
     private boolean resolveAttackingState(float delta) {
