@@ -28,7 +28,7 @@
     "__comment_max_enemy_spawn_per_tick": "单 tick 最大刷怪数量",
     "max_enemy_spawn_per_tick": 1,
     "__comment_projectile_speed": "射弹速度（像素/秒）",
-    "projectile_speed": 420.0,
+    "projectile_speed": 200.0,
     "__comment_projectile_radius": "射弹碰撞半径（像素）",
     "projectile_radius": 6.0,
     "__comment_projectile_muzzle_offset": "出膛偏移（像素，沿 rotation 方向）",

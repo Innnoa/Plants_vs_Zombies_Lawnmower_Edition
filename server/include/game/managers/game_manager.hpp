@@ -91,18 +91,19 @@ class GameManager {
     bool dirty = false;
   };
 
+  // 敌人运行时状态
   struct EnemyRuntime {
-    lawnmower::EnemyState state;
-    uint32_t target_player_id = 0;
-    std::vector<std::pair<int, int>> path;
-    std::size_t path_index = 0;
-    double replan_elapsed = 0.0;
-    double attack_cooldown_seconds = 0.0;
-    bool is_attacking = false;
-    uint32_t attack_target_player_id = 0;
-    double dead_elapsed_seconds = 0.0;
-    uint32_t force_sync_left = 0;
-    bool dirty = false;
+    lawnmower::EnemyState state; // 要同步给客户端的敌人基础状态
+    uint32_t target_player_id = 0; // 寻路/追踪时的目标玩家id
+    std::vector<std::pair<int, int>> path; // A* 寻路生成的路径
+    std::size_t path_index = 0; // 当前走到路径中的哪一个节点
+    double replan_elapsed = 0.0; // 距离上次重新寻路的累计时间(用于周期性重算路径)
+    double attack_cooldown_seconds = 0.0; // 敌人攻击冷却时间
+    bool is_attacking = false; // 是否处于攻击状态(用于客户端播放/停止攻击动画)
+    uint32_t attack_target_player_id = 0; // 当前攻击目前玩家ID
+    double dead_elapsed_seconds = 0.0; // 敌人死亡后已过时间(用于死亡后延迟清理/复活逻辑)
+    uint32_t force_sync_left = 0; // 强制同步计数(即使没dirty也要同步几次，确保新生成/死亡被客户端看到)
+    bool dirty = false; // 是否有状态变动 
   };
 
   struct ProjectileRuntime {
@@ -122,31 +123,34 @@ class GameManager {
   };
 
   struct Scene {
-    SceneConfig config;
+    SceneConfig config; // 场景配置
     std::unordered_map<uint32_t, PlayerRuntime>
-        players;  // 玩家对应玩家运行状态
-    std::unordered_map<uint32_t, EnemyRuntime> enemies;
-    std::unordered_map<uint32_t, ProjectileRuntime> projectiles;
-    uint32_t next_enemy_id = 1;
-    uint32_t next_projectile_id = 1;
-    uint32_t wave_id = 0;
-    double elapsed = 0.0;
-    double spawn_elapsed = 0.0;
-    uint32_t rng_state = 1;
-    bool game_over = false;
-    int nav_cells_x = 0;
-    int nav_cells_y = 0;
+        players;  // 玩家运行时状态表
+    std::unordered_map<uint32_t, EnemyRuntime> enemies; // 敌人运行时状态表
+    std::unordered_map<uint32_t, ProjectileRuntime> projectiles; // 射弹运行时状态表
+    uint32_t next_enemy_id = 1; // 下一个生成敌人的自增id
+    uint32_t next_projectile_id = 1; // 下一个生成的射弹的自增id
+    uint32_t wave_id = 0; // 当前波次编号
+    double elapsed = 0.0; // 场景累计运行时间
+    double spawn_elapsed = 0.0; // 距上次刷怪的累计时间
+    uint32_t rng_state = 1; // 伪随机种子
+    bool game_over = false; // 是否已结束
+    int nav_cells_x = 0; // 寻路网格的行数
+    int nav_cells_y = 0; // 寻路网格的列数
+
+    // A*寻路的缓存数组,减少每次分配
     std::vector<int> nav_came_from;
     std::vector<float> nav_g_score;
     std::vector<uint8_t> nav_closed;
-    uint64_t tick = 0;
-    double sync_accumulator = 0.0;  // 以秒计
-    double full_sync_elapsed = 0.0;
-    std::chrono::steady_clock::time_point last_tick_time;
-    std::chrono::duration<double> tick_interval;
-    std::chrono::duration<double> sync_interval;
-    std::chrono::duration<double> full_sync_interval;
-    std::shared_ptr<asio::steady_timer> loop_timer;
+
+    uint64_t tick = 0; // 逻辑帧计数
+    double sync_accumulator = 0.0;  // 同步计时器累积,到达间隔则发送同步
+    double full_sync_elapsed = 0.0; // 距离上次全量同步的累计时间
+    std::chrono::steady_clock::time_point last_tick_time; // 上一次tick的时间点
+    std::chrono::duration<double> tick_interval; // 逻辑帧固定间隔
+    std::chrono::duration<double> sync_interval; // 状态同步间隔
+    std::chrono::duration<double> full_sync_interval; // 全量同步间隔
+    std::shared_ptr<asio::steady_timer> loop_timer; // Asio定时器，用于调度该房间的tick循环
   };
 
   static constexpr int kNavCellSize = 100;          // px

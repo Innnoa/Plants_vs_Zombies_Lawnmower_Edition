@@ -21,8 +21,7 @@ struct EnemyTypeConfig {
 };
 
 struct EnemyTypesConfig {
-  uint32_t default_type_id = 1;
-  // type_id -> config
+  uint32_t default_type_id = 1; // type_id -> config
   std::unordered_map<uint32_t, EnemyTypeConfig> enemies;
   // 用于随机刷怪的候选 type_id（排序后，保证选择稳定/可复现）
   std::vector<uint32_t> spawn_type_ids;
