@@ -1,7 +1,7 @@
 #include "config/player_roles_config.hpp"
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <regex>
 #include <string>
@@ -70,7 +70,8 @@ void ExtractUint(const std::string& content, std::string_view key, T* out) {
   }
 }
 
-void ExtractFloat(const std::string& content, std::string_view key, float* out) {
+void ExtractFloat(const std::string& content, std::string_view key,
+                  float* out) {
   if (out == nullptr) {
     return;
   }
@@ -132,8 +133,10 @@ bool LoadPlayerRolesConfig(PlayerRolesConfig* out) {
 
   ExtractUint(content, "default_role_id", &cfg.default_role_id);
 
-  // 粗解析：匹配包含 role_id 的对象（本项目不引入完整 JSON 依赖，避免额外构建成本）
-  std::regex role_obj_re("\\{[^\\{\\}]*\"role_id\"\\s*:\\s*(\\d+)[^\\{\\}]*\\}");
+  // 粗解析：匹配包含 role_id 的对象（本项目不引入完整 JSON
+  // 依赖，避免额外构建成本）
+  std::regex role_obj_re(
+      "\\{[^\\{\\}]*\"role_id\"\\s*:\\s*(\\d+)[^\\{\\}]*\\}");
   std::size_t parsed = 0;
   for (std::sregex_iterator it(content.begin(), content.end(), role_obj_re),
        end;
@@ -147,7 +150,8 @@ bool LoadPlayerRolesConfig(PlayerRolesConfig* out) {
     uint32_t max_health_u =
         static_cast<uint32_t>(std::max<int32_t>(1, role.max_health));
     ExtractUint(obj, "max_health", &max_health_u);
-    role.max_health = static_cast<int32_t>(ClampUInt32(max_health_u, 1u, 100000u));
+    role.max_health =
+        static_cast<int32_t>(ClampUInt32(max_health_u, 1u, 100000u));
 
     ExtractUint(obj, "attack", &role.attack);
     role.attack = ClampUInt32(role.attack, 0u, 100000u);

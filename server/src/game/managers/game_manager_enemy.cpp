@@ -1,5 +1,3 @@
-#include "game/managers/game_manager.hpp"
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -9,10 +7,13 @@
 #include <utility>
 #include <vector>
 
+#include "game/managers/game_manager.hpp"
+
 namespace {
 constexpr double kEnemyReplanIntervalSeconds = 0.25;
 constexpr float kEnemyWaypointReachRadius = 12.0f;
-constexpr double kEnemyDespawnDelaySeconds = 3.0;  // 死亡敌人保留时间（用于客户端表现）
+constexpr double kEnemyDespawnDelaySeconds =
+    3.0;  // 死亡敌人保留时间（用于客户端表现）
 
 struct NavGrid {
   int cells_x = 0;
@@ -191,23 +192,23 @@ const EnemyTypeConfig& GameManager::ResolveEnemyType(uint32_t type_id) const {
       return it->second;
     }
   }
-  
+
   // 查找是否有默认id
-  const uint32_t default_id =
-      enemy_types_config_.default_type_id > 1 ? enemy_types_config_.default_type_id
-                                              : kFallback.type_id;
+  const uint32_t default_id = enemy_types_config_.default_type_id > 1
+                                  ? enemy_types_config_.default_type_id
+                                  : kFallback.type_id;
   auto it = enemy_types_config_.enemies.find(default_id);
   if (it != enemy_types_config_.enemies.end()) {
     // 默认id对应类型存在
     return it->second;
   }
-  
+
   // 判断类型容器是否有内容
   if (!enemy_types_config_.enemies.empty()) {
     // 是否首数据
     return enemy_types_config_.enemies.begin()->second;
   }
-  
+
   // 实在没有就使用后背配置
   return kFallback;
 }
@@ -238,9 +239,9 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
   scene.wave_id = std::max<uint32_t>(
       1, 1u + static_cast<uint32_t>(scene.elapsed / wave_interval_seconds));
 
-  const std::size_t alive_players = std::count_if(
-      scene.players.begin(), scene.players.end(),
-      [](const auto& kv) { return kv.second.state.is_alive(); });
+  const std::size_t alive_players =
+      std::count_if(scene.players.begin(), scene.players.end(),
+                    [](const auto& kv) { return kv.second.state.is_alive(); });
 
   // 清理已死亡的敌人（在客户端收到死亡事件后可移除渲染）
   for (auto it = scene.enemies.begin(); it != scene.enemies.end();) {
@@ -256,15 +257,15 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     ++it;
   }
 
-  std::size_t alive_enemies = std::count_if(
-      scene.enemies.begin(), scene.enemies.end(),
-      [](const auto& kv) { return kv.second.state.is_alive(); });
+  std::size_t alive_enemies =
+      std::count_if(scene.enemies.begin(), scene.enemies.end(),
+                    [](const auto& kv) { return kv.second.state.is_alive(); });
 
   const std::size_t max_enemies_alive =
       config_.max_enemies_alive > 0 ? config_.max_enemies_alive : 256;
-  const std::size_t max_spawn_per_tick =
-      config_.max_enemy_spawn_per_tick > 0 ? config_.max_enemy_spawn_per_tick
-                                           : 4;
+  const std::size_t max_spawn_per_tick = config_.max_enemy_spawn_per_tick > 0
+                                             ? config_.max_enemy_spawn_per_tick
+                                             : 4;
 
   auto spawn_enemy = [&](uint32_t type_id) {
     if (alive_enemies >= max_enemies_alive) {
@@ -337,7 +338,7 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
 
     scene.spawn_elapsed += dt_seconds;
     std::size_t spawned = 0;
-      while (spawn_interval > 0.0 && scene.spawn_elapsed >= spawn_interval &&
+    while (spawn_interval > 0.0 && scene.spawn_elapsed >= spawn_interval &&
            alive_enemies < max_enemies_alive && spawned < max_spawn_per_tick) {
       scene.spawn_elapsed -= spawn_interval;
       if (spawn_enemy(PickSpawnEnemyTypeId(&scene.rng_state))) {
@@ -456,10 +457,9 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
       const EnemyTypeConfig& type = ResolveEnemyType(enemy.state.type_id());
       const float speed = type.move_speed > 0.0f ? type.move_speed : 60.0f;
 
-      const auto new_pos =
-          ClampToMap(scene.config,
-                     prev_x + dir_x * speed * static_cast<float>(dt_seconds),
-                     prev_y + dir_y * speed * static_cast<float>(dt_seconds));
+      const auto new_pos = ClampToMap(
+          scene.config, prev_x + dir_x * speed * static_cast<float>(dt_seconds),
+          prev_y + dir_y * speed * static_cast<float>(dt_seconds));
       const float new_x = new_pos.x();
       const float new_y = new_pos.y();
       if (std::abs(new_x - prev_x) > 1e-4f ||

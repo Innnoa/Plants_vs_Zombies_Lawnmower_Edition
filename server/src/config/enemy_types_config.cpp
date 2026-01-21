@@ -80,7 +80,8 @@ void ExtractUint(const std::string& content, std::string_view key, T* out) {
   }
 }
 
-void ExtractFloat(const std::string& content, std::string_view key, float* out) {
+void ExtractFloat(const std::string& content, std::string_view key,
+                  float* out) {
   if (out == nullptr) {
     return;
   }
@@ -143,8 +144,10 @@ bool LoadEnemyTypesConfig(EnemyTypesConfig* out) {
 
   ExtractUint(content, "default_type_id", &cfg.default_type_id);
 
-  // 粗解析：匹配包含 type_id 的对象（本项目不引入完整 JSON 依赖，避免额外构建成本）
-  std::regex enemy_obj_re("\\{[^\\{\\}]*\"type_id\"\\s*:\\s*(\\d+)[^\\{\\}]*\\}");
+  // 粗解析：匹配包含 type_id 的对象（本项目不引入完整 JSON
+  // 依赖，避免额外构建成本）
+  std::regex enemy_obj_re(
+      "\\{[^\\{\\}]*\"type_id\"\\s*:\\s*(\\d+)[^\\{\\}]*\\}");
   std::size_t parsed = 0;
   for (std::sregex_iterator it(content.begin(), content.end(), enemy_obj_re),
        end;
@@ -164,7 +167,8 @@ bool LoadEnemyTypesConfig(EnemyTypesConfig* out) {
     ExtractFloat(obj, "move_speed", &enemy.move_speed);
     enemy.move_speed = std::clamp(enemy.move_speed, 0.0f, 5000.0f);
 
-    uint32_t damage_u = static_cast<uint32_t>(std::max<int32_t>(0, enemy.damage));
+    uint32_t damage_u =
+        static_cast<uint32_t>(std::max<int32_t>(0, enemy.damage));
     ExtractUint(obj, "damage", &damage_u);
     enemy.damage = static_cast<int32_t>(ClampUInt32(damage_u, 0u, 100000u));
 
@@ -228,9 +232,9 @@ bool LoadEnemyTypesConfig(EnemyTypesConfig* out) {
   std::sort(cfg.spawn_type_ids.begin(), cfg.spawn_type_ids.end());
 
   if (cfg.enemies.find(cfg.default_type_id) == cfg.enemies.end()) {
-    cfg.default_type_id =
-        !cfg.spawn_type_ids.empty() ? cfg.spawn_type_ids.front()
-                                    : fallback.default_type_id;
+    cfg.default_type_id = !cfg.spawn_type_ids.empty()
+                              ? cfg.spawn_type_ids.front()
+                              : fallback.default_type_id;
   }
 
   *out = std::move(cfg);

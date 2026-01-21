@@ -113,10 +113,12 @@ bool LoadServerConfig(ServerConfig* out) {
   ExtractFloat(content, "enemy_spawn_wave_growth_per_second",
                &cfg.enemy_spawn_wave_growth_per_second);
   ExtractUint(content, "max_enemies_alive", &cfg.max_enemies_alive);
-  ExtractUint(content, "max_enemy_spawn_per_tick", &cfg.max_enemy_spawn_per_tick);
+  ExtractUint(content, "max_enemy_spawn_per_tick",
+              &cfg.max_enemy_spawn_per_tick);
   ExtractFloat(content, "projectile_speed", &cfg.projectile_speed);
   ExtractFloat(content, "projectile_radius", &cfg.projectile_radius);
-  ExtractFloat(content, "projectile_muzzle_offset", &cfg.projectile_muzzle_offset);
+  ExtractFloat(content, "projectile_muzzle_offset",
+               &cfg.projectile_muzzle_offset);
   ExtractFloat(content, "projectile_ttl_seconds", &cfg.projectile_ttl_seconds);
   ExtractUint(content, "projectile_max_shots_per_tick",
               &cfg.projectile_max_shots_per_tick);

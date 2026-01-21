@@ -138,8 +138,7 @@ std::size_t UdpServer::BroadcastDeltaState(
   }
 
   lawnmower::Packet packet;
-  packet.set_msg_type(
-      lawnmower::MessageType::MSG_S2C_GAME_STATE_DELTA_SYNC);
+  packet.set_msg_type(lawnmower::MessageType::MSG_S2C_GAME_STATE_DELTA_SYNC);
   packet.set_payload(sync.SerializeAsString());
 
   std::shared_ptr<const std::string> data =
@@ -147,8 +146,8 @@ std::size_t UdpServer::BroadcastDeltaState(
 
   if (spdlog::should_log(spdlog::level::debug)) {
     spdlog::debug(
-        "UDP 广播房间 {} 状态增量，players={} enemies={}，目标端点 {}",
-        room_id, sync.players_size(), sync.enemies_size(), targets.size());
+        "UDP 广播房间 {} 状态增量，players={} enemies={}，目标端点 {}", room_id,
+        sync.players_size(), sync.enemies_size(), targets.size());
   }
   for (const auto& endpoint : targets) {
     SendPacket(data, endpoint);

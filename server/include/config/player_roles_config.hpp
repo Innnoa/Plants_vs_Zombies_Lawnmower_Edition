@@ -24,4 +24,3 @@ struct PlayerRolesConfig {
 
 // 从配置文件加载玩家职业配置；若未找到文件或解析失败，返回 false 并保留默认值
 bool LoadPlayerRolesConfig(PlayerRolesConfig* out);
-

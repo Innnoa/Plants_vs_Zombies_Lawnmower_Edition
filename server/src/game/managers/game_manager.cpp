@@ -11,14 +11,15 @@
 #include "network/udp/udp_server.hpp"
 
 namespace {
-constexpr float kSpawnRadius = 120.0f; // 生成半径
-constexpr int32_t kDefaultMaxHealth = 100000000; // 默认最大血量
-constexpr uint32_t kDefaultAttack = 10; // 默认攻击力
-constexpr uint32_t kDefaultExpToNext = 100; // 默认升级所需经验
-constexpr std::size_t kMaxPendingInputs = 64; // 单个玩家输入队列的最大缓存条数
-constexpr float kDirectionEpsilonSq = 1e-6f; // 方向向量长度平方的极小阈值，小于此视为无效输入
+constexpr float kSpawnRadius = 120.0f;            // 生成半径
+constexpr int32_t kDefaultMaxHealth = 100000000;  // 默认最大血量
+constexpr uint32_t kDefaultAttack = 10;           // 默认攻击力
+constexpr uint32_t kDefaultExpToNext = 100;       // 默认升级所需经验
+constexpr std::size_t kMaxPendingInputs = 64;  // 单个玩家输入队列的最大缓存条数
+constexpr float kDirectionEpsilonSq =
+    1e-6f;  // 方向向量长度平方的极小阈值，小于此视为无效输入
 constexpr float kMaxDirectionLengthSq = 1.21f;    // 方向向量长度平方的上限
-constexpr float kDeltaPositionEpsilon = 1e-4f; // delta 位置/朝向变化阈值
+constexpr float kDeltaPositionEpsilon = 1e-4f;    // delta 位置/朝向变化阈值
 constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
 
 // 计算朝向
@@ -46,7 +47,7 @@ void FillSyncTiming(uint32_t room_id, uint64_t tick,
   const auto now_ms = NowMs();
   sync->set_room_id(room_id);
   sync->set_server_time_ms(static_cast<uint64_t>(now_ms.count()));
-  
+
   // lawnmower::Timestamp* 类型
   auto* ts = sync->mutable_sync_time();
   ts->set_server_time(static_cast<uint64_t>(now_ms.count()));
@@ -84,8 +85,8 @@ void SendDeltaToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
                          const lawnmower::S2C_GameStateDeltaSync& sync) {
   for (const auto& weak_session : sessions) {
     if (auto session = weak_session.lock()) {
-      session->SendProto(
-          lawnmower::MessageType::MSG_S2C_GAME_STATE_DELTA_SYNC, sync);
+      session->SendProto(lawnmower::MessageType::MSG_S2C_GAME_STATE_DELTA_SYNC,
+                         sync);
     }
   }
 }
@@ -161,7 +162,7 @@ void GameManager::ScheduleGameTick(
 // 判断是否需要重启
 bool GameManager::ShouldRescheduleTick(
     uint32_t room_id, const std::shared_ptr<asio::steady_timer>& timer) const {
-  std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
+  std::lock_guard<std::mutex> lock(mutex_);  // 互斥锁
   const auto it = scenes_.find(room_id);
   if (it == scenes_.end()) {
     return false;
@@ -180,12 +181,12 @@ void GameManager::StartGameLoop(uint32_t room_id) {
   }
 
   std::shared_ptr<asio::steady_timer> timer;
-  uint32_t tick_rate = 60; // 默认tick_rate
-  uint32_t state_sync_rate = 20; // 默认state_sync_rate
-  double tick_interval_seconds = 0.0; // 默认tick_intelval_seconds
+  uint32_t tick_rate = 60;             // 默认tick_rate
+  uint32_t state_sync_rate = 20;       // 默认state_sync_rate
+  double tick_interval_seconds = 0.0;  // 默认tick_intelval_seconds
 
   {
-    std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
+    std::lock_guard<std::mutex> lock(mutex_);  // 互斥锁
     auto scene_it = scenes_.find(room_id);
     if (scene_it == scenes_.end()) {
       spdlog::warn("房间 {} 未找到场景，无法启动游戏循环", room_id);
@@ -228,17 +229,17 @@ void GameManager::StartGameLoop(uint32_t room_id) {
 void GameManager::StopGameLoop(uint32_t room_id) {
   std::shared_ptr<asio::steady_timer> timer;
   {
-    std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
+    std::lock_guard<std::mutex> lock(mutex_);  // 互斥锁
     auto scene_it = scenes_.find(room_id);
     if (scene_it == scenes_.end()) {
       return;
     }
     timer = scene_it->second.loop_timer;
-    scene_it->second.loop_timer.reset(); // 置空
+    scene_it->second.loop_timer.reset();  // 置空
   }
 
   if (timer) {
-    timer->cancel(); // 因cansel会触发回调，故不在锁内执行
+    timer->cancel();  // 因cansel会触发回调，故不在锁内执行
   }
   // 锁内摘掉timer,锁外cansel,避免死锁并正确停止循环
 }
@@ -271,10 +272,9 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
       static_cast<float>(scene->config.height) * 0.5f;  // 计算中心y
 
   const auto resolve_default_role = [&]() -> const PlayerRoleConfig* {
-    const uint32_t desired_role_id =
-        player_roles_config_.default_role_id > 0
-            ? player_roles_config_.default_role_id
-            : 1u;
+    const uint32_t desired_role_id = player_roles_config_.default_role_id > 0
+                                         ? player_roles_config_.default_role_id
+                                         : 1u;
 
     auto it = player_roles_config_.roles.find(desired_role_id);
     if (it != player_roles_config_.roles.end()) {
@@ -306,7 +306,7 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
     // 计算实际x/y的位置
     const float x = center_x + std::cos(angle) * kSpawnRadius;
     const float y = center_y + std::sin(angle) * kSpawnRadius;
-    const auto clamped_pos = ClampToMap(scene->config, x, y); // 限制边界
+    const auto clamped_pos = ClampToMap(scene->config, x, y);  // 限制边界
 
     // 设置基本信息
     PlayerRuntime runtime;
@@ -324,8 +324,9 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
     const uint32_t attack =
         default_role != nullptr ? default_role->attack : kDefaultAttack;
     const uint32_t attack_speed =
-        default_role != nullptr ? std::max<uint32_t>(1, default_role->attack_speed)
-                                : 1u;
+        default_role != nullptr
+            ? std::max<uint32_t>(1, default_role->attack_speed)
+            : 1u;
     const float move_speed =
         default_role != nullptr && default_role->move_speed > 0.0f
             ? default_role->move_speed
@@ -406,7 +407,7 @@ lawnmower::SceneInfo GameManager::CreateScene(
 
   const std::size_t max_enemies_alive =
       config_.max_enemies_alive > 0 ? config_.max_enemies_alive : 256;
-  
+
   // 生成敌人lambda
   auto spawn_enemy = [&](uint32_t type_id) {
     if (scene.enemies.size() >= max_enemies_alive) {
@@ -418,8 +419,10 @@ lawnmower::SceneInfo GameManager::CreateScene(
 
     const float map_w = static_cast<float>(scene.config.width);
     const float map_h = static_cast<float>(scene.config.height);
-    const float t = NextRngUnitFloat(&scene.rng_state); // 获取一个[0,1)的浮点随机值
-    const uint32_t edge = NextRng(&scene.rng_state) % 4u; // 获取一个0-3的随机值
+    const float t =
+        NextRngUnitFloat(&scene.rng_state);  // 获取一个[0,1)的浮点随机值
+    const uint32_t edge =
+        NextRng(&scene.rng_state) % 4u;  // 获取一个0-3的随机值
 
     float x = 0.0f;
     float y = 0.0f;
@@ -447,7 +450,7 @@ lawnmower::SceneInfo GameManager::CreateScene(
     // 敌人运行时状态配置信息
     runtime.state.set_enemy_id(scene.next_enemy_id++);
     runtime.state.set_type_id(type.type_id);
-    const auto clamped_pos = ClampToMap(scene.config, x, y); // 限制边界
+    const auto clamped_pos = ClampToMap(scene.config, x, y);  // 限制边界
     runtime.state.mutable_position()->set_x(clamped_pos.x());
     runtime.state.mutable_position()->set_y(clamped_pos.y());
     runtime.state.set_health(type.max_health);
@@ -463,11 +466,10 @@ lawnmower::SceneInfo GameManager::CreateScene(
     runtime.dirty = true;
     scene.enemies.emplace(runtime.state.enemy_id(), std::move(runtime));
   };
-  
+
   // 初始敌人数量
-  const std::size_t initial_enemy_count =
-      std::min<std::size_t>(max_enemies_alive,
-                            std::max<std::size_t>(1, snapshot.players.size() * 2));
+  const std::size_t initial_enemy_count = std::min<std::size_t>(
+      max_enemies_alive, std::max<std::size_t>(1, snapshot.players.size() * 2));
   for (std::size_t i = 0; i < initial_enemy_count; ++i) {
     // 生成敌人
     spawn_enemy(PickSpawnEnemyTypeId(&scene.rng_state));
@@ -566,7 +568,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     };
 
     auto fill_player_for_sync = [&](PlayerRuntime& runtime,
-                                   lawnmower::PlayerState* out) {
+                                    lawnmower::PlayerState* out) {
       if (out == nullptr) {
         return;
       }
@@ -698,9 +700,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     // -----------------
 
     ProcessCombatAndProjectiles(scene, dt_seconds, &player_hurts, &enemy_dieds,
-                               &enemy_attack_states, &level_ups, &game_over,
-                               &projectile_spawns, &projectile_despawns,
-                               &has_dirty);
+                                &enemy_attack_states, &level_ups, &game_over,
+                                &projectile_spawns, &projectile_despawns,
+                                &has_dirty);
     scene.tick += 1;
     scene.sync_accumulator += dt_seconds;
     scene.full_sync_elapsed += dt_seconds;
@@ -889,7 +891,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   if (has_projectile_despawn) {
     projectile_despawn_msg.set_room_id(room_id);
     projectile_despawn_msg.set_server_time_ms(event_now_count);
-    projectile_despawn_msg.mutable_sync_time()->set_server_time(event_now_count);
+    projectile_despawn_msg.mutable_sync_time()->set_server_time(
+        event_now_count);
     projectile_despawn_msg.mutable_sync_time()->set_tick(
         static_cast<uint32_t>(event_tick));
     for (const auto& despawn : projectile_despawns) {
@@ -902,7 +905,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   if (has_enemy_attack_state) {
     enemy_attack_state_msg.set_room_id(room_id);
     enemy_attack_state_msg.set_server_time_ms(event_now_count);
-    enemy_attack_state_msg.mutable_sync_time()->set_server_time(event_now_count);
+    enemy_attack_state_msg.mutable_sync_time()->set_server_time(
+        event_now_count);
     enemy_attack_state_msg.mutable_sync_time()->set_tick(
         static_cast<uint32_t>(event_tick));
     for (const auto& delta : enemy_attack_states) {

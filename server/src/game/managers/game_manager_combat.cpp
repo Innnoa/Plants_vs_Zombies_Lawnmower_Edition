@@ -1,11 +1,10 @@
-#include "game/managers/game_manager.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <numbers>
-
 #include <spdlog/spdlog.h>
+
+#include "game/managers/game_manager.hpp"
 
 namespace {
 // 碰撞/战斗相关（后续可考虑挪到配置）
@@ -27,7 +26,8 @@ float DistanceSq(float ax, float ay, float bx, float by) {
   return dx * dx + dy * dy;
 }
 
-bool CirclesOverlap(float ax, float ay, float ar, float bx, float by, float br) {
+bool CirclesOverlap(float ax, float ay, float ar, float bx, float by,
+                    float br) {
   const float r = ar + br;
   return DistanceSq(ax, ay, bx, by) <= r * r;
 }
@@ -53,9 +53,9 @@ void GameManager::ProcessCombatAndProjectiles(
     std::vector<lawnmower::ProjectileState>* projectile_spawns,
     std::vector<lawnmower::ProjectileDespawn>* projectile_despawns,
     bool* has_dirty) {
-  if (player_hurts == nullptr || enemy_dieds == nullptr || level_ups == nullptr ||
-      enemy_attack_states == nullptr || game_over == nullptr ||
-      projectile_spawns == nullptr ||
+  if (player_hurts == nullptr || enemy_dieds == nullptr ||
+      level_ups == nullptr || enemy_attack_states == nullptr ||
+      game_over == nullptr || projectile_spawns == nullptr ||
       projectile_despawns == nullptr || has_dirty == nullptr) {
     return;
   }
@@ -78,9 +78,9 @@ void GameManager::ProcessCombatAndProjectiles(
       player.state.set_exp(player.state.exp() - player.state.exp_to_next());
       player.state.set_level(player.state.level() + 1);
 
-      const uint32_t next_exp =
-          static_cast<uint32_t>(std::llround(player.state.exp_to_next() * 1.25)) +
-          25u;
+      const uint32_t next_exp = static_cast<uint32_t>(std::llround(
+                                    player.state.exp_to_next() * 1.25)) +
+                                25u;
       player.state.set_exp_to_next(std::max<uint32_t>(1, next_exp));
 
       player.state.set_max_health(player.state.max_health() + 10);
@@ -102,29 +102,30 @@ void GameManager::ProcessCombatAndProjectiles(
   const float projectile_radius = std::clamp(
       config_.projectile_radius > 0.0f ? config_.projectile_radius : 6.0f, 0.5f,
       128.0f);
-  const float projectile_muzzle_offset = std::clamp(
-      config_.projectile_muzzle_offset >= 0.0f ? config_.projectile_muzzle_offset
-                                               : 22.0f,
-      0.0f, 256.0f);
-  const double projectile_ttl_seconds = std::clamp(
-      config_.projectile_ttl_seconds > 0.0f
-          ? static_cast<double>(config_.projectile_ttl_seconds)
-          : 2.5,
-      0.05, 30.0);
+  const float projectile_muzzle_offset =
+      std::clamp(config_.projectile_muzzle_offset >= 0.0f
+                     ? config_.projectile_muzzle_offset
+                     : 22.0f,
+                 0.0f, 256.0f);
+  const double projectile_ttl_seconds =
+      std::clamp(config_.projectile_ttl_seconds > 0.0f
+                     ? static_cast<double>(config_.projectile_ttl_seconds)
+                     : 2.5,
+                 0.05, 30.0);
   const uint32_t projectile_ttl_ms = static_cast<uint32_t>(
       std::clamp(std::llround(projectile_ttl_seconds * 1000.0), 1LL, 30000LL));
 
-  const uint32_t max_shots_per_tick = std::clamp(
-      config_.projectile_max_shots_per_tick > 0
-          ? config_.projectile_max_shots_per_tick
-          : 4u,
-      1u, 64u);
+  const uint32_t max_shots_per_tick =
+      std::clamp(config_.projectile_max_shots_per_tick > 0
+                     ? config_.projectile_max_shots_per_tick
+                     : 4u,
+                 1u, 64u);
 
   const double attack_min_interval = std::max(
-      1e-3, config_.projectile_attack_min_interval_seconds > 0.0f
-                ? static_cast<double>(
-                      config_.projectile_attack_min_interval_seconds)
-                : kMinAttackIntervalSeconds);
+      1e-3,
+      config_.projectile_attack_min_interval_seconds > 0.0f
+          ? static_cast<double>(config_.projectile_attack_min_interval_seconds)
+          : kMinAttackIntervalSeconds);
   const double attack_max_interval = std::max(
       attack_min_interval,
       config_.projectile_attack_max_interval_seconds > 0.0f
@@ -203,23 +204,20 @@ void GameManager::ProcessCombatAndProjectiles(
     return target;
   };
 
-  auto log_attack_dir_fallback =
-      [&](PlayerRuntime& player, uint32_t target_id,
-          const char* reason) {
-        if (scene.tick < player.last_attack_dir_log_tick +
-                            kAttackDirFallbackLogIntervalTicks) {
-          return;
-        }
-        player.last_attack_dir_log_tick = scene.tick;
-        spdlog::debug(
-            "Projectile dir fallback: player={} target={} reason={}",
-            player.state.player_id(), target_id, reason);
-      };
+  auto log_attack_dir_fallback = [&](PlayerRuntime& player, uint32_t target_id,
+                                     const char* reason) {
+    if (scene.tick <
+        player.last_attack_dir_log_tick + kAttackDirFallbackLogIntervalTicks) {
+      return;
+    }
+    player.last_attack_dir_log_tick = scene.tick;
+    spdlog::debug("Projectile dir fallback: player={} target={} reason={}",
+                  player.state.player_id(), target_id, reason);
+  };
 
   auto resolve_projectile_direction =
-      [&](PlayerRuntime& player, const EnemyRuntime& target,
-          float* out_dir_x, float* out_dir_y,
-          float* out_rotation) -> bool {
+      [&](PlayerRuntime& player, const EnemyRuntime& target, float* out_dir_x,
+          float* out_dir_y, float* out_rotation) -> bool {
     if (out_dir_x == nullptr || out_dir_y == nullptr ||
         out_rotation == nullptr) {
       return false;
@@ -235,16 +233,16 @@ void GameManager::ProcessCombatAndProjectiles(
         *out_dir_x = player.last_attack_dir_x;
         *out_dir_y = player.last_attack_dir_y;
         *out_rotation = player.last_attack_rotation;
-        log_attack_dir_fallback(
-            player, target.state.enemy_id(), "zero_dir_use_cached");
+        log_attack_dir_fallback(player, target.state.enemy_id(),
+                                "zero_dir_use_cached");
       } else {
         const auto [fallback_x, fallback_y] =
             rotation_dir(player.state.rotation());
         *out_dir_x = fallback_x;
         *out_dir_y = fallback_y;
         *out_rotation = player.state.rotation();
-        log_attack_dir_fallback(
-            player, target.state.enemy_id(), "zero_dir_use_player_rotation");
+        log_attack_dir_fallback(player, target.state.enemy_id(),
+                                "zero_dir_use_player_rotation");
       }
       return true;
     }
@@ -306,7 +304,8 @@ void GameManager::ProcessCombatAndProjectiles(
     projectile_spawns->push_back(std::move(spawn));
   };
 
-  // 开火：attack_speed 控制射速；dt 被 clamp 后最多补几发，避免掉帧时 DPS 丢失。
+  // 开火：attack_speed 控制射速；dt 被 clamp 后最多补几发，避免掉帧时 DPS
+  // 丢失。
   for (auto& [player_id, player] : scene.players) {
     if (!player.state.is_alive() || !player.wants_attacking) {
       player.locked_target_enemy_id = 0;
@@ -318,19 +317,18 @@ void GameManager::ProcessCombatAndProjectiles(
     float dir_y = 0.0f;
     float rotation = player.state.rotation();
     const EnemyRuntime* target = resolve_locked_target(player);
-    if (target == nullptr ||
-        !resolve_projectile_direction(player, *target, &dir_x, &dir_y,
-                                      &rotation)) {
+    if (target == nullptr || !resolve_projectile_direction(
+                                 player, *target, &dir_x, &dir_y, &rotation)) {
       player.attack_cooldown_seconds =
           std::max(player.attack_cooldown_seconds, 0.0);
       continue;
     }
 
-    const double interval =
-        PlayerAttackIntervalSeconds(player.state.attack_speed(),
-                                    attack_min_interval, attack_max_interval);
+    const double interval = PlayerAttackIntervalSeconds(
+        player.state.attack_speed(), attack_min_interval, attack_max_interval);
     uint32_t fired = 0;
-    while (player.attack_cooldown_seconds <= 1e-6 && fired < max_shots_per_tick) {
+    while (player.attack_cooldown_seconds <= 1e-6 &&
+           fired < max_shots_per_tick) {
       player.attack_cooldown_seconds += interval;
       fired += 1;
 
@@ -340,10 +338,9 @@ void GameManager::ProcessCombatAndProjectiles(
       }
 
       if (player.state.critical_hit_rate() > 0) {
-        const float chance =
-            std::clamp(static_cast<float>(player.state.critical_hit_rate()) /
-                           1000.0f,
-                       0.0f, 1.0f);
+        const float chance = std::clamp(
+            static_cast<float>(player.state.critical_hit_rate()) / 1000.0f,
+            0.0f, 1.0f);
         if (NextRngUnitFloat(&scene.rng_state) < chance) {
           damage *= 2;
         }
@@ -360,8 +357,10 @@ void GameManager::ProcessCombatAndProjectiles(
   for (auto it = scene.projectiles.begin(); it != scene.projectiles.end();) {
     ProjectileRuntime& proj = it->second;
     proj.remaining_seconds -= dt_seconds;
-    proj.x += proj.dir_x * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
-    proj.y += proj.dir_y * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
+    proj.x +=
+        proj.dir_x * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
+    proj.y +=
+        proj.dir_y * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
 
     bool despawn = false;
     lawnmower::ProjectileDespawnReason reason =
@@ -392,7 +391,8 @@ void GameManager::ProcessCombatAndProjectiles(
         reason = lawnmower::PROJECTILE_DESPAWN_HIT;
 
         const int32_t prev_hp = enemy.state.health();
-        const int32_t dealt = std::min(proj.damage, std::max<int32_t>(0, prev_hp));
+        const int32_t dealt =
+            std::min(proj.damage, std::max<int32_t>(0, prev_hp));
         enemy.state.set_health(std::max<int32_t>(0, prev_hp - proj.damage));
         enemy.dirty = true;
         *has_dirty = true;
@@ -425,15 +425,13 @@ void GameManager::ProcessCombatAndProjectiles(
           *died.mutable_position() = enemy.state.position();
           enemy_dieds->push_back(std::move(died));
 
-	          if (owner_it != scene.players.end()) {
-	            owner_it->second.kill_count += 1;
-	            const uint32_t exp_reward = static_cast<uint32_t>(
-	                std::max<int32_t>(0,
-	                                  ResolveEnemyType(enemy.state.type_id())
-	                                      .exp_reward));
-	            grant_exp(owner_it->second, exp_reward);
-	          }
-	        }
+          if (owner_it != scene.players.end()) {
+            owner_it->second.kill_count += 1;
+            const uint32_t exp_reward = static_cast<uint32_t>(std::max<int32_t>(
+                0, ResolveEnemyType(enemy.state.type_id()).exp_reward));
+            grant_exp(owner_it->second, exp_reward);
+          }
+        }
 
         break;  // 单体射弹：命中一个目标即消失
       }
@@ -557,7 +555,8 @@ void GameManager::ProcessCombatAndProjectiles(
         kMinEnemyAttackIntervalSeconds, kMaxEnemyAttackIntervalSeconds);
     enemy.attack_cooldown_seconds = attack_interval_seconds;
 
-    // 伤害为 0 时不产生受伤事件（避免客户端误触发受击表现），但仍可用攻击状态做动画。
+    // 伤害为 0
+    // 时不产生受伤事件（避免客户端误触发受击表现），但仍可用攻击状态做动画。
     if (damage <= 0) {
       continue;
     }
@@ -584,9 +583,9 @@ void GameManager::ProcessCombatAndProjectiles(
   }
 
   // 游戏结束判断：所有玩家死亡则 GameOver
-  const std::size_t alive_after_combat = std::count_if(
-      scene.players.begin(), scene.players.end(),
-      [](const auto& kv) { return kv.second.state.is_alive(); });
+  const std::size_t alive_after_combat =
+      std::count_if(scene.players.begin(), scene.players.end(),
+                    [](const auto& kv) { return kv.second.state.is_alive(); });
   if (alive_after_combat == 0 && !scene.players.empty()) {
     scene.game_over = true;
 

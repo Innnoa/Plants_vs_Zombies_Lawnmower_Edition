@@ -77,7 +77,8 @@ std::string TcpSession::GenerateToken() {
   std::ostringstream oss;  // 用于将各种数据类型转化为string格式
   oss << std::hex;  // ostringstream重载了 << 用于将数据存至对象中/设置进制格式
   for (auto b : buf) {
-    // 输出为两位 hex（如 0x0A -> "0a"）；width 仅对下一次插入生效，因此放在循环内。
+    // 输出为两位 hex（如 0x0A -> "0a"）；width
+    // 仅对下一次插入生效，因此放在循环内。
     oss.width(2);
     oss.fill('0');
     oss << static_cast<int>(b);  // 避免按字符输出
@@ -140,7 +141,8 @@ void TcpSession::handle_disconnect() {
 
 // 读包头
 void TcpSession::read_header() {
-  // 从当前对象拿到一个std::shared_ptr<TcpSession>, 防止this指针悬空，延长对象生命周期
+  // 从当前对象拿到一个std::shared_ptr<TcpSession>,
+  // 防止this指针悬空，延长对象生命周期
   auto self = shared_from_this();
   // asio::buffer是设置异步缓冲区
   asio::async_read(socket_, asio::buffer(length_buffer_),
@@ -392,7 +394,8 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
       const lawnmower::SceneInfo scene_info =
           GameManager::Instance().CreateScene(*snapshot);
 
-      // mutable_scene() 返回 SceneInfo*（指向 result 内部的子消息），解引用后整体赋值。
+      // mutable_scene() 返回 SceneInfo*（指向 result
+      // 内部的子消息），解引用后整体赋值。
       // 等价写法：result.mutable_scene()->CopyFrom(scene_info);
       *result.mutable_scene() = scene_info;
 
@@ -484,7 +487,8 @@ void TcpSession::send_packet(const lawnmower::Packet& packet) {
   if (spdlog::should_log(spdlog::level::debug)) {
     const auto payload_len = packet.payload().size();
     const auto body_len = data.size();
-    // 打印分层长度：payload（业务消息）/ Packet 序列化后（含 msg_type 等）/ 加 4 字节帧头后的总大小。
+    // 打印分层长度：payload（业务消息）/ Packet 序列化后（含 msg_type 等）/ 加
+    // 4 字节帧头后的总大小。
     spdlog::debug(
         "TCP发送包 {}，payload长度 {} bytes，序列化后长度 {} "
         "bytes（含4字节包长总计 {} "
