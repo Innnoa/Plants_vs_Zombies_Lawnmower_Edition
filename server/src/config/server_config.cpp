@@ -9,8 +9,8 @@
 namespace {
 // 搜寻config文件
 constexpr std::array<const char*, 3> kConfigPaths = {
-    "config/server_config.json", "../config/server_config.json",
-    "server/config/server_config.json"};
+    "game_config/server_config.json", "../game_config/server_config.json",
+    "../../game_config/server_config.json"};
 
 // T可能为uint16_t/uint32_t，故需模板
 // 该函数用于提取配置中的int类值

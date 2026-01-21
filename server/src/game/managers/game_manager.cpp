@@ -18,6 +18,7 @@ constexpr uint32_t kDefaultExpToNext = 100; // 默认升级所需经验
 constexpr std::size_t kMaxPendingInputs = 64; // 单个玩家输入队列的最大缓存条数
 constexpr float kDirectionEpsilonSq = 1e-6f; // 方向向量长度平方的极小阈值，小于此视为无效输入
 constexpr float kMaxDirectionLengthSq = 1.21f;    // 方向向量长度平方的上限
+constexpr float kDeltaPositionEpsilon = 1e-4f; // delta 位置/朝向变化阈值
 constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
 
 // 计算朝向
@@ -52,12 +53,39 @@ void FillSyncTiming(uint32_t room_id, uint64_t tick,
   ts->set_tick(static_cast<uint32_t>(tick));
 }
 
+// 填充增量同步时间
+void FillDeltaTiming(uint32_t room_id, uint64_t tick,
+                     lawnmower::S2C_GameStateDeltaSync* sync) {
+  if (sync == nullptr) {
+    return;
+  }
+
+  const auto now_ms = NowMs();
+  sync->set_room_id(room_id);
+  sync->set_server_time_ms(static_cast<uint64_t>(now_ms.count()));
+
+  auto* ts = sync->mutable_sync_time();
+  ts->set_server_time(static_cast<uint64_t>(now_ms.count()));
+  ts->set_tick(static_cast<uint32_t>(tick));
+}
+
 // 向各个会话发送同步消息
 void SendSyncToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
                         const lawnmower::S2C_GameStateSync& sync) {
   for (const auto& weak_session : sessions) {
     if (auto session = weak_session.lock()) {
       session->SendProto(lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
+    }
+  }
+}
+
+// 向各个会话发送增量同步消息
+void SendDeltaToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
+                         const lawnmower::S2C_GameStateDeltaSync& sync) {
+  for (const auto& weak_session : sessions) {
+    if (auto session = weak_session.lock()) {
+      session->SendProto(
+          lawnmower::MessageType::MSG_S2C_GAME_STATE_DELTA_SYNC, sync);
     }
   }
 }
@@ -322,6 +350,11 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
     runtime.state.set_attack_speed(attack_speed);
     runtime.state.set_move_speed(move_speed);
     runtime.state.set_last_processed_input_seq(0);
+    // 初始化 delta 同步基线
+    runtime.last_sync_position = runtime.state.position();
+    runtime.last_sync_rotation = runtime.state.rotation();
+    runtime.last_sync_is_alive = runtime.state.is_alive();
+    runtime.last_sync_input_seq = runtime.last_input_seq;
 
     // 将玩家对应玩家信息插入会话
     scene->players.emplace(player.player_id, std::move(runtime));
@@ -422,6 +455,10 @@ lawnmower::SceneInfo GameManager::CreateScene(
     runtime.state.set_is_alive(true);
     runtime.state.set_wave_id(scene.wave_id);
     runtime.state.set_is_friendly(false);
+    // 初始化 delta 同步基线
+    runtime.last_sync_position = runtime.state.position();
+    runtime.last_sync_health = runtime.state.health();
+    runtime.last_sync_is_alive = runtime.state.is_alive();
     runtime.force_sync_left = kEnemySpawnForceSyncCount;
     runtime.dirty = true;
     scene.enemies.emplace(runtime.state.enemy_id(), std::move(runtime));
@@ -489,9 +526,11 @@ constexpr double kMaxInputDeltaSeconds = 0.1;
 void GameManager::ProcessSceneTick(uint32_t room_id,
                                    double tick_interval_seconds) {
   lawnmower::S2C_GameStateSync sync;
+  lawnmower::S2C_GameStateDeltaSync delta;
   bool force_full_sync = false;
   bool should_sync = false;
   bool built_sync = false;
+  bool built_delta = false;
 
   std::vector<lawnmower::S2C_PlayerHurt> player_hurts;
   std::vector<lawnmower::S2C_EnemyDied> enemy_dieds;
@@ -537,6 +576,22 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       } else {
         fill_player_high_freq(runtime, out);
       }
+    };
+    auto position_changed = [](const lawnmower::Vector2& current,
+                               const lawnmower::Vector2& last) {
+      return std::abs(current.x() - last.x()) > kDeltaPositionEpsilon ||
+             std::abs(current.y() - last.y()) > kDeltaPositionEpsilon;
+    };
+    auto update_player_last_sync = [](PlayerRuntime& runtime) {
+      runtime.last_sync_position = runtime.state.position();
+      runtime.last_sync_rotation = runtime.state.rotation();
+      runtime.last_sync_is_alive = runtime.state.is_alive();
+      runtime.last_sync_input_seq = runtime.last_input_seq;
+    };
+    auto update_enemy_last_sync = [](EnemyRuntime& runtime) {
+      runtime.last_sync_position = runtime.state.position();
+      runtime.last_sync_health = runtime.state.health();
+      runtime.last_sync_is_alive = runtime.state.is_alive();
     };
 
     const auto now = std::chrono::steady_clock::now();
@@ -671,45 +726,143 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     const bool want_sync = should_sync || force_full_sync;
     const bool need_sync = want_sync && (force_full_sync || has_dirty);
     if (need_sync) {
-      FillSyncTiming(room_id, scene.tick, &sync);
-
       if (force_full_sync) {
+        FillSyncTiming(room_id, scene.tick, &sync);
         for (auto& [_, runtime] : scene.players) {
           fill_player_for_sync(runtime, sync.add_players());
+          update_player_last_sync(runtime);
           runtime.dirty = false;
           runtime.low_freq_dirty = false;
         }
         for (auto& [_, enemy] : scene.enemies) {
           auto* out = sync.add_enemies();
           *out = enemy.state;
+          update_enemy_last_sync(enemy);
           enemy.dirty = false;
           if (enemy.force_sync_left > 0) {
             enemy.force_sync_left -= 1;
           }
         }
+        built_sync = true;
         scene.full_sync_elapsed = 0.0;
       } else {
+        bool sync_inited = false;
+        bool delta_inited = false;
+
         for (auto& [_, runtime] : scene.players) {
           if (!runtime.dirty && !runtime.low_freq_dirty) {
             continue;
           }
-          fill_player_for_sync(runtime, sync.add_players());
+          if (runtime.low_freq_dirty) {
+            if (!sync_inited) {
+              FillSyncTiming(room_id, scene.tick, &sync);
+              sync_inited = true;
+            }
+            fill_player_for_sync(runtime, sync.add_players());
+            built_sync = true;
+            update_player_last_sync(runtime);
+            runtime.dirty = false;
+            runtime.low_freq_dirty = false;
+            continue;
+          }
+          uint32_t changed_mask = 0;
+          const auto& position = runtime.state.position();
+          if (position_changed(position, runtime.last_sync_position)) {
+            changed_mask |= lawnmower::PLAYER_DELTA_POSITION;
+          }
+          if (std::abs(runtime.state.rotation() - runtime.last_sync_rotation) >
+              kDeltaPositionEpsilon) {
+            changed_mask |= lawnmower::PLAYER_DELTA_ROTATION;
+          }
+          if (runtime.state.is_alive() != runtime.last_sync_is_alive) {
+            changed_mask |= lawnmower::PLAYER_DELTA_IS_ALIVE;
+          }
+          if (runtime.last_input_seq != runtime.last_sync_input_seq) {
+            changed_mask |= lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ;
+          }
+          if (changed_mask == 0) {
+            runtime.dirty = false;
+            continue;
+          }
+          if (!delta_inited) {
+            FillDeltaTiming(room_id, scene.tick, &delta);
+            delta_inited = true;
+          }
+          auto* out = delta.add_players();
+          out->set_player_id(runtime.state.player_id());
+          out->set_changed_mask(changed_mask);
+          if ((changed_mask & lawnmower::PLAYER_DELTA_POSITION) != 0) {
+            *out->mutable_position() = position;
+          }
+          if ((changed_mask & lawnmower::PLAYER_DELTA_ROTATION) != 0) {
+            out->set_rotation(runtime.state.rotation());
+          }
+          if ((changed_mask & lawnmower::PLAYER_DELTA_IS_ALIVE) != 0) {
+            out->set_is_alive(runtime.state.is_alive());
+          }
+          if ((changed_mask &
+               lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ) != 0) {
+            out->set_last_processed_input_seq(
+                static_cast<int32_t>(runtime.last_input_seq));
+          }
+          built_delta = true;
+          update_player_last_sync(runtime);
           runtime.dirty = false;
-          runtime.low_freq_dirty = false;
         }
+
         for (auto& [_, enemy] : scene.enemies) {
           if (!enemy.dirty && enemy.force_sync_left == 0) {
             continue;
           }
-          auto* out = sync.add_enemies();
-          *out = enemy.state;
-          enemy.dirty = false;
           if (enemy.force_sync_left > 0) {
+            if (!sync_inited) {
+              FillSyncTiming(room_id, scene.tick, &sync);
+              sync_inited = true;
+            }
+            auto* out = sync.add_enemies();
+            *out = enemy.state;
+            built_sync = true;
+            update_enemy_last_sync(enemy);
+            enemy.dirty = false;
             enemy.force_sync_left -= 1;
+            continue;
           }
+          uint32_t changed_mask = 0;
+          const auto& position = enemy.state.position();
+          if (position_changed(position, enemy.last_sync_position)) {
+            changed_mask |= lawnmower::ENEMY_DELTA_POSITION;
+          }
+          if (enemy.state.health() != enemy.last_sync_health) {
+            changed_mask |= lawnmower::ENEMY_DELTA_HEALTH;
+          }
+          if (enemy.state.is_alive() != enemy.last_sync_is_alive) {
+            changed_mask |= lawnmower::ENEMY_DELTA_IS_ALIVE;
+          }
+          if (changed_mask == 0) {
+            enemy.dirty = false;
+            continue;
+          }
+          if (!delta_inited) {
+            FillDeltaTiming(room_id, scene.tick, &delta);
+            delta_inited = true;
+          }
+          auto* out = delta.add_enemies();
+          out->set_enemy_id(enemy.state.enemy_id());
+          out->set_changed_mask(changed_mask);
+          if ((changed_mask & lawnmower::ENEMY_DELTA_POSITION) != 0) {
+            *out->mutable_position() = position;
+          }
+          if ((changed_mask & lawnmower::ENEMY_DELTA_HEALTH) != 0) {
+            out->set_health(enemy.state.health());
+          }
+          if ((changed_mask & lawnmower::ENEMY_DELTA_IS_ALIVE) != 0) {
+            out->set_is_alive(enemy.state.is_alive());
+          }
+          built_delta = true;
+          update_enemy_last_sync(enemy);
+          enemy.dirty = false;
         }
       }
-      built_sync = true;
     }
 
     event_tick = scene.tick;
@@ -801,29 +954,58 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     }
   }
 
-  if (!built_sync) {
+  const bool has_sync_payload =
+      built_sync && (sync.players_size() > 0 || sync.enemies_size() > 0 ||
+                     sync.items_size() > 0);
+  const bool has_delta_payload =
+      built_delta && (delta.players_size() > 0 || delta.enemies_size() > 0);
+
+  if (!has_sync_payload && !has_delta_payload) {
     return;
   }
 
-  if (sync.players_size() == 0 && sync.enemies_size() == 0 &&
-      sync.items_size() == 0) {
-    return;
-  }
+  std::vector<std::weak_ptr<TcpSession>> sessions;
+  bool sessions_ready = false;
+  auto get_sessions = [&]() -> const std::vector<std::weak_ptr<TcpSession>>& {
+    if (!sessions_ready) {
+      sessions = RoomManager::Instance().GetRoomSessions(room_id);
+      sessions_ready = true;
+    }
+    return sessions;
+  };
 
-  // Full sync 往往包含完整敌人列表，UDP 易发生分片丢包；优先走
-  // TCP（可靠）作为兜底快照。
-  if (!force_full_sync) {
-    if (udp_server_ != nullptr &&
-        udp_server_->BroadcastState(room_id, sync) > 0) {
-      return;
+  // 优先尝试 UDP 发送增量；若无 UDP 则走 TCP 兜底。
+  if (has_delta_payload) {
+    bool delta_sent_udp = false;
+    if (udp_server_ != nullptr) {
+      delta_sent_udp = udp_server_->BroadcastDeltaState(room_id, delta) > 0;
+    }
+    if (!delta_sent_udp) {
+      const auto& targets = get_sessions();
+      if (!targets.empty()) {
+        SendDeltaToSessions(targets, delta);
+      } else {
+        spdlog::debug("房间 {} 无可用会话，跳过 TCP 增量同步兜底", room_id);
+      }
     }
   }
 
-  const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
-  if (!sessions.empty()) {
-    SendSyncToSessions(sessions, sync);
-  } else {
-    spdlog::debug("房间 {} 无可用会话，跳过 TCP 同步兜底", room_id);
+  if (has_sync_payload) {
+    bool sync_sent_udp = false;
+    // Full sync 往往包含完整敌人列表，UDP 易发生分片丢包；优先走 TCP 兜底快照。
+    // 若已发送增量，同一 tick 不再走 UDP，避免客户端判重丢包。
+    const bool allow_udp_sync = !force_full_sync && !has_delta_payload;
+    if (allow_udp_sync && udp_server_ != nullptr) {
+      sync_sent_udp = udp_server_->BroadcastState(room_id, sync) > 0;
+    }
+    if (!sync_sent_udp) {
+      const auto& targets = get_sessions();
+      if (!targets.empty()) {
+        SendSyncToSessions(targets, sync);
+      } else {
+        spdlog::debug("房间 {} 无可用会话，跳过 TCP 同步兜底", room_id);
+      }
+    }
   }
 }
 

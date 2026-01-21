@@ -9,8 +9,8 @@
 
 namespace {
 constexpr std::array<const char*, 3> kConfigPaths = {
-    "config/enemy_types.json", "../config/enemy_types.json",
-    "server/config/enemy_types.json"};
+    "game_config/enemy_types.json", "../game_config/enemy_types.json",
+    "../../game_config/enemy_types.json"};
 
 EnemyTypesConfig BuildDefaultEnemyTypesConfig() {
   EnemyTypesConfig cfg;

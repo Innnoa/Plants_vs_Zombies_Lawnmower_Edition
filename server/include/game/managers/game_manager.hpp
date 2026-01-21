@@ -80,6 +80,10 @@ class GameManager {
     lawnmower::PlayerState state;
     std::string player_name;
     uint32_t last_input_seq = 0;
+    lawnmower::Vector2 last_sync_position; // delta 同步基线位置
+    float last_sync_rotation = 0.0f; // delta 同步基线朝向
+    bool last_sync_is_alive = true; // delta 同步基线存活状态
+    uint32_t last_sync_input_seq = 0; // delta 同步基线输入序号
     std::deque<lawnmower::C2S_PlayerInput> pending_inputs;
     bool wants_attacking = false;
     double attack_cooldown_seconds = 0.0;
@@ -107,6 +111,9 @@ class GameManager {
     bool is_attacking = false; // 是否处于攻击状态(用于客户端播放/停止攻击动画)
     uint32_t attack_target_player_id = 0; // 当前攻击目前玩家ID
     double dead_elapsed_seconds = 0.0; // 敌人死亡后已过时间(用于死亡后延迟清理/复活逻辑)
+    lawnmower::Vector2 last_sync_position; // delta 同步基线位置
+    int32_t last_sync_health = 0; // delta 同步基线血量
+    bool last_sync_is_alive = true; // delta 同步基线存活状态
     uint32_t force_sync_left = 0; // 强制同步计数(即使没dirty也要同步几次，确保新生成/死亡被客户端看到)
     bool dirty = false; // 是否有状态变动 
   };

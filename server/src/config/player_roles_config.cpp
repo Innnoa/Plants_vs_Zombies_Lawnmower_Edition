@@ -9,8 +9,8 @@
 
 namespace {
 constexpr std::array<const char*, 3> kConfigPaths = {
-    "config/player_roles.json", "../config/player_roles.json",
-    "server/config/player_roles.json"};
+    "game_config/player_roles.json", "../game_config/player_roles.json",
+    "../../game_config/player_roles.json"};
 
 PlayerRolesConfig BuildDefaultPlayerRolesConfig() {
   PlayerRolesConfig cfg;

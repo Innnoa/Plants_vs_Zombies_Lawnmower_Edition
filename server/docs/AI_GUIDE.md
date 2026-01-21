@@ -29,14 +29,17 @@
 - 模块分层：网络 (`include/src/network/tcp`)、房间管理 (`game/managers/room_manager.*`)、游戏逻辑 (`game/managers/game_manager.*`)、入口 (`src/main.cpp`)。
 - 避免改变协议/逻辑的同时拆分职责；使用 `spdlog` 记录关键路径（错误/警告/调试）。
 - 配置：
-  - `server/config/server_config.json`：全局参数（地图尺寸、tick/同步频率、移动速度、刷怪/波次、射弹/战斗等），由 `ServerConfig` + `LoadServerConfig` 加载。
-  - `server/config/player_roles.json`：玩家职业/角色属性（血量/攻击/攻速/移速/暴击等），由 `PlayerRolesConfig` + `LoadPlayerRolesConfig` 加载。
-  - `server/config/enemy_types.json`：敌人类型属性（血量/移速/伤害/经验等），由 `EnemyTypesConfig` + `LoadEnemyTypesConfig` 加载。
+  - `game_config/server_config.json`：全局参数（地图尺寸、tick/同步频率、移动速度、刷怪/波次、射弹/战斗等），权威配置目录，由 `ServerConfig` + `LoadServerConfig` 加载。
+  - `game_config/player_roles.json`：玩家职业/角色属性（血量/攻击/攻速/移速/暴击等），权威配置目录，由 `PlayerRolesConfig` + `LoadPlayerRolesConfig` 加载。
+  - `game_config/enemy_types.json`：敌人类型属性（血量/移速/伤害/经验等），权威配置目录，由 `EnemyTypesConfig` + `LoadEnemyTypesConfig` 加载。
+  - `server/config` 目录已移除，请勿再引用旧路径。
 
 ## 扩展提示
+- 权威配置目录：根目录 `game_config/` 为唯一修改入口（`enemy_types.json`/`player_roles.json`），服务端启动时从该目录加载；`server/config/` 仅保留历史参考，请勿再编辑。
+- 客户端同步提示：当前客户端仍使用静态表（如 `EnemyDefinitions.java`），当 `game_config` 变更后需手动对齐（后续可再引入生成脚本）。
 - 新消息类型：在 `TcpSession::handle_packet` 中增加 case，并在相应管理器实现处理逻辑；广播时优先使用弱引用会话列表。
 - 新场景/玩法：在 `GameManager` 内新增场景属性或 tick 处理，保持线程安全和输入去重。
-- 新敌人类型：在 `server/config/enemy_types.json` 增加一条类型（`type_id/max_health/move_speed/damage/exp_reward/attack_enter_radius/attack_exit_radius/attack_interval_seconds`），服务端启动后自动加载并用于刷怪/移动/伤害结算与攻击表现（缺失时回退内置默认配置）。
-- 新职业/角色：在 `server/config/player_roles.json` 增加一条职业（`role_id/max_health/attack/attack_speed/move_speed/critical_hit_rate`），服务端会在玩家创建时写入 `PlayerState.role_id` 并用其初始化属性。
+- 新敌人类型：在 `game_config/enemy_types.json` 增加一条类型（`type_id/max_health/move_speed/damage/exp_reward/attack_enter_radius/attack_exit_radius/attack_interval_seconds`），服务端启动后自动加载并用于刷怪/移动/伤害结算与攻击表现（缺失时回退内置默认配置）。
+- 新职业/角色：在 `game_config/player_roles.json` 增加一条职业（`role_id/max_health/attack/attack_speed/move_speed/critical_hit_rate`），服务端会在玩家创建时写入 `PlayerState.role_id` 并用其初始化属性。
 - 调试：`SPDLOG_ACTIVE_LEVEL` 已在 CMake 中设为 `DEBUG`, 无需修改
 - 注释问题： 不要轻易删除注释，除非它错误/位置有问题，若需移动代码，请把注释也同步过去

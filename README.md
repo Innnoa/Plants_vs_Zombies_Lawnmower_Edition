@@ -236,7 +236,7 @@ message C2S_UseSkill {
 
 ### 服务器配置
 
-编辑 `server_config.json`：
+编辑 `game_config/server_config.json`：
 
 ```json
 {
