@@ -504,14 +504,17 @@ bool GameManager::BuildFullState(uint32_t room_id,
   }
 
   sync->Clear();
+  // 填充同步时间
   FillSyncTiming(room_id, scene_it->second.tick, sync);
 
   const Scene& scene = scene_it->second;
+  // 全量同步包的玩家信息的state赋值
   for (const auto& [_, runtime] : scene.players) {
     auto* player_state = sync->add_players();
     *player_state = runtime.state;
     player_state->set_last_processed_input_seq(runtime.last_input_seq);
   }
+  // 全量同步包的敌人信息的state赋值
   for (const auto& [_, runtime] : scene.enemies) {
     auto* enemy_state = sync->add_enemies();
     *enemy_state = runtime.state;
@@ -529,8 +532,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
                                    double tick_interval_seconds) {
   lawnmower::S2C_GameStateSync sync;
   lawnmower::S2C_GameStateDeltaSync delta;
-  bool force_full_sync = false;
-  bool should_sync = false;
+  bool force_full_sync = false; // 强制全量同步
+  bool should_sync = false; // 需要同步
   bool built_sync = false;
   bool built_delta = false;
 
@@ -544,7 +547,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   uint64_t event_tick = 0;
 
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
     auto scene_it = scenes_.find(room_id);
     if (scene_it == scenes_.end()) {
       return;
@@ -554,6 +557,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     if (scene.game_over) {
       return;
     }
+    // 根据玩家运行时状态设置玩家高频状态报文(out)
     auto fill_player_high_freq = [](const PlayerRuntime& runtime,
                                     lawnmower::PlayerState* out) {
       if (out == nullptr) {
@@ -561,10 +565,11 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       }
       out->Clear();
       out->set_player_id(runtime.state.player_id());
-      *out->mutable_position() = runtime.state.position();
       out->set_rotation(runtime.state.rotation());
       out->set_is_alive(runtime.state.is_alive());
       out->set_last_processed_input_seq(runtime.last_input_seq);
+      // 因positon是自定义类型，没有set函数，故直接赋值
+      *out->mutable_position() = runtime.state.position();
     };
 
     auto fill_player_for_sync = [&](PlayerRuntime& runtime,
@@ -572,24 +577,31 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       if (out == nullptr) {
         return;
       }
+      // 是否发生低频全量变化
       if (runtime.low_freq_dirty) {
+        // 全量状态
         *out = runtime.state;
         out->set_last_processed_input_seq(runtime.last_input_seq);
-      } else {
+      } else { 
+        // 只填充高频字段
         fill_player_high_freq(runtime, out);
       }
     };
+    // 判断位置是否改变
     auto position_changed = [](const lawnmower::Vector2& current,
                                const lawnmower::Vector2& last) {
+      // 如果当前位移与上次位移的绝对值大于可接受位移最小值，则为位置变化
       return std::abs(current.x() - last.x()) > kDeltaPositionEpsilon ||
              std::abs(current.y() - last.y()) > kDeltaPositionEpsilon;
     };
+    // 更新玩家delta同步高频值
     auto update_player_last_sync = [](PlayerRuntime& runtime) {
       runtime.last_sync_position = runtime.state.position();
       runtime.last_sync_rotation = runtime.state.rotation();
       runtime.last_sync_is_alive = runtime.state.is_alive();
       runtime.last_sync_input_seq = runtime.last_input_seq;
     };
+    // 更新敌人delta同步高频值
     auto update_enemy_last_sync = [](EnemyRuntime& runtime) {
       runtime.last_sync_position = runtime.state.position();
       runtime.last_sync_health = runtime.state.health();
@@ -597,14 +609,16 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     };
 
     const auto now = std::chrono::steady_clock::now();
+    // 没看明白
     const auto elapsed = scene.last_tick_time.time_since_epoch().count() == 0
                              ? scene.tick_interval
                              : now - scene.last_tick_time;
     scene.last_tick_time = now;
-
+    // 看不懂
     const double elapsed_seconds =
         std::clamp(std::chrono::duration<double>(elapsed).count(), 0.0,
                    kMaxTickDeltaSeconds);
+    // 看不懂
     const double dt_seconds =
         elapsed_seconds > 0.0 ? elapsed_seconds : tick_interval_seconds;
 

@@ -76,28 +76,31 @@ class GameManager {
     float move_speed = 200.0f;
   };
 
+  // 玩家运行时状态
   struct PlayerRuntime {
-    lawnmower::PlayerState state;
-    std::string player_name;
-    uint32_t last_input_seq = 0;
+    lawnmower::PlayerState state; // 玩家状态
+    std::string player_name; // 玩家名
+    uint32_t last_input_seq = 0; // 已处理的最新输入序号
+    // last
     lawnmower::Vector2 last_sync_position;  // delta 同步基线位置
     float last_sync_rotation = 0.0f;        // delta 同步基线朝向
     bool last_sync_is_alive = true;         // delta 同步基线存活状态
     uint32_t last_sync_input_seq = 0;       // delta 同步基线输入序号
-    std::deque<lawnmower::C2S_PlayerInput> pending_inputs;
-    bool wants_attacking = false;
-    double attack_cooldown_seconds = 0.0;
-    uint32_t locked_target_enemy_id = 0;
-    double target_refresh_elapsed = 0.0;
-    bool has_attack_dir = false;
-    float last_attack_dir_x = 1.0f;
-    float last_attack_dir_y = 0.0f;
-    float last_attack_rotation = 0.0f;
-    uint64_t last_attack_dir_log_tick = 0;
-    int32_t kill_count = 0;
-    int32_t damage_dealt = 0;
-    bool low_freq_dirty = false;
-    bool dirty = false;
+
+    std::deque<lawnmower::C2S_PlayerInput> pending_inputs; // 待处理输入队列
+    bool wants_attacking = false; // 攻击意图
+    double attack_cooldown_seconds = 0.0; // 攻击冷却剩余
+    uint32_t locked_target_enemy_id = 0; // 锁定目标
+    double target_refresh_elapsed = 0.0; // 目标刷新计时
+    bool has_attack_dir = false; // 是否有攻击方向
+    float last_attack_dir_x = 1.0f; // 最近攻击方向x向量
+    float last_attack_dir_y = 0.0f; // 最近攻击方向y向量
+    float last_attack_rotation = 0.0f; // 最近攻击朝向角
+    uint64_t last_attack_dir_log_tick = 0; // 最近记录攻击方向的tick
+    int32_t kill_count = 0; // 击杀数
+    int32_t damage_dealt = 0; // 伤害总量
+    bool low_freq_dirty = false; // 低频/全量同步字段变化标记
+    bool dirty = false; // 高频同步字段变化标记
   };
 
   // 敌人运行时状态
@@ -122,19 +125,19 @@ class GameManager {
   };
 
   struct ProjectileRuntime {
-    uint32_t projectile_id = 0;
-    uint32_t owner_player_id = 0;
-    float x = 0.0f;
-    float y = 0.0f;
-    float dir_x = 1.0f;
-    float dir_y = 0.0f;
-    float rotation = 0.0f;
-    float speed = 0.0f;
-    int32_t damage = 0;
-    bool has_buff = false;
-    uint32_t buff_id = 0;
-    bool is_friendly = true;
-    double remaining_seconds = 0.0;
+    uint32_t projectile_id = 0; // 射弹实例ID
+    uint32_t owner_player_id = 0; // 发射者玩家ID
+    float x = 0.0f; // 当前x坐标
+    float y = 0.0f; // 当前y坐标
+    float dir_x = 1.0f; // x单位向量
+    float dir_y = 0.0f; // y单位向量
+    float rotation = 0.0f; // 朝向角
+    float speed = 0.0f; // 速度
+    int32_t damage = 0; // 伤害值
+    bool has_buff = false; // 是否携带Buff
+    uint32_t buff_id = 0; // Buff ID 
+    bool is_friendly = true; // 是否友方/敌方
+    double remaining_seconds = 0.0; // 剩余存活时间(TTL)
   };
 
   struct Scene {
