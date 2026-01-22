@@ -1,4 +1,4 @@
-package com.lawnmower.screens;
+﻿package com.lawnmower.screens;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
@@ -42,11 +42,9 @@ public class GameScreen implements Screen {
 
     private static final float WORLD_WIDTH = 1280f;
     private static final float WORLD_HEIGHT = 720f;
-    // 与服务器 GameManager::SceneConfig.move_speed (200f) 对齐，避免预测/权威速度不一致
-    private static final float PLAYER_SPEED = 200f;
+    // 涓庢湇鍔″櫒 GameManager::SceneConfig.move_speed (200f) 瀵归綈锛岄伩鍏嶉娴?鏉冨▉閫熷害涓嶄竴鑷?    private static final float PLAYER_SPEED = 200f;
 
-    // 输入分段更细（20~33ms），降低服务端堆积
-    private static final float MAX_COMMAND_DURATION = 0.025f;
+    // 杈撳叆鍒嗘鏇寸粏锛?0~33ms锛夛紝闄嶄綆鏈嶅姟绔爢绉?    private static final float MAX_COMMAND_DURATION = 0.025f;
     private static final float MIN_COMMAND_DURATION = 1f / 120f;
     private static final long SNAPSHOT_RETENTION_MS = 400L;
     private static final long MAX_EXTRAPOLATION_MS = 150L;
@@ -67,9 +65,8 @@ public class GameScreen implements Screen {
     private static final long MIN_INPUT_SEND_INTERVAL_MS = 10L; // ~100Hz
 
     /*
-     * 增量同步,标识服务端传入的变化值,采用位掩码,更方便能看出来需要传入的值是否发生了变化,比如位置信息
-     * 而且这个方式是将Message中的字段缓存成变量,解耦代码
-     */
+     * 澧為噺鍚屾,鏍囪瘑鏈嶅姟绔紶鍏ョ殑鍙樺寲鍊?閲囩敤浣嶆帺鐮?鏇存柟渚胯兘鐪嬪嚭鏉ラ渶瑕佷紶鍏ョ殑鍊兼槸鍚﹀彂鐢熶簡鍙樺寲,姣斿浣嶇疆淇℃伅
+     * 鑰屼笖杩欎釜鏂瑰紡鏄皢Message涓殑瀛楁缂撳瓨鎴愬彉閲?瑙ｈ€︿唬鐮?     */
     private static final int PLAYER_DELTA_POSITION_MASK = Message.PlayerDeltaMask.PLAYER_DELTA_POSITION_VALUE;
     private static final int PLAYER_DELTA_ROTATION_MASK = Message.PlayerDeltaMask.PLAYER_DELTA_ROTATION_VALUE;
     private static final int PLAYER_DELTA_IS_ALIVE_MASK = Message.PlayerDeltaMask.PLAYER_DELTA_IS_ALIVE_VALUE;
@@ -165,6 +162,7 @@ public class GameScreen implements Screen {
     private long pendingInputStartMs = 0L;
     private boolean idleAckSent = true;
     private boolean autoAttackToggle = true;
+    private boolean hasShownGameOver = false;
     private float autoAttackAccumulator = AUTO_ATTACK_INTERVAL;
     private float autoAttackHoldTimer = 0f;
     private int lockedEnemyId = 0;
@@ -194,8 +192,7 @@ public class GameScreen implements Screen {
     private long lastDroppedSyncLogMs = 0L;
     private long lastAppliedSyncTick = -1L;
     private long lastAppliedServerTimeMs = -1L;
-    // 30Hz 目标同步间隔约 33ms，预置一个靠近目标的初值便于平滑
-    private float smoothedSyncIntervalMs = 35f;
+    // 30Hz 鐩爣鍚屾闂撮殧绾?33ms锛岄缃竴涓潬杩戠洰鏍囩殑鍒濆€间究浜庡钩婊?    private float smoothedSyncIntervalMs = 35f;
     private float smoothedSyncDeviationMs = 30f;
     private Message.C2S_PlayerInput pendingRateLimitedInput;
     private long lastInputSendMs = 0L;
@@ -213,23 +210,21 @@ public class GameScreen implements Screen {
     public void show() {
         camera = new OrthographicCamera();
         viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT, camera);
-        batch = new SpriteBatch();//绘制人物用的
-        loadingFont = new BitmapFont();//绘制字体
-        loadingFont.getData().setScale(1.3f);//字体放大1.3倍
-        loadingLayout = new GlyphLayout();//布局文本,是一种比较高级的布局
+        batch = new SpriteBatch();//缁樺埗浜虹墿鐢ㄧ殑
+        loadingFont = new BitmapFont();//缁樺埗瀛椾綋
+        loadingFont.getData().setScale(1.3f);//瀛椾綋鏀惧ぇ1.3鍊?        loadingLayout = new GlyphLayout();//甯冨眬鏂囨湰,鏄竴绉嶆瘮杈冮珮绾х殑甯冨眬
 
-        //背景
+        //鑳屾櫙
         try {
             backgroundTexture = new Texture(Gdx.files.internal("background/roomListBackground.png"));
         } catch (Exception e) {
-            Pixmap bgPixmap = new Pixmap((int) WORLD_WIDTH, (int) WORLD_HEIGHT, Pixmap.Format.RGBA8888);//设置纯色图
-            bgPixmap.setColor(0.05f, 0.15f, 0.05f, 1f);
+            Pixmap bgPixmap = new Pixmap((int) WORLD_WIDTH, (int) WORLD_HEIGHT, Pixmap.Format.RGBA8888);//璁剧疆绾壊鍥?            bgPixmap.setColor(0.05f, 0.15f, 0.05f, 1f);
             bgPixmap.fill();
             backgroundTexture = new Texture(bgPixmap);
             bgPixmap.dispose();
         }
 
-        //人物
+        //浜虹墿
         try {
             playerAtlas = new TextureAtlas(Gdx.files.internal("Plants/PeaShooter/Standby/standby.atlas"));
             playerIdleAnimation = new Animation<>(0.1f, playerAtlas.getRegions(), Animation.PlayMode.LOOP);
@@ -243,7 +238,7 @@ public class GameScreen implements Screen {
             playerIdleAnimation = null;
             pixmap.dispose();
         }
-        //加载资源
+        //鍔犺浇璧勬簮
         loadEnemyAssets();
         loadProjectileAssets();
         enemyViews.clear();
@@ -253,8 +248,7 @@ public class GameScreen implements Screen {
         resetTargetingState();
         spawnPlaceholderEnemy();
 
-        //设置人物初始位置为地图中央
-        predictedPosition.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
+        //璁剧疆浜虹墿鍒濆浣嶇疆涓哄湴鍥句腑澶?        predictedPosition.set(WORLD_WIDTH / 2f, WORLD_HEIGHT / 2f);
         displayPosition.set(predictedPosition);
         resetInitialStateTracking();
         resetAutoAttackState();
@@ -262,15 +256,13 @@ public class GameScreen implements Screen {
 
     @Override
     /**
-    游戏主循环
-     */
+    娓告垙涓诲惊鐜?     */
     public void render(float delta) {
-        advanceLogicalClock(delta);//更新一个稳定的时间跳变
+        advanceLogicalClock(delta);//鏇存柊涓€涓ǔ瀹氱殑鏃堕棿璺冲彉
         pumpPendingNetworkInput();
 
         /*
-        hasReceivedInitialState:游戏初始状态
-        playerTextureRegion:角色纹理
+        hasReceivedInitialState:娓告垙鍒濆鐘舵€?        playerTextureRegion:瑙掕壊绾圭悊
          */
         if (!hasReceivedInitialState || playerTextureRegion == null) {
             maybeRequestInitialStateResync();
@@ -278,12 +270,11 @@ public class GameScreen implements Screen {
             return;
         }
         /*
-        采集本地输入
+        閲囬泦鏈湴杈撳叆
          */
         float renderDelta = getStableDelta(delta);
         Vector2 dir = getMovementInput();
-        isLocallyMoving = dir.len2() > 0.0001f;//判断是否在移动
-        if (Gdx.input.isKeyJustPressed(AUTO_ATTACK_TOGGLE_KEY)) {
+        isLocallyMoving = dir.len2() > 0.0001f;//鍒ゆ柇鏄惁鍦ㄧЩ鍔?        if (Gdx.input.isKeyJustPressed(AUTO_ATTACK_TOGGLE_KEY)) {
             autoAttackToggle = !autoAttackToggle;
             if (autoAttackToggle) {
                 resetAutoAttackState();
@@ -291,19 +282,18 @@ public class GameScreen implements Screen {
                 autoAttackAccumulator = 0f;
                 autoAttackHoldTimer = 0f;
             }
-            showStatusToast(autoAttackToggle ? "自动攻击已开启" : "自动攻击已关闭");
+            showStatusToast(autoAttackToggle ? "鑷姩鏀诲嚮宸插紑鍚? : "鑷姩鏀诲嚮宸插叧闂?);
         }
         boolean attacking = resolveAttackingState(renderDelta);
 
         /*
-        预测操作
+        棰勬祴鎿嶄綔
          */
         simulateLocalStep(dir, renderDelta);
         processInputChunk(dir, attacking, renderDelta);
 
         /*
-        清屏加相机跟随
-         */
+        娓呭睆鍔犵浉鏈鸿窡闅?         */
         Gdx.gl.glClearColor(0, 0, 0, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
@@ -315,17 +305,16 @@ public class GameScreen implements Screen {
         camera.update();
 
         /*
-        开始渲染
-         */
+        寮€濮嬫覆鏌?         */
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         batch.draw(backgroundTexture, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
         /*
-        播放玩家空闲动画
+        鎾斁鐜╁绌洪棽鍔ㄧ敾
          */
         playerAnimationTime += renderDelta;
         TextureRegion currentFrame = playerIdleAnimation != null
-                ? playerIdleAnimation.getKeyFrame(playerAnimationTime, true)//循环播放
+                ? playerIdleAnimation.getKeyFrame(playerAnimationTime, true)//寰幆鎾斁
                 : playerTextureRegion;
         if (currentFrame == null) {
             batch.end();
@@ -333,20 +322,19 @@ public class GameScreen implements Screen {
         }
         playerTextureRegion = currentFrame;
         /*
-        估算服务器时间,计算渲染延迟
+        浼扮畻鏈嶅姟鍣ㄦ椂闂?璁＄畻娓叉煋寤惰繜
          */
         long estimatedServerTimeMs = estimateServerTimeMs();
         long renderServerTimeMs = estimatedServerTimeMs - computeRenderDelayMs();
         updateProjectiles(renderDelta, renderServerTimeMs);
         /*
-        渲染敌人和玩家
-         */
+        娓叉煋鏁屼汉鍜岀帺瀹?         */
         renderEnemies(renderDelta, renderServerTimeMs);
         renderRemotePlayers(renderServerTimeMs, currentFrame, renderDelta);
         renderProjectiles();
         renderProjectileImpacts(renderDelta);
         /*
-        渲染本地玩家角色
+        娓叉煋鏈湴鐜╁瑙掕壊
          */
         drawCharacterFrame(currentFrame, displayPosition.x, displayPosition.y, facingRight);
         renderStatusToast(renderDelta);
@@ -355,7 +343,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 更新一个稳定的时间跳变
+     * 鏇存柊涓€涓ǔ瀹氱殑鏃堕棿璺冲彉
      * @param delta
      */
     private void advanceLogicalClock(float delta) {
@@ -366,20 +354,18 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 平滑操作
+     * 骞虫粦鎿嶄綔
      * @param rawDelta
      * @return
      */
     private float getStableDelta(float rawDelta) {
-        float clamped = Math.min(rawDelta, MAX_FRAME_DELTA);//设置最大帧间隔防止极大帧
-        smoothedFrameDelta += (clamped - smoothedFrameDelta) * DELTA_SMOOTH_ALPHA;//指数平滑操作,利用IIR低通滤波器
-        logFrameDeltaSpike(rawDelta, smoothedFrameDelta);//日志输出
+        float clamped = Math.min(rawDelta, MAX_FRAME_DELTA);//璁剧疆鏈€澶у抚闂撮殧闃叉鏋佸ぇ甯?        smoothedFrameDelta += (clamped - smoothedFrameDelta) * DELTA_SMOOTH_ALPHA;//鎸囨暟骞虫粦鎿嶄綔,鍒╃敤IIR浣庨€氭护娉㈠櫒
+        logFrameDeltaSpike(rawDelta, smoothedFrameDelta);//鏃ュ織杈撳嚭
         return smoothedFrameDelta;
     }
 
     /**
-     * 预测操作,本地直接用预测进行移动
-     * @param dir
+     * 棰勬祴鎿嶄綔,鏈湴鐩存帴鐢ㄩ娴嬭繘琛岀Щ鍔?     * @param dir
      * @param delta
      */
     private void simulateLocalStep(Vector2 dir, float delta) {
@@ -391,14 +377,12 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 打包发送玩家输入
-     * @param dir
+     * 鎵撳寘鍙戦€佺帺瀹惰緭鍏?     * @param dir
      * @param attacking
      * @param delta
      */
     private void processInputChunk(Vector2 dir, boolean attacking, float delta) {
-        boolean moving = dir.len2() > 0.0001f;//判断是否在移动
-        //未移动未攻击
+        boolean moving = dir.len2() > 0.0001f;//鍒ゆ柇鏄惁鍦ㄧЩ鍔?        //鏈Щ鍔ㄦ湭鏀诲嚮
         if (!moving && !attacking) {
             if (hasPendingInputChunk) {
                 flushPendingInput();
@@ -408,9 +392,9 @@ public class GameScreen implements Screen {
             }
             return;
         }
-        //重置空闲标志
+        //閲嶇疆绌洪棽鏍囧織
         idleAckSent = false;
-        //首次操作
+        //棣栨鎿嶄綔
         if (!hasPendingInputChunk) {
             startPendingChunk(dir, attacking, delta);
             if (pendingAttack) {
@@ -418,22 +402,18 @@ public class GameScreen implements Screen {
             }
             return;
         }
-        //判断是否可合并
-        if (pendingMoveDir.epsilonEquals(dir, 0.001f) && pendingAttack == attacking) {
-            pendingInputDuration += delta;//可以,延长持续时间
+        //鍒ゆ柇鏄惁鍙悎骞?        if (pendingMoveDir.epsilonEquals(dir, 0.001f) && pendingAttack == attacking) {
+            pendingInputDuration += delta;//鍙互,寤堕暱鎸佺画鏃堕棿
         } else {
-            flushPendingInput();//不可以,结束旧块
-            startPendingChunk(dir, attacking, delta);//开始新块
-        }
-        //攻击和按键持续时间超过上限
-        if (pendingAttack || pendingInputDuration >= MAX_COMMAND_DURATION) {
+            flushPendingInput();//涓嶅彲浠?缁撴潫鏃у潡
+            startPendingChunk(dir, attacking, delta);//寮€濮嬫柊鍧?        }
+        //鏀诲嚮鍜屾寜閿寔缁椂闂磋秴杩囦笂闄?        if (pendingAttack || pendingInputDuration >= MAX_COMMAND_DURATION) {
             flushPendingInput();
         }
     }
 
     /**
-     * 初始化所需状态
-     * @param dir
+     * 鍒濆鍖栨墍闇€鐘舵€?     * @param dir
      * @param attacking
      * @param delta
      */
@@ -446,16 +426,16 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 将客户端的输入打包发给服务器
+     * 灏嗗鎴风鐨勮緭鍏ユ墦鍖呭彂缁欐湇鍔″櫒
      */
     private void flushPendingInput() {
-        //检查是否有待发送的输入
+        //妫€鏌ユ槸鍚︽湁寰呭彂閫佺殑杈撳叆
         if (!hasPendingInputChunk) {
             return;
         }
         float duration = resolvePendingDurationSeconds();
         PlayerInputCommand cmd = new PlayerInputCommand(inputSequence++, pendingMoveDir, pendingAttack, duration);
-        unconfirmedInputs.put(cmd.seq, cmd);//存入未确认输入的缓存
+        unconfirmedInputs.put(cmd.seq, cmd);//瀛樺叆鏈‘璁よ緭鍏ョ殑缂撳瓨
         inputSendTimes.put(cmd.seq, logicalTimeMs);
         pruneUnconfirmedInputs();
         sendPlayerInputToServer(cmd);
@@ -463,8 +443,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 在无输入时向服务器发送心跳
-     * @param delta
+     * 鍦ㄦ棤杈撳叆鏃跺悜鏈嶅姟鍣ㄥ彂閫佸績璺?     * @param delta
      */
     private void sendIdleCommand(float delta) {
         PlayerInputCommand idleCmd = new PlayerInputCommand(
@@ -481,15 +460,14 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 清理未确认队列
-     */
+     * 娓呯悊鏈‘璁ら槦鍒?     */
     private void pruneUnconfirmedInputs() {
         if (unconfirmedInputs.isEmpty()) {
             return;
         }
 
         /*
-        安全迭代删除过期条目
+        瀹夊叏杩唬鍒犻櫎杩囨湡鏉＄洰
          */
         long now = logicalTimeMs;
         Iterator<Map.Entry<Integer, PlayerInputCommand>> iterator = unconfirmedInputs.entrySet().iterator();
@@ -499,8 +477,7 @@ public class GameScreen implements Screen {
             int seq = entry.getKey();
             long sentAt = inputSendTimes.getOrDefault(seq, entry.getValue().timestampMs);
             /*
-            判断是否真的需要删除
-             */
+            鍒ゆ柇鏄惁鐪熺殑闇€瑕佸垹闄?             */
             boolean tooOld = (now - sentAt) > MAX_UNCONFIRMED_INPUT_AGE_MS;
             boolean overflow = unconfirmedInputs.size() > MAX_UNCONFIRMED_INPUTS;
             if (tooOld || overflow) {
@@ -509,15 +486,14 @@ public class GameScreen implements Screen {
                 removed = true;
                 continue;
             }
-            //提前终止遍历
+            //鎻愬墠缁堟閬嶅巻
             if (!tooOld && !overflow) {
                 break;
             }
         }
 
         /*
-        日志与空闲状态处理
-         */
+        鏃ュ織涓庣┖闂茬姸鎬佸鐞?         */
         if (removed) {
             Gdx.app.log(TAG, "Pruned stale inputs, remaining=" + unconfirmedInputs.size());
         }
@@ -527,62 +503,51 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 渲染其他玩家
+     * 娓叉煋鍏朵粬鐜╁
      * @param renderServerTimeMs
      * @param frame
      * @param delta
      */
     private void renderRemotePlayers(long renderServerTimeMs, TextureRegion frame, float delta) {
-        //空检查
-        if (frame == null) {
+        //绌烘鏌?        if (frame == null) {
             return;
         }
-        //遍历每个玩家的快照
-        for (Map.Entry<Integer, Deque<ServerPlayerSnapshot>> entry : remotePlayerServerSnapshots.entrySet()) {
+        //閬嶅巻姣忎釜鐜╁鐨勫揩鐓?        for (Map.Entry<Integer, Deque<ServerPlayerSnapshot>> entry : remotePlayerServerSnapshots.entrySet()) {
             int playerId = entry.getKey();
             Deque<ServerPlayerSnapshot> snapshots = entry.getValue();
             if (snapshots == null || snapshots.isEmpty()) {
                 continue;
             }
-            //插值区间
-            ServerPlayerSnapshot prev = null;
+            //鎻掑€煎尯闂?            ServerPlayerSnapshot prev = null;
             ServerPlayerSnapshot next = null;
             for (ServerPlayerSnapshot snap : snapshots) {
                 if (snap.serverTimestampMs <= renderServerTimeMs) {
-                    prev = snap;//最新的旧快照
-                } else {
-                    next = snap;//下一个快照
-                    break;
+                    prev = snap;//鏈€鏂扮殑鏃у揩鐓?                } else {
+                    next = snap;//涓嬩竴涓揩鐓?                    break;
                 }
             }
 
             Vector2 targetPos = renderBuffer;
             /*
-             插值计算策略
-             */
-            //有上一个和下一个就平滑插中值
-            if (prev != null && next != null && next.serverTimestampMs > prev.serverTimestampMs) {
+             鎻掑€艰绠楃瓥鐣?             */
+            //鏈変笂涓€涓拰涓嬩竴涓氨骞虫粦鎻掍腑鍊?            if (prev != null && next != null && next.serverTimestampMs > prev.serverTimestampMs) {
                 float t = (renderServerTimeMs - prev.serverTimestampMs) /
                         (float) (next.serverTimestampMs - prev.serverTimestampMs);
                 t = MathUtils.clamp(t, 0f, 1f);
                 targetPos.set(prev.position).lerp(next.position, t);
-            }//只有prev就预测一个新值
-            else if (prev != null) {
+            }//鍙湁prev灏遍娴嬩竴涓柊鍊?            else if (prev != null) {
                 long ahead = Math.max(0L, renderServerTimeMs - prev.serverTimestampMs);
                 long clampedAhead = Math.min(ahead, MAX_EXTRAPOLATION_MS);
                 float seconds = clampedAhead / 1000f;
                 targetPos.set(prev.position).mulAdd(prev.velocity, seconds);
-            }//只有新值就直接用
-            else {
+            }//鍙湁鏂板€煎氨鐩存帴鐢?            else {
                 targetPos.set(next.position);
             }
             clampPositionToMap(targetPos);
             boolean remoteFacing = remoteFacingRight.getOrDefault(playerId, true);
-            //获取初始化位置缓存
-            Vector2 displayPos = remoteDisplayPositions
+            //鑾峰彇鍒濆鍖栦綅缃紦瀛?            Vector2 displayPos = remoteDisplayPositions
                     .computeIfAbsent(playerId, id -> new Vector2(targetPos));
-            //平滑过度,属于是保险的保险,防止因包跳跃造成的突变
-            float distSq = displayPos.dst2(targetPos);
+            //骞虫粦杩囧害,灞炰簬鏄繚闄╃殑淇濋櫓,闃叉鍥犲寘璺宠穬閫犳垚鐨勭獊鍙?            float distSq = displayPos.dst2(targetPos);
             if (distSq > REMOTE_DISPLAY_SNAP_DISTANCE * REMOTE_DISPLAY_SNAP_DISTANCE) {
                 displayPos.set(targetPos);
             } else {
@@ -594,7 +559,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 渲染敌人
+     * 娓叉煋鏁屼汉
      * @param delta
      * @param renderServerTimeMs
      */
@@ -656,23 +621,21 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 批量渲染投射物
-     */
+     * 鎵归噺娓叉煋鎶曞皠鐗?     */
     private void renderProjectiles() {
-        //前置条件
+        //鍓嶇疆鏉′欢
         if (projectileViews.isEmpty() || batch == null) {
             logProjectileRenderState(projectileViews.isEmpty() ? "skip_empty" : "skip_batch_null");
             return;
         }
-        //遍历投射物
-        for (ProjectileView view : projectileViews.values()) {
+        //閬嶅巻鎶曞皠鐗?        for (ProjectileView view : projectileViews.values()) {
             TextureRegion frame = resolveProjectileFrame(view);
-            //动态解析贴图帧
+            //鍔ㄦ€佽В鏋愯创鍥惧抚
             if (frame == null) {
                 logProjectileRenderState("skip_frame_null");
                 continue;
             }
-            //获取尺寸绘制位置
+            //鑾峰彇灏哄缁樺埗浣嶇疆
             float width = frame.getRegionWidth();
             float height = frame.getRegionHeight();
             float drawX = view.position.x - width / 2f;
@@ -686,29 +649,26 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 渲染投射物命中目标时的瞬间特效
-     * @param delta
+     * 娓叉煋鎶曞皠鐗╁懡涓洰鏍囨椂鐨勭灛闂寸壒鏁?     * @param delta
      */
     private void renderProjectileImpacts(float delta) {
-        //安全检查
-        if (projectileImpacts.isEmpty() || batch == null) {
+        //瀹夊叏妫€鏌?        if (projectileImpacts.isEmpty() || batch == null) {
             return;
         }
         if (projectileImpactAnimation == null) {
             projectileImpacts.clear();
             return;
         }
-        //反向遍历更新生命周期
+        //鍙嶅悜閬嶅巻鏇存柊鐢熷懡鍛ㄦ湡
         for (int i = projectileImpacts.size - 1; i >= 0; i--) {
             ProjectileImpact impact = projectileImpacts.get(i);
             impact.elapsed += delta;
-            //获取当前动画帧
-            TextureRegion frame = projectileImpactAnimation.getKeyFrame(impact.elapsed, false);
+            //鑾峰彇褰撳墠鍔ㄧ敾甯?            TextureRegion frame = projectileImpactAnimation.getKeyFrame(impact.elapsed, false);
             if (frame == null || projectileImpactAnimation.isAnimationFinished(impact.elapsed)) {
                 projectileImpacts.removeIndex(i);
                 continue;
             }
-            //渲染
+            //娓叉煋
             float width = frame.getRegionWidth();
             float height = frame.getRegionHeight();
             float drawX = impact.position.x - width / 2f;
@@ -719,8 +679,7 @@ public class GameScreen implements Screen {
         }
     }
     /**
-     * 投射物动画帧解析器
-     */
+     * 鎶曞皠鐗╁姩鐢诲抚瑙ｆ瀽鍣?     */
     private TextureRegion resolveProjectileFrame(ProjectileView view) {
         if (projectileAnimation != null) {
             return projectileAnimation.getKeyFrame(view.animationTime, true);
@@ -729,8 +688,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 判断投射物是否飞出边界
-     * @param position
+     * 鍒ゆ柇鎶曞皠鐗╂槸鍚﹂鍑鸿竟鐣?     * @param position
      * @return
      */
     private boolean isProjectileOutOfBounds(Vector2 position) {
@@ -740,7 +698,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 指定坐标触发命中特效
+     * 鎸囧畾鍧愭爣瑙﹀彂鍛戒腑鐗规晥
      * @param position
      */
     private void spawnImpactEffect(Vector2 position) {
@@ -753,22 +711,20 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * ui资源反馈组件
+     * ui璧勬簮鍙嶉缁勪欢
      * @param delta
      */
     private void renderStatusToast(float delta) {
-        //更新倒计时
-        if (statusToastTimer > 0f) {
+        //鏇存柊鍊掕鏃?        if (statusToastTimer > 0f) {
             statusToastTimer -= delta;
         }
-        //多重退出条件
-        if (statusToastTimer <= 0f || loadingFont == null || statusToastMessage == null
+        //澶氶噸閫€鍑烘潯浠?        if (statusToastTimer <= 0f || loadingFont == null || statusToastMessage == null
                 || statusToastMessage.isBlank() || batch == null) {
             return;
         }
-        //文字颜色
+        //鏂囧瓧棰滆壊
         loadingFont.setColor(Color.WHITE);
-        //屏幕左上角的世界坐标
+        //灞忓箷宸︿笂瑙掔殑涓栫晫鍧愭爣
         float padding = 20f;
         float drawX = camera.position.x - WORLD_WIDTH / 2f + padding;
         float drawY = camera.position.y + WORLD_HEIGHT / 2f - padding;
@@ -776,8 +732,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 状态提示方法,比如连接成功,技能已经解锁
-     * @param message
+     * 鐘舵€佹彁绀烘柟娉?姣斿杩炴帴鎴愬姛,鎶€鑳藉凡缁忚В閿?     * @param message
      */
     private void showStatusToast(String message) {
         if (message == null || message.isBlank()) {
@@ -820,7 +775,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 投射物在客户端轻量的视图
+     * 鎶曞皠鐗╁湪瀹㈡埛绔交閲忕殑瑙嗗浘
      */
     private static final class ProjectileView {
         final long projectileId;
@@ -839,7 +794,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 投射物命中的瞬间特效
+     * 鎶曞皠鐗╁懡涓殑鐬棿鐗规晥
      */
     private static final class ProjectileImpact {
         final Vector2 position = new Vector2();
@@ -847,8 +802,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 创建一个占位敌人
-     */
+     * 鍒涘缓涓€涓崰浣嶆晫浜?     */
     private void spawnPlaceholderEnemy() {
         EnemyView placeholder = new EnemyView(PLACEHOLDER_ENEMY_ID, WORLD_WIDTH, WORLD_HEIGHT);
         placeholder.setVisual(DEFAULT_ENEMY_TYPE_ID,
@@ -861,7 +815,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 移除占位敌人
+     * 绉婚櫎鍗犱綅鏁屼汉
      */
     private void removePlaceholderEnemy() {
         enemyViews.remove(PLACEHOLDER_ENEMY_ID);
@@ -869,7 +823,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 移除死亡敌人
+     * 绉婚櫎姝讳骸鏁屼汉
      * @param enemyId
      */
     private void removeEnemy(int enemyId) {
@@ -882,8 +836,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 清理长时间未更新的敌人
-     * @param serverTimeMs
+     * 娓呯悊闀挎椂闂存湭鏇存柊鐨勬晫浜?     * @param serverTimeMs
      */
     private void purgeStaleEnemies(long serverTimeMs) {
         Iterator<Map.Entry<Integer, Long>> iterator = enemyLastSeen.entrySet().iterator();
@@ -899,8 +852,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 封装一个创建EnemyView对象的方法
-     * @param enemyState
+     * 灏佽涓€涓垱寤篍nemyView瀵硅薄鐨勬柟娉?     * @param enemyState
      * @return
      */
     private EnemyView ensureEnemyView(Message.EnemyState enemyState) {
@@ -914,8 +866,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 加载所有动画资源
-     */
+     * 鍔犺浇鎵€鏈夊姩鐢昏祫婧?     */
     private void loadEnemyAssets() {
         disposeEnemyAtlases();
         enemyAnimations.clear();
@@ -943,8 +894,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 基于动态配置加载资源
-     * @param definition
+     * 鍩轰簬鍔ㄦ€侀厤缃姞杞借祫婧?     * @param definition
      * @return
      */
     private Animation<TextureRegion> createEnemyAnimation(String atlasPath,
@@ -969,8 +919,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 查找动画,能找到就用,找不到就降级为默认动画
-     * @param typeId
+     * 鏌ユ壘鍔ㄧ敾,鑳芥壘鍒板氨鐢?鎵句笉鍒板氨闄嶇骇涓洪粯璁ゅ姩鐢?     * @param typeId
      * @return
      */
     private Animation<TextureRegion> resolveEnemyAnimation(int typeId) {
@@ -990,7 +939,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 懒加载一个敌人材质的占位防止资源丢失
+     * 鎳掑姞杞戒竴涓晫浜烘潗璐ㄧ殑鍗犱綅闃叉璧勬簮涓㈠け
      * @return
      */
     private TextureRegion getEnemyFallbackRegion() {
@@ -1005,7 +954,7 @@ public class GameScreen implements Screen {
         return enemyFallbackRegion;
     }
     /**
-     * 清理敌人信息
+     * 娓呯悊鏁屼汉淇℃伅
      */
     private void disposeEnemyAtlases() {
         for (TextureAtlas atlas : enemyAtlasCache.values()) {
@@ -1015,7 +964,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 加载攻击资源
+     * 鍔犺浇鏀诲嚮璧勬簮
      */
     private void loadProjectileAssets() {
         disposeProjectileAssets();
@@ -1078,7 +1027,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 绘制角色
+     * 缁樺埗瑙掕壊
      * @param frame
      * @param centerX
      * @param centerY
@@ -1099,25 +1048,23 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 平衡网络抖动和延迟,使插值不过度滞后
+     * 骞宠　缃戠粶鎶栧姩鍜屽欢杩?浣挎彃鍊间笉杩囧害婊炲悗
      * @return
      */
     private long computeRenderDelayMs() {
-        //计算RTT延迟
+        //璁＄畻RTT寤惰繜
         float latencyComponent = smoothedRttMs * 0.25f + 12f;
         if (Float.isNaN(latencyComponent) || Float.isInfinite(latencyComponent)) {
             latencyComponent = 90f;
         }
         latencyComponent = MathUtils.clamp(latencyComponent, 45f, 150f);
-        //同步抖动的缓冲储备
-        float jitterReserve = Math.abs(smoothedSyncIntervalMs - 33f) * 0.5f
+        //鍚屾鎶栧姩鐨勭紦鍐插偍澶?        float jitterReserve = Math.abs(smoothedSyncIntervalMs - 33f) * 0.5f
                 + (smoothedSyncDeviationMs * 1.3f) + 18f;
         jitterReserve = MathUtils.clamp(jitterReserve, INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
-        //确定延迟
+        //纭畾寤惰繜
         float target = Math.max(latencyComponent, jitterReserve);
         target = MathUtils.clamp(target, INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
-        //平滑过度到目标值
-        float delta = target - renderDelayMs;
+        //骞虫粦杩囧害鍒扮洰鏍囧€?        float delta = target - renderDelayMs;
         delta = MathUtils.clamp(delta, -MAX_RENDER_DELAY_STEP_MS, MAX_RENDER_DELAY_STEP_MS);
         renderDelayMs = MathUtils.clamp(renderDelayMs + delta * RENDER_DELAY_LERP,
                 INTERP_DELAY_MIN_MS, INTERP_DELAY_MAX_MS);
@@ -1125,12 +1072,12 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 抖动日志
+     * 鎶栧姩鏃ュ織
      * @param intervalMs
      * @param smoothInterval
      */
     private void logSyncIntervalSpike(float intervalMs, float smoothInterval) {
-        //合理的抖动不处理
+        //鍚堢悊鐨勬姈鍔ㄤ笉澶勭悊
         if (intervalMs < SYNC_INTERVAL_LOG_THRESHOLD_MS) {
             return;
         }
@@ -1138,25 +1085,24 @@ public class GameScreen implements Screen {
         if (nowMs - lastSyncLogMs < SYNC_INTERVAL_LOG_INTERVAL_MS) {
             return;
         }
-        //只处理异常抖动
-        Gdx.app.log(TAG, "Sync interval spike=" + intervalMs + "ms smooth=" + smoothInterval
+        //鍙鐞嗗紓甯告姈鍔?        Gdx.app.log(TAG, "Sync interval spike=" + intervalMs + "ms smooth=" + smoothInterval
                 + "ms renderDelay=" + renderDelayMs);
         lastSyncLogMs = nowMs;
     }
 
     /**
-     * 防止处理过期或者乱序包
+     * 闃叉澶勭悊杩囨湡鎴栬€呬贡搴忓寘
      * @param syncTime
      * @param serverTimeMs
      * @param arrivalMs
      * @return
      */
     private boolean shouldAcceptStatePacket(Message.Timestamp syncTime, long serverTimeMs, long arrivalMs) {
-        //标准化tick
+        //鏍囧噯鍖杢ick
         long incomingTick = syncTime != null
                 ? Integer.toUnsignedLong(syncTime.getTick())
                 : -1L;
-        //tick校验
+        //tick鏍￠獙
         if (incomingTick >= 0) {
             if (lastAppliedSyncTick >= 0L && Long.compareUnsigned(incomingTick, lastAppliedSyncTick) <= 0) {
                 logDroppedSync("tick", incomingTick, serverTimeMs, arrivalMs);
@@ -1168,7 +1114,7 @@ public class GameScreen implements Screen {
             }
             return true;
         }
-        //tick无效的回退
+        //tick鏃犳晥鐨勫洖閫€
         if (lastAppliedServerTimeMs >= 0L && serverTimeMs <= lastAppliedServerTimeMs) {
             logDroppedSync("serverTime", serverTimeMs, serverTimeMs, arrivalMs);
             return false;
@@ -1179,7 +1125,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 只处理指定延迟的日志
+     * 鍙鐞嗘寚瀹氬欢杩熺殑鏃ュ織
      * @param reason
      * @param value
      * @param serverTimeMs
@@ -1201,40 +1147,34 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 进行网络诊断,并提供平滑处理
-     * @param arrivalMs
+     * 杩涜缃戠粶璇婃柇,骞舵彁渚涘钩婊戝鐞?     * @param arrivalMs
      */
     private void updateSyncArrivalStats(long arrivalMs) {
-        //首次不进行处理
-        if (lastSyncArrivalMs != 0L) {
-            //当前包间隔约等于服务器的发送频率
-            float interval = arrivalMs - lastSyncArrivalMs;
-            //指数平滑平均间隔---低通滤波
-            smoothedSyncIntervalMs += (interval - smoothedSyncIntervalMs) * SYNC_INTERVAL_SMOOTH_ALPHA;
-            //计算并平滑抖动
-            float deviation = Math.abs(interval - smoothedSyncIntervalMs);
+        //棣栨涓嶈繘琛屽鐞?        if (lastSyncArrivalMs != 0L) {
+            //褰撳墠鍖呴棿闅旂害绛変簬鏈嶅姟鍣ㄧ殑鍙戦€侀鐜?            float interval = arrivalMs - lastSyncArrivalMs;
+            //鎸囨暟骞虫粦骞冲潎闂撮殧---浣庨€氭护娉?            smoothedSyncIntervalMs += (interval - smoothedSyncIntervalMs) * SYNC_INTERVAL_SMOOTH_ALPHA;
+            //璁＄畻骞跺钩婊戞姈鍔?            float deviation = Math.abs(interval - smoothedSyncIntervalMs);
             smoothedSyncDeviationMs += (deviation - smoothedSyncDeviationMs) * SYNC_DEVIATION_SMOOTH_ALPHA;
-            //安全处理
+            //瀹夊叏澶勭悊
             smoothedSyncDeviationMs = MathUtils.clamp(smoothedSyncDeviationMs, 0f, 220f);
-            //日志处理
+            //鏃ュ織澶勭悊
             logSyncIntervalSpike(interval, smoothedSyncIntervalMs);
         }
-        //更新到达时间
+        //鏇存柊鍒拌揪鏃堕棿
         lastSyncArrivalMs = arrivalMs;
     }
 
     /**
-     * 正确的估算远程玩家传到本地服务器的时间,进而估算出当前服务器时间
-     * @param serverTimeMs
+     * 姝ｇ‘鐨勪及绠楄繙绋嬬帺瀹朵紶鍒版湰鍦版湇鍔″櫒鐨勬椂闂?杩涜€屼及绠楀嚭褰撳墠鏈嶅姟鍣ㄦ椂闂?     * @param serverTimeMs
      */
-    //TODO:用不用补偿RTT
+    //TODO:鐢ㄤ笉鐢ㄨˉ鍋縍TT
     private void sampleClockOffset(long serverTimeMs) {
         long arrivalLocalTimeMs = getMonotonicTimeMs();
         double offsetSample = serverTimeMs - arrivalLocalTimeMs;
         clockOffsetMs += (offsetSample - clockOffsetMs) * 0.1;
     }
     /**
-     * 本地时间
+     * 鏈湴鏃堕棿
      */
     private long estimateServerTimeMs() {
         double estimate = getMonotonicTimeMs() + clockOffsetMs;
@@ -1247,7 +1187,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 确保角色不会走出地图
+     * 纭繚瑙掕壊涓嶄細璧板嚭鍦板浘
      * @param position
      */
     private void clampPositionToMap(Vector2 position) {
@@ -1270,7 +1210,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 获取wasd输入
+     * 鑾峰彇wasd杈撳叆
      * @return
      */
     private Vector2 getMovementInput() {
@@ -1283,7 +1223,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 本地模拟玩家移动
+     * 鏈湴妯℃嫙鐜╁绉诲姩
      * @param pos
      * @param rot
      * @param input
@@ -1297,8 +1237,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 打包发送
-     * @param cmd
+     * 鎵撳寘鍙戦€?     * @param cmd
      */
     private void sendPlayerInputToServer(PlayerInputCommand cmd) {
         if (game.getPlayerId() <= 0) return;
@@ -1320,7 +1259,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 客户端发送速率限制
+     * 瀹㈡埛绔彂閫侀€熺巼闄愬埗
      * @param inputMsg
      */
     private void enqueueInputForSend(Message.C2S_PlayerInput inputMsg) {
@@ -1333,8 +1272,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-    发送代码
-     */
+    鍙戦€佷唬鐮?     */
     private void sendInputImmediately(Message.C2S_PlayerInput msg, long timestampMs) {
         if (game.trySendPlayerInput(msg)) {
             lastInputSendMs = timestampMs;
@@ -1345,8 +1283,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-    如果本地输入达到了最小发送间隔就打包发出去
-     */
+    濡傛灉鏈湴杈撳叆杈惧埌浜嗘渶灏忓彂閫侀棿闅斿氨鎵撳寘鍙戝嚭鍘?     */
     private void pumpPendingNetworkInput() {
         if (pendingRateLimitedInput == null) {
             return;
@@ -1358,20 +1295,18 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 客户端处理服务器全量游戏同步包
-     * @param sync
+     * 瀹㈡埛绔鐞嗘湇鍔″櫒鍏ㄩ噺娓告垙鍚屾鍖?     * @param sync
      */
     public void onGameStateReceived(Message.S2C_GameStateSync sync) {
-        long arrivalMs = TimeUtils.millis();//包到达的时间
-        //安全机制
+        long arrivalMs = TimeUtils.millis();//鍖呭埌杈剧殑鏃堕棿
+        //瀹夊叏鏈哄埗
         Message.Timestamp syncTime = sync.hasSyncTime() ? sync.getSyncTime() : null;
         if (!shouldAcceptStatePacket(syncTime, sync.getServerTimeMs(), arrivalMs)) {
             return;
         }
         updateSyncArrivalStats(arrivalMs);
         sampleClockOffset(sync.getServerTimeMs());
-        //处理敌人状态
-        if (!sync.getEnemiesList().isEmpty()) {
+        //澶勭悊鏁屼汉鐘舵€?        if (!sync.getEnemiesList().isEmpty()) {
             for (Message.EnemyState enemy : sync.getEnemiesList()) {
                 enemyStateCache.put((int) enemy.getEnemyId(), enemy);
             }
@@ -1381,65 +1316,57 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 客户端处理增量同步的入口函数
+     * 瀹㈡埛绔鐞嗗閲忓悓姝ョ殑鍏ュ彛鍑芥暟
      * @param delta
      */
     public void onGameStateDeltaReceived(Message.S2C_GameStateDeltaSync delta) {
-        //接收包获取同步时间
-        long arrivalMs = TimeUtils.millis();
+        //鎺ユ敹鍖呰幏鍙栧悓姝ユ椂闂?        long arrivalMs = TimeUtils.millis();
         Message.Timestamp syncTime = delta.hasSyncTime() ? delta.getSyncTime() : null;
-        //有效性检验
-        if (!shouldAcceptStatePacket(syncTime, delta.getServerTimeMs(), arrivalMs)) {
+        //鏈夋晥鎬ф楠?        if (!shouldAcceptStatePacket(syncTime, delta.getServerTimeMs(), arrivalMs)) {
             return;
         }
-        //合并玩家增量到完整状态
-        List<Message.PlayerState> mergedPlayers = new ArrayList<>(delta.getPlayersCount());
+        //鍚堝苟鐜╁澧為噺鍒板畬鏁寸姸鎬?        List<Message.PlayerState> mergedPlayers = new ArrayList<>(delta.getPlayersCount());
         for (Message.PlayerStateDelta playerDelta : delta.getPlayersList()) {
             Message.PlayerState merged = mergePlayerDelta(playerDelta);
             if (merged != null) {
                 mergedPlayers.add(merged);
             }
         }
-        //合并敌人增量到完整状态
-        List<Message.EnemyState> updatedEnemies = new ArrayList<>(delta.getEnemiesCount());
+        //鍚堝苟鏁屼汉澧為噺鍒板畬鏁寸姸鎬?        List<Message.EnemyState> updatedEnemies = new ArrayList<>(delta.getEnemiesCount());
         for (Message.EnemyStateDelta enemyDelta : delta.getEnemiesList()) {
             Message.EnemyState mergedEnemy = mergeEnemyDelta(enemyDelta);
             if (mergedEnemy != null) {
                 updatedEnemies.add(mergedEnemy);
             }
         }
-        //网络质量+时钟校准
-        updateSyncArrivalStats(arrivalMs);//更新偏移指标
-        sampleClockOffset(delta.getServerTimeMs());//估算客户端到服务器的偏移量
-        //分发处理状态
-        handlePlayersFromServer(mergedPlayers, delta.getServerTimeMs());
+        //缃戠粶璐ㄩ噺+鏃堕挓鏍″噯
+        updateSyncArrivalStats(arrivalMs);//鏇存柊鍋忕Щ鎸囨爣
+        sampleClockOffset(delta.getServerTimeMs());//浼扮畻瀹㈡埛绔埌鏈嶅姟鍣ㄧ殑鍋忕Щ閲?        //鍒嗗彂澶勭悊鐘舵€?        handlePlayersFromServer(mergedPlayers, delta.getServerTimeMs());
         if (!updatedEnemies.isEmpty()) {
             syncEnemyViews(updatedEnemies, delta.getServerTimeMs());
         }
     }
 
     /**
-     * 服务器处理本地玩家和远程玩家状态的核心逻辑
+     * 鏈嶅姟鍣ㄥ鐞嗘湰鍦扮帺瀹跺拰杩滅▼鐜╁鐘舵€佺殑鏍稿績閫昏緫
      * @param players
      * @param serverTimeMs
      */
     private void handlePlayersFromServer(Collection<Message.PlayerState> players, long serverTimeMs) {
-        //获取本地玩家id
+        //鑾峰彇鏈湴鐜╁id
         int myId = game.getPlayerId();
         Message.PlayerState selfStateFromServer = null;
-        //遍历所有玩家状态
-        if (players != null) {
+        //閬嶅巻鎵€鏈夌帺瀹剁姸鎬?        if (players != null) {
             for (Message.PlayerState player : players) {
                 int playerId = (int) player.getPlayerId();
                 serverPlayerStates.put(playerId, player);
-                //本地玩家,活着才处理
-                if (playerId == myId) {
+                //鏈湴鐜╁,娲荤潃鎵嶅鐞?                if (playerId == myId) {
                     if (player.getIsAlive()) {
                         selfStateFromServer = player;
                     }
                     continue;
                 }
-                //远程玩家--记录快照
+                //杩滅▼鐜╁--璁板綍蹇収
                 if (player.hasPosition()) {
                     Vector2 position = new Vector2(player.getPosition().getX(), player.getPosition().getY());
                     pushRemoteSnapshot(playerId, position, player.getRotation(), serverTimeMs);
@@ -1447,43 +1374,39 @@ public class GameScreen implements Screen {
                 }
             }
         }
-        //清理过期玩家
+        //娓呯悊杩囨湡鐜╁
         purgeStaleRemotePlayers(serverTimeMs);
-        //应用服务器对自身的矫正
-        if (selfStateFromServer != null) {
+        //搴旂敤鏈嶅姟鍣ㄥ鑷韩鐨勭煫姝?        if (selfStateFromServer != null) {
             applySelfStateFromServer(selfStateFromServer);
         }
     }
 
     /**
-     * 客户端远程同步敌人信息
-     * @param enemies
+     * 瀹㈡埛绔繙绋嬪悓姝ユ晫浜轰俊鎭?     * @param enemies
      * @param serverTimeMs
      */
     private void syncEnemyViews(Collection<Message.EnemyState> enemies, long serverTimeMs) {
-        //空判断
-        if (enemies == null || enemies.isEmpty()) {
+        //绌哄垽鏂?        if (enemies == null || enemies.isEmpty()) {
             purgeStaleEnemies(serverTimeMs);
             return;
         }
 
         removePlaceholderEnemy();
-        //遍历敌人状态
-        for (Message.EnemyState enemy : enemies) {
+        //閬嶅巻鏁屼汉鐘舵€?        for (Message.EnemyState enemy : enemies) {
             if (enemy == null || !enemy.hasPosition()) {
                 continue;
             }
-            //敌人死亡处理
+            //鏁屼汉姝讳骸澶勭悊
             int enemyId = (int) enemy.getEnemyId();
             if (!enemy.getIsAlive()) {
                 removeEnemy(enemyId);
                 continue;
             }
             EnemyView view = ensureEnemyView(enemy);
-            //位置处理
+            //浣嶇疆澶勭悊
             renderBuffer.set(enemy.getPosition().getX(), enemy.getPosition().getY());
             clampPositionToMap(renderBuffer);
-            //渲染服务器状态到视图
+            //娓叉煋鏈嶅姟鍣ㄧ姸鎬佸埌瑙嗗浘
             int typeId = (int) enemy.getTypeId();
             view.updateFromServer(
                     typeId,
@@ -1496,28 +1419,25 @@ public class GameScreen implements Screen {
                     resolveEnemyAttackAnimation(typeId),
                     getEnemyFallbackRegion()
             );
-            //记录最后可见时间
-            enemyLastSeen.put(enemyId, serverTimeMs);
+            //璁板綍鏈€鍚庡彲瑙佹椂闂?            enemyLastSeen.put(enemyId, serverTimeMs);
         }
-        //清理过期敌人
+        //娓呯悊杩囨湡鏁屼汉
         purgeStaleEnemies(serverTimeMs);
     }
 
     /**
-     * 客户端对本地玩家进行服务器状态矫正,差不多就是跟服务器同步的过程
+     * 瀹㈡埛绔鏈湴鐜╁杩涜鏈嶅姟鍣ㄧ姸鎬佺煫姝?宸笉澶氬氨鏄窡鏈嶅姟鍣ㄥ悓姝ョ殑杩囩▼
      * @param selfStateFromServer
      */
     private void applySelfStateFromServer(Message.PlayerState selfStateFromServer) {
-        //获取服务器位置
-        Vector2 serverPos = new Vector2(
+        //鑾峰彇鏈嶅姟鍣ㄤ綅缃?        Vector2 serverPos = new Vector2(
                 selfStateFromServer.getPosition().getX(),
                 selfStateFromServer.getPosition().getY()
         );
         clampPositionToMap(serverPos);
-        //提取元数据,处理最后输入的序号
+        //鎻愬彇鍏冩暟鎹?澶勭悊鏈€鍚庤緭鍏ョ殑搴忓彿
         int lastProcessedSeq = selfStateFromServer.getLastProcessedInputSeq();
-        //创建存储状态快照
-        PlayerStateSnapshot snapshot = new PlayerStateSnapshot(
+        //鍒涘缓瀛樺偍鐘舵€佸揩鐓?        PlayerStateSnapshot snapshot = new PlayerStateSnapshot(
                 serverPos,
                 selfStateFromServer.getRotation(),
                 lastProcessedSeq
@@ -1526,44 +1446,40 @@ public class GameScreen implements Screen {
         while (snapshotHistory.size() > 10) {
             snapshotHistory.poll();
         }
-        //状态协调
-        reconcileWithServer(snapshot);
+        //鐘舵€佸崗璋?        reconcileWithServer(snapshot);
     }
 
     /**
-     * 客户端接收远程玩家快照之后构建服务器快照并维护滑动窗口缓存
-     * @param playerId
+     * 瀹㈡埛绔帴鏀惰繙绋嬬帺瀹跺揩鐓т箣鍚庢瀯寤烘湇鍔″櫒蹇収骞剁淮鎶ゆ粦鍔ㄧ獥鍙ｇ紦瀛?     * @param playerId
      * @param position
      * @param rotation
      * @param serverTimeMs
      */
     private void pushRemoteSnapshot(int playerId, Vector2 position, float rotation, long serverTimeMs) {
         clampPositionToMap(position);
-        //获取快照队列
+        //鑾峰彇蹇収闃熷垪
         Deque<ServerPlayerSnapshot> queue = remotePlayerServerSnapshots
                 .computeIfAbsent(playerId, k -> new ArrayDeque<>());
-        //速度估算
+        //閫熷害浼扮畻
         Vector2 velocity = new Vector2();
-        ServerPlayerSnapshot previous = queue.peekLast();//最新快照
-        if (previous != null) {
+        ServerPlayerSnapshot previous = queue.peekLast();//鏈€鏂板揩鐓?        if (previous != null) {
             long deltaMs = serverTimeMs - previous.serverTimestampMs;
             if (deltaMs > 0) {
                 velocity.set(position).sub(previous.position).scl(1000f / deltaMs);
             } else {
-                velocity.set(previous.velocity);//用旧速度
+                velocity.set(previous.velocity);//鐢ㄦ棫閫熷害
             }
-            //速度上限限制
+            //閫熷害涓婇檺闄愬埗
             float maxSpeed = PLAYER_SPEED * 1.5f;
             if (velocity.len2() > maxSpeed * maxSpeed) {
                 velocity.clamp(0f, maxSpeed);
             }
         }
-        //更新朝向
+        //鏇存柊鏈濆悜
         updateRemoteFacing(playerId, velocity, rotation);
-        //创建并存入快照
-        ServerPlayerSnapshot snap = new ServerPlayerSnapshot(position, rotation, velocity, serverTimeMs);
+        //鍒涘缓骞跺瓨鍏ュ揩鐓?        ServerPlayerSnapshot snap = new ServerPlayerSnapshot(position, rotation, velocity, serverTimeMs);
         queue.addLast(snap);
-        //滑动窗口清理
+        //婊戝姩绐楀彛娓呯悊
         while (queue.size() > 1 &&
                 (serverTimeMs - queue.peekFirst().serverTimestampMs) > SNAPSHOT_RETENTION_MS) {
             queue.removeFirst();
@@ -1571,8 +1487,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 更新玩家朝向,设定是只能左右翻转
-     * @param playerId
+     * 鏇存柊鐜╁鏈濆悜,璁惧畾鏄彧鑳藉乏鍙崇炕杞?     * @param playerId
      * @param velocity
      * @param rotation
      */
@@ -1587,8 +1502,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 清理长时间未收到消息的过期玩家
-     * @param currentServerTimeMs
+     * 娓呯悊闀挎椂闂存湭鏀跺埌娑堟伅鐨勮繃鏈熺帺瀹?     * @param currentServerTimeMs
      */
     private void purgeStaleRemotePlayers(long currentServerTimeMs) {
         Iterator<Map.Entry<Integer, Long>> iterator = remotePlayerLastSeen.entrySet().iterator();
@@ -1607,8 +1521,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 左右翻转核心逻辑-确认角色是否该朝向右边
-     * @param rotation
+     * 宸﹀彸缈昏浆鏍稿績閫昏緫-纭瑙掕壊鏄惁璇ユ湞鍚戝彸杈?     * @param rotation
      * @return
      */
     private boolean inferFacingFromRotation(float rotation) {
@@ -1620,26 +1533,24 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 服务器一致性的操作,包括校正,平滑,重放
+     * 鏈嶅姟鍣ㄤ竴鑷存€х殑鎿嶄綔,鍖呮嫭鏍℃,骞虫粦,閲嶆斁
      * @param serverSnapshot
      */
     private void reconcileWithServer(PlayerStateSnapshot serverSnapshot) {
-        //RTT偏移量的估算
+        //RTT鍋忕Щ閲忕殑浼扮畻
         PlayerInputCommand acknowledged = unconfirmedInputs.get(serverSnapshot.lastProcessedInputSeq);
         if (acknowledged != null) {
             Long sentLogical = inputSendTimes.remove(acknowledged.seq);
             float sample;
             if (sentLogical != null) {
-                sample = logicalTimeMs - sentLogical;//游戏逻辑时间
+                sample = logicalTimeMs - sentLogical;//娓告垙閫昏緫鏃堕棿
             } else {
-                sample = System.currentTimeMillis() - acknowledged.timestampMs;//回退到系统时间
-            }
+                sample = System.currentTimeMillis() - acknowledged.timestampMs;//鍥為€€鍒扮郴缁熸椂闂?            }
             if (sample > 0f) {
                 smoothedRttMs = MathUtils.lerp(smoothedRttMs, sample, 0.2f);
             }
         }
-        //应用服务器状态和初始化处理
-        float correctionDist = predictedPosition.dst(serverSnapshot.position);
+        //搴旂敤鏈嶅姟鍣ㄧ姸鎬佸拰鍒濆鍖栧鐞?        float correctionDist = predictedPosition.dst(serverSnapshot.position);
         boolean wasInitialized = hasReceivedInitialState;
         predictedPosition.set(serverSnapshot.position);
         predictedRotation = serverSnapshot.rotation;
@@ -1648,16 +1559,14 @@ public class GameScreen implements Screen {
         logServerCorrection(correctionDist, serverSnapshot.lastProcessedInputSeq);
         if (!wasInitialized) {
             clearInitialStateWait();
-            displayPosition.set(predictedPosition);//首次同步直接跳转
+            displayPosition.set(predictedPosition);//棣栨鍚屾鐩存帴璺宠浆
         }
-        //重放未确认输入
-        for (PlayerInputCommand input : unconfirmedInputs.values()) {
+        //閲嶆斁鏈‘璁よ緭鍏?        for (PlayerInputCommand input : unconfirmedInputs.values()) {
             if (input.seq > serverSnapshot.lastProcessedInputSeq) {
                 applyInputLocally(predictedPosition, predictedRotation, input, input.deltaSeconds);
             }
         }
-        //清理已确认输入
-        unconfirmedInputs.entrySet().removeIf(entry -> {
+        //娓呯悊宸茬‘璁よ緭鍏?        unconfirmedInputs.entrySet().removeIf(entry -> {
             boolean applied = entry.getKey() <= serverSnapshot.lastProcessedInputSeq;
             if (applied) {
                 inputSendTimes.remove(entry.getKey());
@@ -1665,12 +1574,11 @@ public class GameScreen implements Screen {
             return applied;
         });
         pruneUnconfirmedInputs();
-        //状态标志更新
-        hasReceivedInitialState = true;
+        //鐘舵€佹爣蹇楁洿鏂?        hasReceivedInitialState = true;
         if (unconfirmedInputs.isEmpty()) {
             idleAckSent = true;
         }
-        //渲染位置平滑过度
+        //娓叉煋浣嶇疆骞虫粦杩囧害
         float distSq = displayPosition.dst2(predictedPosition);
         if (distSq <= (DISPLAY_SNAP_DISTANCE * DISPLAY_SNAP_DISTANCE * 4f)) {
             displayPosition.set(predictedPosition);
@@ -1680,26 +1588,24 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 处理玩家增量变化
+     * 澶勭悊鐜╁澧為噺鍙樺寲
      * @param delta
      * @return
      */
     private Message.PlayerState mergePlayerDelta(Message.PlayerStateDelta delta) {
-        //空值检查
-        if (delta == null) {
+        //绌哄€兼鏌?        if (delta == null) {
             return null;
         }
         int playerId = (int) delta.getPlayerId();
         Message.PlayerState base = serverPlayerStates.get(playerId);
-        //玩家首次出现或者已过期
+        //鐜╁棣栨鍑虹幇鎴栬€呭凡杩囨湡
         if (base == null) {
             requestDeltaResync("player_" + playerId);
             return null;
         }
-        //更新
+        //鏇存柊
         Message.PlayerState.Builder builder = base.toBuilder();
-        //位掩码驱动更新
-        int mask = delta.getChangedMask();
+        //浣嶆帺鐮侀┍鍔ㄦ洿鏂?        int mask = delta.getChangedMask();
         if ((mask & PLAYER_DELTA_POSITION_MASK) != 0 && delta.hasPosition()) {
             builder.setPosition(delta.getPosition());
         }
@@ -1712,33 +1618,30 @@ public class GameScreen implements Screen {
         if ((mask & PLAYER_DELTA_LAST_INPUT_MASK) != 0 && delta.hasLastProcessedInputSeq()) {
             builder.setLastProcessedInputSeq(delta.getLastProcessedInputSeq());
         }
-        //更新缓存,返回
+        //鏇存柊缂撳瓨,杩斿洖
         Message.PlayerState updated = builder.build();
         serverPlayerStates.put(playerId, updated);
         return updated;
     }
 
     /**
-     * 处理敌人增量变化
+     * 澶勭悊鏁屼汉澧為噺鍙樺寲
      * @param delta
      * @return
      */
     private Message.EnemyState mergeEnemyDelta(Message.EnemyStateDelta delta) {
-        //空值检查
-        if (delta == null) {
+        //绌哄€兼鏌?        if (delta == null) {
             return null;
         }
         int enemyId = (int) delta.getEnemyId();
         Message.EnemyState base = enemyStateCache.get(enemyId);
-        //敌人首次出现或者状态丢失
-        if (base == null) {
+        //鏁屼汉棣栨鍑虹幇鎴栬€呯姸鎬佷涪澶?        if (base == null) {
             requestDeltaResync("enemy_" + enemyId);
             return null;
         }
-        //更新
+        //鏇存柊
         Message.EnemyState.Builder builder = base.toBuilder();
-        //位掩码驱动状态更新
-        int mask = delta.getChangedMask();
+        //浣嶆帺鐮侀┍鍔ㄧ姸鎬佹洿鏂?        int mask = delta.getChangedMask();
         if ((mask & ENEMY_DELTA_POSITION_MASK) != 0 && delta.hasPosition()) {
             builder.setPosition(delta.getPosition());
         }
@@ -1748,26 +1651,25 @@ public class GameScreen implements Screen {
         if ((mask & ENEMY_DELTA_IS_ALIVE_MASK) != 0 && delta.hasIsAlive()) {
             builder.setIsAlive(delta.getIsAlive());
         }
-        //更新缓存,返回
+        //鏇存柊缂撳瓨,杩斿洖
         Message.EnemyState updated = builder.build();
         enemyStateCache.put(enemyId, updated);
         return updated;
     }
 
     /**
-     * 进行全量同步
+     * 杩涜鍏ㄩ噺鍚屾
      * @param reason
      */
     private void requestDeltaResync(String reason) {
-        //game有效并且不在冷却时间内
-        if (game == null) {
+        //game鏈夋晥骞朵笖涓嶅湪鍐峰嵈鏃堕棿鍐?        if (game == null) {
             return;
         }
         long now = TimeUtils.millis();
         if ((now - lastDeltaResyncRequestMs) < DELTA_RESYNC_COOLDOWN_MS) {
             return;
         }
-        //更新时间并且全量同步
+        //鏇存柊鏃堕棿骞朵笖鍏ㄩ噺鍚屾
         lastDeltaResyncRequestMs = now;
         game.requestFullGameStateSync("delta:" + reason);
     }
@@ -1908,8 +1810,8 @@ public class GameScreen implements Screen {
             serverPlayerStates.put(playerId, builder.build());
         }
         String toast = playerId == game.getPlayerId()
-                ? "你受到 " + hurt.getDamage() + " 点伤害，剩余 " + hurt.getRemainingHealth()
-                : "玩家 " + playerId + " 受到 " + hurt.getDamage() + " 伤害";
+                ? "浣犲彈鍒?" + hurt.getDamage() + " 鐐逛激瀹筹紝鍓╀綑 " + hurt.getRemainingHealth()
+                : "鐜╁ " + playerId + " 鍙楀埌 " + hurt.getDamage() + " 浼ゅ";
         showStatusToast(toast);
         triggerEnemyAttackAnimation(hurt.getSourceId());
     }
@@ -1995,8 +1897,8 @@ public class GameScreen implements Screen {
             lockedEnemyId = 0;
         }
         String toast = died.getKillerPlayerId() > 0
-                ? "敌人被玩家 " + died.getKillerPlayerId() + " 击败"
-                : "敌人 " + enemyId + " 被消灭";
+                ? "鏁屼汉琚帺瀹?" + died.getKillerPlayerId() + " 鍑昏触"
+                : "鏁屼汉 " + enemyId + " 琚秷鐏?;
         showStatusToast(toast);
     }
 
@@ -2013,8 +1915,8 @@ public class GameScreen implements Screen {
             serverPlayerStates.put(playerId, builder.build());
         }
         String toast = playerId == game.getPlayerId()
-                ? "你升级到 Lv." + levelUp.getNewLevel()
-                : "玩家 " + playerId + " 升级到 Lv." + levelUp.getNewLevel();
+                ? "浣犲崌绾у埌 Lv." + levelUp.getNewLevel()
+                : "鐜╁ " + playerId + " 鍗囩骇鍒?Lv." + levelUp.getNewLevel();
         showStatusToast(toast);
     }
 
@@ -2022,14 +1924,25 @@ public class GameScreen implements Screen {
         if (droppedItem == null || droppedItem.getItemsCount() == 0) {
             return;
         }
-        showStatusToast("掉落了 " + droppedItem.getItemsCount() + " 个道具");
+        showStatusToast("鎺夎惤浜?" + droppedItem.getItemsCount() + " 涓亾鍏?);
     }
 
     private void handleGameOver(Message.S2C_GameOver gameOver) {
         if (gameOver == null) {
-            showStatusToast("游戏结束");
+            showStatusToast( 游戏结束);
         } else {
-            showStatusToast(gameOver.getVictory() ? "战斗胜利！" : "战斗失败");
+            showStatusToast(gameOver.getVictory() ? 战斗胜利！ : 战斗失败);
+        }
+        projectileViews.clear();
+        projectileImpacts.clear();
+        resetTargetingState();
+        resetAutoAttackState();
+        if (!hasShownGameOver) {
+            hasShownGameOver = true;
+            game.setScreen(new GameOverScreen(game, gameOver));
+        }
+    } else {
+            showStatusToast(gameOver.getVictory() ? "鎴樻枟鑳滃埄锛? : "鎴樻枟澶辫触");
         }
         projectileViews.clear();
         projectileImpacts.clear();
@@ -2037,7 +1950,7 @@ public class GameScreen implements Screen {
         resetAutoAttackState();
     }
     /**
-     * 游戏环境状态的枚举判断
+     * 娓告垙鐜鐘舵€佺殑鏋氫妇鍒ゆ柇
      * @param type
      * @param message
      */
@@ -2110,46 +2023,42 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 位置修正和日志输出
-     * @param delta
+     * 浣嶇疆淇鍜屾棩蹇楄緭鍑?     * @param delta
      */
     private void updateDisplayPosition(float delta) {
-        //未初始化则跳过
-        if (!hasReceivedInitialState) {
+        //鏈垵濮嬪寲鍒欒烦杩?        if (!hasReceivedInitialState) {
             return;
         }
-        //非本地控制角色就直接同步
+        //闈炴湰鍦版帶鍒惰鑹插氨鐩存帴鍚屾
         if (!isLocallyMoving) {
             displayPosition.set(predictedPosition);
             return;
         }
-        //小偏差修正
-        float distSq = displayPosition.dst2(predictedPosition);
+        //灏忓亸宸慨姝?        float distSq = displayPosition.dst2(predictedPosition);
         if (distSq <= DISPLAY_SNAP_DISTANCE * DISPLAY_SNAP_DISTANCE) {
             displayPosition.set(predictedPosition);
             return;
         }
-        //大偏差,报警
+        //澶у亸宸?鎶ヨ
         float distance = (float) Math.sqrt(distSq);
         if (distance > DISPLAY_DRIFT_LOG_THRESHOLD) {
             logDisplayDrift(distance);
         }
-        //平滑插值,向预测位置靠拢
-        float alpha = MathUtils.clamp(delta * DISPLAY_LERP_RATE, 0f, 1f);
+        //骞虫粦鎻掑€?鍚戦娴嬩綅缃潬鎷?        float alpha = MathUtils.clamp(delta * DISPLAY_LERP_RATE, 0f, 1f);
         displayPosition.lerp(predictedPosition, alpha);
     }
 
     /**
-     * 给予一个稳定的日志输出
+     * 缁欎簣涓€涓ǔ瀹氱殑鏃ュ織杈撳嚭
      * @param rawDelta
      * @param stableDelta
      */
     private void logFrameDeltaSpike(float rawDelta, float stableDelta) {
-        //只处理超过超时限度的报错
+        //鍙鐞嗚秴杩囪秴鏃堕檺搴︾殑鎶ラ敊
         if (Math.abs(rawDelta - stableDelta) < DELTA_SPIKE_THRESHOLD) {
             return;
         }
-        //给予一个稳定的日志输出频率
+        //缁欎簣涓€涓ǔ瀹氱殑鏃ュ織杈撳嚭棰戠巼
         long nowMs = TimeUtils.millis();
         if (nowMs - lastDeltaSpikeLogMs < DELTA_LOG_INTERVAL_MS) {
             return;
@@ -2160,17 +2069,16 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 输出日志,记录服务器位置校正的诊断函数
+     * 杈撳嚭鏃ュ織,璁板綍鏈嶅姟鍣ㄤ綅缃牎姝ｇ殑璇婃柇鍑芥暟
      * @param correctionDist
      * @param lastProcessedSeq
      */
     private void logServerCorrection(float correctionDist, int lastProcessedSeq) {
-        //过滤微小矫正
+        //杩囨护寰皬鐭
         if (correctionDist < POSITION_CORRECTION_LOG_THRESHOLD) {
             return;
         }
-        //获取时间,确保日志发送频率
-        long nowMs = TimeUtils.millis();
+        //鑾峰彇鏃堕棿,纭繚鏃ュ織鍙戦€侀鐜?        long nowMs = TimeUtils.millis();
         if (nowMs - lastCorrectionLogMs < POSITION_LOG_INTERVAL_MS) {
             return;
         }
@@ -2181,16 +2089,14 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 输出日志
+     * 杈撳嚭鏃ュ織
      * @param drift
      */
     private void logDisplayDrift(float drift) {
-        //防御性编程,二次校验漂移阈值
-        if (drift < DISPLAY_DRIFT_LOG_THRESHOLD) {
+        //闃插尽鎬х紪绋?浜屾鏍￠獙婕傜Щ闃堝€?        if (drift < DISPLAY_DRIFT_LOG_THRESHOLD) {
             return;
         }
-        //获取时间,确保日志发送频率
-        long nowMs = TimeUtils.millis();
+        //鑾峰彇鏃堕棿,纭繚鏃ュ織鍙戦€侀鐜?        long nowMs = TimeUtils.millis();
         if (nowMs - lastDisplayDriftLogMs < DISPLAY_LOG_INTERVAL_MS) {
             return;
         }
@@ -2200,8 +2106,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 计算本次输入的持续时间
-     * @return
+     * 璁＄畻鏈杈撳叆鐨勬寔缁椂闂?     * @return
      */
     private float resolvePendingDurationSeconds() {
         float elapsed = pendingInputDuration;
@@ -2215,8 +2120,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 清理玩家输入并发送给服务器后余下的临时变量减少资源消耗
-     */
+     * 娓呯悊鐜╁杈撳叆骞跺彂閫佺粰鏈嶅姟鍣ㄥ悗浣欎笅鐨勪复鏃跺彉閲忓噺灏戣祫婧愭秷鑰?     */
     private void resetPendingInputAccumulator() {
         hasPendingInputChunk = false;
         pendingAttack = false;
@@ -2322,8 +2226,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 重置客户端状态并发送全量请求
-     */
+     * 閲嶇疆瀹㈡埛绔姸鎬佸苟鍙戦€佸叏閲忚姹?     */
     private void resetInitialStateTracking() {
         initialStateStartMs = TimeUtils.millis();
         lastInitialStateRequestMs = 0L;
@@ -2337,8 +2240,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 清理状态,以便退出初始同步状态
-     */
+     * 娓呯悊鐘舵€?浠ヤ究閫€鍑哄垵濮嬪悓姝ョ姸鎬?     */
     private void clearInitialStateWait() {
         initialStateStartMs = 0L;
         lastInitialStateRequestMs = 0L;
@@ -2350,26 +2252,22 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 获取全量信息并附带获取不到的办法
+     * 鑾峰彇鍏ㄩ噺淇℃伅骞堕檮甯﹁幏鍙栦笉鍒扮殑鍔炴硶
      */
     private void maybeRequestInitialStateResync() {
-        //再判断一下避免误判,如果这个不是那就是角色纹理没加载好
-        if (hasReceivedInitialState) {
+        //鍐嶅垽鏂竴涓嬮伩鍏嶈鍒?濡傛灉杩欎釜涓嶆槸閭ｅ氨鏄鑹茬汗鐞嗘病鍔犺浇濂?        if (hasReceivedInitialState) {
             return;
         }
-        //时间戳
-        long now = TimeUtils.millis();
-        //如果客户端初始化开始时间还是0就获取一次初始状态
-        if (initialStateStartMs == 0L) {
+        //鏃堕棿鎴?        long now = TimeUtils.millis();
+        //濡傛灉瀹㈡埛绔垵濮嬪寲寮€濮嬫椂闂磋繕鏄?灏辫幏鍙栦竴娆″垵濮嬬姸鎬?        if (initialStateStartMs == 0L) {
             resetInitialStateTracking();
             return;
         }
-        //固定间隔重试
+        //鍥哄畾闂撮殧閲嶈瘯
         if ((now - lastInitialStateRequestMs) >= INITIAL_STATE_REQUEST_INTERVAL_MS) {
             maybeSendInitialStateRequest(now, "retry_interval");
         }
-        //分级重试,从正常重试到需要抛警告到严重警告
-        long waitDuration = now - initialStateStartMs;
+        //鍒嗙骇閲嶈瘯,浠庢甯搁噸璇曞埌闇€瑕佹姏璀﹀憡鍒颁弗閲嶈鍛?        long waitDuration = now - initialStateStartMs;
         if (!initialStateWarningLogged && waitDuration >= INITIAL_STATE_WARNING_MS) {
             Gdx.app.log(TAG, "Still waiting for first GameStateSync, waitMs=" + waitDuration);
             initialStateWarningLogged = true;
@@ -2383,7 +2281,7 @@ public class GameScreen implements Screen {
         }
     }
 
-    /**请求客户端再一次发起全量同步,记录请求次数如果次数过多也会取消重试*/
+    /**璇锋眰瀹㈡埛绔啀涓€娆″彂璧峰叏閲忓悓姝?璁板綍璇锋眰娆℃暟濡傛灉娆℃暟杩囧涔熶細鍙栨秷閲嶈瘯*/
     private void maybeSendInitialStateRequest(long timestampMs, String reason) {
         initialStateRequestCount++;
         if (game != null) {
@@ -2394,8 +2292,7 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 在游戏初始资源没加载成功的时候加载一个初始界面
-     */
+     * 鍦ㄦ父鎴忓垵濮嬭祫婧愭病鍔犺浇鎴愬姛鐨勬椂鍊欏姞杞戒竴涓垵濮嬬晫闈?     */
     private void renderLoadingOverlay() {
         Gdx.gl.glClearColor(0.06f, 0.06f, 0.08f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
@@ -2418,23 +2315,25 @@ public class GameScreen implements Screen {
     }
 
     /**
-     * 游戏加载问题处理
+     * 娓告垙鍔犺浇闂澶勭悊
      * @return
      */
     private String getLoadingMessage() {
         if (initialStateStartMs == 0L) {
-            return "加载中...";
+            return "鍔犺浇涓?..";
         }
         long waitMs = TimeUtils.millis() - initialStateStartMs;
         if (waitMs >= INITIAL_STATE_FAILURE_HINT_MS) {
-            return "等待服务器同步超时，请检查网络连接（已请求 " + initialStateRequestCount + " 次）";
+            return "绛夊緟鏈嶅姟鍣ㄥ悓姝ヨ秴鏃讹紝璇锋鏌ョ綉缁滆繛鎺ワ紙宸茶姹?" + initialStateRequestCount + " 娆★級";
         }
         if (waitMs >= INITIAL_STATE_CRITICAL_MS) {
-            return "等待服务器同步超时，正在重试...（第 " + initialStateRequestCount + " 次）";
+            return "绛夊緟鏈嶅姟鍣ㄥ悓姝ヨ秴鏃讹紝姝ｅ湪閲嶈瘯...锛堢 " + initialStateRequestCount + " 娆★級";
         }
         if (waitMs >= INITIAL_STATE_WARNING_MS) {
-            return "正在请求服务器同步...（第 " + initialStateRequestCount + " 次）";
+            return "姝ｅ湪璇锋眰鏈嶅姟鍣ㄥ悓姝?..锛堢 " + initialStateRequestCount + " 娆★級";
         }
-        return "加载中...（第 " + Math.max(1, initialStateRequestCount) + " 次请求）";
+        return "鍔犺浇涓?..锛堢 " + Math.max(1, initialStateRequestCount) + " 娆¤姹傦級";
     }
 }
+
+
