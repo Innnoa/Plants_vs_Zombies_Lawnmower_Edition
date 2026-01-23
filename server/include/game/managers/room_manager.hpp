@@ -56,6 +56,9 @@ class RoomManager {
   [[nodiscard]] std::optional<RoomSnapshot> TryStartGame(
       uint32_t player_id, lawnmower::S2C_GameStart* result);
 
+  // 游戏结束：重置房间 is_playing
+  [[nodiscard]] bool FinishGame(uint32_t room_id);
+
   // 获取房间内所有成员会话（用于广播）
   std::vector<std::weak_ptr<TcpSession>> GetRoomSessions(
       uint32_t room_id) const;

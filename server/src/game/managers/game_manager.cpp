@@ -12,7 +12,7 @@
 
 namespace {
 constexpr float kSpawnRadius = 120.0f;            // 生成半径
-constexpr int32_t kDefaultMaxHealth = 100000000;  // 默认最大血量
+constexpr int32_t kDefaultMaxHealth = 100;  // 默认最大血量
 constexpr uint32_t kDefaultAttack = 10;           // 默认攻击力
 constexpr uint32_t kDefaultExpToNext = 100;       // 默认升级所需经验
 constexpr std::size_t kMaxPendingInputs = 64;  // 单个玩家输入队列的最大缓存条数
@@ -931,6 +931,17 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   if (game_over.has_value()) {
     spdlog::info("房间 {} 游戏结束，survive_time={}s，scores={}", room_id,
                  game_over->survive_time(), game_over->scores_size());
+    spdlog::info("房间 {} GameOver 详情: victory={}", room_id,
+                 game_over->victory() ? "true" : "false");
+    for (const auto& score : game_over->scores()) {
+      spdlog::info(
+          "房间 {} 分数: player_id={} name={} level={} kills={} damage={}",
+          room_id, score.player_id(), score.player_name(), score.final_level(),
+          score.kill_count(), score.damage_dealt());
+    }
+    if (!RoomManager::Instance().FinishGame(room_id)) {
+      spdlog::warn("房间 {} 未找到，无法重置游戏状态", room_id);
+    }
   }
 
   if (has_projectile_spawn || has_projectile_despawn || !player_hurts.empty() ||

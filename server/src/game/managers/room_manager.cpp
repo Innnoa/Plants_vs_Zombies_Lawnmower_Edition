@@ -369,6 +369,35 @@ std::optional<RoomManager::RoomSnapshot> RoomManager::TryStartGame(
   return snapshot;
 }
 
+bool RoomManager::FinishGame(uint32_t room_id) {
+  RoomUpdate update;
+  bool need_broadcast = false;
+
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto room_it = rooms_.find(room_id);
+    if (room_it == rooms_.end()) {
+      return false;
+    }
+
+    Room& room = room_it->second;
+    if (!room.is_playing) {
+      return true;
+    }
+
+    room.is_playing = false;
+    update = BuildRoomUpdateLocked(room);
+    need_broadcast = !update.targets.empty();
+  }
+
+  if (need_broadcast) {
+    SendRoomUpdate(update);
+  }
+
+  spdlog::info("房间 {} 游戏结束，已重置 is_playing", room_id);
+  return true;
+}
+
 std::vector<std::weak_ptr<TcpSession>> RoomManager::GetRoomSessions(
     uint32_t room_id) const {
   std::vector<std::weak_ptr<TcpSession>> sessions;
