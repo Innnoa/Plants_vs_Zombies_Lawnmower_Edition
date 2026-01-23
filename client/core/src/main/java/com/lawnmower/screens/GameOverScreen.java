@@ -55,6 +55,8 @@ public class GameOverScreen implements Screen {
     private Texture victoryIconTexture;
     private Texture defeatIconTexture;
     private Label tooltipLabel;
+    private TextButton backButton;
+    private boolean waitingForRoomUpdate = false;
     private final Vector2 tooltipStageCoords = new Vector2();
 
     public GameOverScreen(Main game, Message.S2C_GameOver payload) {
@@ -112,14 +114,20 @@ public class GameOverScreen implements Screen {
         ScrollPane scrollPane = new ScrollPane(scoreTable, skin);
         scrollPane.setFadeScrollBars(false);
         scrollPane.setScrollingDisabled(true, false);
-        scrollPane.getStyle().background=null;
+        scrollPane.getStyle().background = null;
         root.add(scrollPane).expand().fill().row();
 
-        TextButton backButton = new TextButton("返回房间", skin, "CreateButton");
+        backButton = new TextButton("返回房间", skin, "CreateButton");
         backButton.addListener(new ChangeListener() {
             @Override
             public void changed(ChangeEvent event, Actor actor) {
-                game.setScreen(new GameRoomScreen(game, skin));
+                if (waitingForRoomUpdate) {
+                    return;
+                }
+                waitingForRoomUpdate = true;
+                backButton.setDisabled(true);
+                backButton.setText("正在返回...");
+                game.requestReturnToRoomFromGameOver();
             }
         });
         root.add(backButton).size(430f, 120f).center().padTop(-30f);

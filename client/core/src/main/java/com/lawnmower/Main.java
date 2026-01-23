@@ -31,6 +31,8 @@ public class Main extends Game {
     private long lastSocketWaitLogMs = 0L;
     private long lastUdpSyncTick = -1L;
     private long lastUdpServerTimeMs = -1L;
+    private final AtomicBoolean roomReturnRequested = new AtomicBoolean(false);
+    private volatile Message.S2C_RoomUpdate pendingRoomUpdate;
 
     private final AtomicBoolean networkRunning = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
@@ -347,6 +349,22 @@ public class Main extends Game {
         }
     }
 
+    public void requestReturnToRoomFromGameOver() {
+        roomReturnRequested.set(true);
+        Gdx.app.postRunnable(this::tryProcessCachedRoomUpdate);
+    }
+
+    private void tryProcessCachedRoomUpdate() {
+        if (!roomReturnRequested.get()) {
+            return;
+        }
+        Message.S2C_RoomUpdate cached = pendingRoomUpdate;
+        if (cached == null) {
+            return;
+        }
+        deliverRoomUpdate(cached);
+    }
+
     public Skin getSkin() {
         return skin;
     }
@@ -462,19 +480,18 @@ public class Main extends Game {
 
                 case MSG_S2C_ROOM_UPDATE:
                     Message.S2C_RoomUpdate update = (Message.S2C_RoomUpdate) message;
-                    if (!(getScreen() instanceof GameRoomScreen)) {
-                        if (getScreen() instanceof GameScreen || getScreen() instanceof GameOverScreen) {
-                            // 游戏进行中/结算中不自动切回房间，避免打断流程
-                            log.debug("Ignore ROOM_UPDATE while in game view (roomId={})",
-                                    update.getRoomId());
-                            break;
-                        }
-                        // 自动进入游戏房间界面
-                        setScreen(new GameRoomScreen(Main.this, skin));
+                    pendingRoomUpdate = update;
+                    if (getScreen() instanceof GameScreen) {
+                        log.debug("Ignore ROOM_UPDATE while in game view (roomId={})",
+                                update.getRoomId());
+                        break;
                     }
-                    if (getScreen() instanceof GameRoomScreen gameRoom) {
-                        gameRoom.onRoomUpdate(update.getRoomId(), update.getPlayersList());
+                    if (getScreen() instanceof GameOverScreen && !roomReturnRequested.get()) {
+                        log.debug("Hold ROOM_UPDATE while in game over view (roomId={})",
+                                update.getRoomId());
+                        break;
                     }
+                    deliverRoomUpdate(update);
                     break;
                 case MSG_S2C_GAME_START:
                     prepareUdpClientForMatch();
@@ -526,6 +543,20 @@ public class Main extends Game {
                     Gdx.app.log("NET", "Unhandled message type: " + type);
             }
         });
+    }
+
+    private void deliverRoomUpdate(Message.S2C_RoomUpdate update) {
+        if (update == null) {
+            return;
+        }
+        if (!(getScreen() instanceof GameRoomScreen)) {
+            setScreen(new GameRoomScreen(Main.this, skin));
+        }
+        if (getScreen() instanceof GameRoomScreen gameRoom) {
+            gameRoom.onRoomUpdate(update.getRoomId(), update.getPlayersList());
+            pendingRoomUpdate = null;
+            roomReturnRequested.set(false);
+        }
     }
 
     @Override
