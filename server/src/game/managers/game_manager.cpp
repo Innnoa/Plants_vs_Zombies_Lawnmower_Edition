@@ -939,9 +939,6 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
           room_id, score.player_id(), score.player_name(), score.final_level(),
           score.kill_count(), score.damage_dealt());
     }
-    if (!RoomManager::Instance().FinishGame(room_id)) {
-      spdlog::warn("房间 {} 未找到，无法重置游戏状态", room_id);
-    }
   }
 
   if (has_projectile_spawn || has_projectile_despawn || !player_hurts.empty() ||
@@ -980,6 +977,13 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         session->SendProto(lawnmower::MessageType::MSG_S2C_GAME_OVER,
                            *game_over);
       }
+    }
+  }
+
+  if (game_over.has_value()) {
+    // 等 GameOver 消息发送完再重置房间状态，避免客户端被 ROOM_UPDATE 提前切屏。
+    if (!RoomManager::Instance().FinishGame(room_id)) {
+      spdlog::warn("房间 {} 未找到，无法重置游戏状态", room_id);
     }
   }
 
