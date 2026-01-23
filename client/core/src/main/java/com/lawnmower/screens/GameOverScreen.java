@@ -115,11 +115,11 @@ public class GameOverScreen implements Screen {
         scrollPane.getStyle().background=null;
         root.add(scrollPane).expand().fill().row();
 
-        TextButton backButton = new TextButton("返回主菜单", skin, "CreateButton");
+        TextButton backButton = new TextButton("返回房间", skin, "CreateButton");
         backButton.addListener(new ChangeListener() {
             @Override
             public void changed(ChangeEvent event, Actor actor) {
-                game.setScreen(new MainMenuScreen(game, skin));
+                game.setScreen(new GameRoomScreen(game, skin));
             }
         });
         root.add(backButton).size(430f, 120f).center().padTop(-30f);
@@ -165,9 +165,9 @@ public class GameOverScreen implements Screen {
             attachTooltip(nameLabel, fullName);
 
             long scoreValue = Integer.toUnsignedLong(score.getDamageDealt());
-            Label scoreLabel = new Label(String.valueOf(scoreValue), skin, "default_36");
+            Label scoreLabel = new Label(" 得分: "+scoreValue, skin, "default_36");
             scoreLabel.setFontScale(1.5f);
-            Label surviveLabel = new Label(surviveText, skin, "default_36");
+            Label surviveLabel = new Label(" 生存时间: "+surviveText, skin, "default_36");
             surviveLabel.setFontScale(1.5f);
 
             row.add(nameLabel);
