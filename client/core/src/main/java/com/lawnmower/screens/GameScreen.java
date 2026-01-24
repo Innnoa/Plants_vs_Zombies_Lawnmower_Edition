@@ -1781,7 +1781,7 @@ public class GameScreen implements Screen {
             resolveProjectileOrigin(state, targetPosition, originPosition);
             view.position.set(originPosition);
             float rotationDeg = state.getRotation();
-            view.rotationDeg = rotationDeg;
+            view.rotationDeg = reflectAngleAcrossYAxis(rotationDeg);
             float serverSpeed = state.hasProjectile() ? state.getProjectile().getSpeed() : 0f;
             float appliedSpeed = PEA_PROJECTILE_SPEED > 0f ? PEA_PROJECTILE_SPEED : serverSpeed;
             Vector2 direction = projectileDirectionBuffer;
@@ -1881,6 +1881,15 @@ public class GameScreen implements Screen {
         }
         origin.y += PEA_PROJECTILE_MUZZLE_Y_OFFSET;
         origin.x += faceRight ? PEA_PROJECTILE_MUZZLE_X_OFFSET : -PEA_PROJECTILE_MUZZLE_X_OFFSET;
+    }
+
+    private float reflectAngleAcrossYAxis(float angleDeg) {
+        float mirrored = 180f - angleDeg;
+        mirrored %= 360f;
+        if (mirrored < 0f) {
+            mirrored += 360f;
+        }
+        return mirrored;
     }
 
     private void handleProjectileDespawnEvent(Message.S2C_ProjectileDespawn despawn) {
