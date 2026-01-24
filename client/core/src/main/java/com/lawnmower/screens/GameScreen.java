@@ -60,8 +60,6 @@ public class GameScreen implements Screen {
     private static final float AUTO_ATTACK_HOLD_TIME = 0.18f;
     private static final float TARGET_REFRESH_INTERVAL = 0.2f;
     private static final float PEA_PROJECTILE_SPEED = 200f;
-    private static final float PEA_PROJECTILE_MUZZLE_Y_OFFSET = 18f;
-    private static final float PEA_PROJECTILE_MUZZLE_X_OFFSET = 36f;
 
     private static final int MAX_UNCONFIRMED_INPUTS = 240;
     private static final long MAX_UNCONFIRMED_INPUT_AGE_MS = 1500L;
@@ -1781,7 +1779,7 @@ public class GameScreen implements Screen {
             resolveProjectileOrigin(state, targetPosition, originPosition);
             view.position.set(originPosition);
             float rotationDeg = state.getRotation();
-            view.rotationDeg = reflectAngleAcrossYAxis(rotationDeg);
+            view.rotationDeg = rotationDeg;
             float serverSpeed = state.hasProjectile() ? state.getProjectile().getSpeed() : 0f;
             float appliedSpeed = PEA_PROJECTILE_SPEED > 0f ? PEA_PROJECTILE_SPEED : serverSpeed;
             Vector2 direction = projectileDirectionBuffer;
@@ -1834,62 +1832,27 @@ public class GameScreen implements Screen {
             return;
         }
         int ownerId = (int) state.getOwnerPlayerId();
-        boolean shouldApplyOffset = ownerId > 0;
-        boolean facingResolved = false;
-        boolean ownerFacingRight = true;
-
         if (ownerId == game.getPlayerId()) {
             outOrigin.set(displayPosition);
-            ownerFacingRight = facingRight;
-            facingResolved = true;
-        } else if (ownerId > 0) {
+            return;
+        }
+        if (ownerId > 0) {
             Vector2 remoteDisplay = remoteDisplayPositions.get(ownerId);
             if (remoteDisplay != null) {
                 outOrigin.set(remoteDisplay);
-            } else {
-                Message.PlayerState ownerState = serverPlayerStates.get(ownerId);
-                if (ownerState != null && ownerState.hasPosition()) {
-                    outOrigin.set(ownerState.getPosition().getX(), ownerState.getPosition().getY());
-                } else if (targetPosition != null) {
-                    outOrigin.set(targetPosition);
-                } else {
-                    outOrigin.set(displayPosition);
-                }
+                return;
             }
-            Boolean remoteFacing = remoteFacingRight.get(ownerId);
-            if (remoteFacing != null) {
-                ownerFacingRight = remoteFacing;
-                facingResolved = true;
+            Message.PlayerState ownerState = serverPlayerStates.get(ownerId);
+            if (ownerState != null && ownerState.hasPosition()) {
+                outOrigin.set(ownerState.getPosition().getX(), ownerState.getPosition().getY());
+                return;
             }
-        } else if (targetPosition != null) {
+        }
+        if (targetPosition != null) {
             outOrigin.set(targetPosition);
         } else {
             outOrigin.set(displayPosition);
         }
-
-        if (!facingResolved) {
-            ownerFacingRight = inferFacingFromRotation(state.getRotation());
-        }
-        if (shouldApplyOffset) {
-            applyPeaProjectileOffset(outOrigin, ownerFacingRight);
-        }
-    }
-
-    private void applyPeaProjectileOffset(Vector2 origin, boolean faceRight) {
-        if (origin == null) {
-            return;
-        }
-        origin.y += PEA_PROJECTILE_MUZZLE_Y_OFFSET;
-//        origin.x += faceRight ? PEA_PROJECTILE_MUZZLE_X_OFFSET : -PEA_PROJECTILE_MUZZLE_X_OFFSET;
-    }
-
-    private float reflectAngleAcrossYAxis(float angleDeg) {
-        float mirrored = 180f - angleDeg;
-        mirrored %= 360f;
-        if (mirrored < 0f) {
-            mirrored += 360f;
-        }
-        return mirrored;
     }
 
     private void handleProjectileDespawnEvent(Message.S2C_ProjectileDespawn despawn) {
