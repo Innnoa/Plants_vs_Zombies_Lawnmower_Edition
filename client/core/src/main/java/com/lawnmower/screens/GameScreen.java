@@ -1880,7 +1880,7 @@ public class GameScreen implements Screen {
             return;
         }
         origin.y += PEA_PROJECTILE_MUZZLE_Y_OFFSET;
-        origin.x += faceRight ? PEA_PROJECTILE_MUZZLE_X_OFFSET : -PEA_PROJECTILE_MUZZLE_X_OFFSET;
+//        origin.x += faceRight ? PEA_PROJECTILE_MUZZLE_X_OFFSET : -PEA_PROJECTILE_MUZZLE_X_OFFSET;
     }
 
     private float reflectAngleAcrossYAxis(float angleDeg) {
