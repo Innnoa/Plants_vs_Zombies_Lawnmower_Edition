@@ -36,6 +36,29 @@ bool CirclesOverlap(float ax, float ay, float ar, float bx, float by,
   return DistanceSq(ax, ay, bx, by) <= r * r;
 }
 
+// 线段与圆是否相交（用于连续碰撞检测，避免高速穿透）
+bool SegmentCircleOverlap(float ax, float ay, float bx, float by, float cx,
+                          float cy, float radius, float* out_t) {
+  const float dx = bx - ax;
+  const float dy = by - ay;
+  const float len_sq = dx * dx + dy * dy;
+  float t = 0.0f;
+  if (len_sq > 1e-6f) {
+    t = ((cx - ax) * dx + (cy - ay) * dy) / len_sq;
+    t = std::clamp(t, 0.0f, 1.0f);
+  }
+  const float closest_x = ax + dx * t;
+  const float closest_y = ay + dy * t;
+  const float dist_sq = DistanceSq(closest_x, closest_y, cx, cy);
+  if (dist_sq <= radius * radius) {
+    if (out_t != nullptr) {
+      *out_t = t;
+    }
+    return true;
+  }
+  return false;
+}
+
 double PlayerAttackIntervalSeconds(uint32_t attack_speed, double min_interval,
                                    double max_interval) {
   // attack_speed 语义：数值越大越快（默认 1 表示 1 次/秒）。
@@ -396,44 +419,59 @@ void GameManager::ProcessCombatAndProjectiles(
   for (auto it = scene.projectiles.begin(); it != scene.projectiles.end();) {
     ProjectileRuntime& proj = it->second;
     proj.remaining_seconds -= dt_seconds;
-    proj.x +=
-        proj.dir_x * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
-    proj.y +=
-        proj.dir_y * proj.speed * static_cast<float>(std::max(0.0, dt_seconds));
+    const float prev_x = proj.x;
+    const float prev_y = proj.y;
+    const float delta_seconds =
+        static_cast<float>(std::max(0.0, dt_seconds));
+    const float next_x = prev_x + proj.dir_x * proj.speed * delta_seconds;
+    const float next_y = prev_y + proj.dir_y * proj.speed * delta_seconds;
+    proj.x = next_x;
+    proj.y = next_y;
 
     bool despawn = false;
     lawnmower::ProjectileDespawnReason reason =
         lawnmower::PROJECTILE_DESPAWN_UNKNOWN;
     uint32_t hit_enemy_id = 0;
+    EnemyRuntime* hit_enemy = nullptr;
 
     if (proj.remaining_seconds <= 0.0) {
       despawn = true;
       reason = lawnmower::PROJECTILE_DESPAWN_EXPIRED;
-    } else if (proj.x < 0.0f || proj.y < 0.0f || proj.x > map_w ||
-               proj.y > map_h) {
-      despawn = true;
-      reason = lawnmower::PROJECTILE_DESPAWN_OUT_OF_BOUNDS;
     } else {
+      const float combined_radius = projectile_radius + kEnemyCollisionRadius;
+      float best_t = std::numeric_limits<float>::infinity();
       for (auto& [enemy_id, enemy] : scene.enemies) {
         if (!enemy.state.is_alive()) {
           continue;
         }
         const float ex = enemy.state.position().x();
         const float ey = enemy.state.position().y();
-        if (!CirclesOverlap(proj.x, proj.y, projectile_radius, ex, ey,
-                            kEnemyCollisionRadius)) {
+        float hit_t = 0.0f;
+        if (!SegmentCircleOverlap(prev_x, prev_y, next_x, next_y, ex, ey,
+                                  combined_radius, &hit_t)) {
           continue;
         }
+        if (hit_t < best_t) {
+          best_t = hit_t;
+          hit_enemy = &enemy;
+          hit_enemy_id = enemy_id;
+        }
+      }
 
-        hit_enemy_id = enemy_id;
+      if (hit_enemy != nullptr) {
+        const float hit_x = prev_x + (next_x - prev_x) * best_t;
+        const float hit_y = prev_y + (next_y - prev_y) * best_t;
+        proj.x = hit_x;
+        proj.y = hit_y;
         despawn = true;
         reason = lawnmower::PROJECTILE_DESPAWN_HIT;
 
-        const int32_t prev_hp = enemy.state.health();
+        const int32_t prev_hp = hit_enemy->state.health();
         const int32_t dealt =
             std::min(proj.damage, std::max<int32_t>(0, prev_hp));
-        enemy.state.set_health(std::max<int32_t>(0, prev_hp - proj.damage));
-        enemy.dirty = true;
+        hit_enemy->state.set_health(
+            std::max<int32_t>(0, prev_hp - proj.damage));
+        hit_enemy->dirty = true;
         *has_dirty = true;
 
         auto owner_it = scene.players.find(proj.owner_player_id);
@@ -441,38 +479,41 @@ void GameManager::ProcessCombatAndProjectiles(
           owner_it->second.damage_dealt += dealt;
         }
 
-        if (enemy.state.health() <= 0) {
-          enemy.state.set_is_alive(false);
-          if (enemy.is_attacking || enemy.attack_target_player_id != 0) {
-            enemy.is_attacking = false;
-            enemy.attack_target_player_id = 0;
+        if (hit_enemy->state.health() <= 0) {
+          hit_enemy->state.set_is_alive(false);
+          if (hit_enemy->is_attacking ||
+              hit_enemy->attack_target_player_id != 0) {
+            hit_enemy->is_attacking = false;
+            hit_enemy->attack_target_player_id = 0;
             lawnmower::EnemyAttackStateDelta delta;
-            delta.set_enemy_id(enemy.state.enemy_id());
+            delta.set_enemy_id(hit_enemy->state.enemy_id());
             delta.set_is_attacking(false);
             delta.set_target_player_id(0);
             enemy_attack_states->push_back(std::move(delta));
           }
-          enemy.dead_elapsed_seconds = 0.0;
-          enemy.force_sync_left =
-              std::max(enemy.force_sync_left, kEnemySpawnForceSyncCount);
-          enemy.dirty = true;
+          hit_enemy->dead_elapsed_seconds = 0.0;
+          hit_enemy->force_sync_left =
+              std::max(hit_enemy->force_sync_left, kEnemySpawnForceSyncCount);
+          hit_enemy->dirty = true;
 
           lawnmower::S2C_EnemyDied died;
-          died.set_enemy_id(enemy.state.enemy_id());
+          died.set_enemy_id(hit_enemy->state.enemy_id());
           died.set_killer_player_id(proj.owner_player_id);
-          died.set_wave_id(enemy.state.wave_id());
-          *died.mutable_position() = enemy.state.position();
+          died.set_wave_id(hit_enemy->state.wave_id());
+          *died.mutable_position() = hit_enemy->state.position();
           enemy_dieds->push_back(std::move(died));
 
           if (owner_it != scene.players.end()) {
             owner_it->second.kill_count += 1;
             const uint32_t exp_reward = static_cast<uint32_t>(std::max<int32_t>(
-                0, ResolveEnemyType(enemy.state.type_id()).exp_reward));
+                0, ResolveEnemyType(hit_enemy->state.type_id()).exp_reward));
             grant_exp(owner_it->second, exp_reward);
           }
         }
-
-        break;  // 单体射弹：命中一个目标即消失
+      } else if (proj.x < 0.0f || proj.y < 0.0f || proj.x > map_w ||
+                 proj.y > map_h) {
+        despawn = true;
+        reason = lawnmower::PROJECTILE_DESPAWN_OUT_OF_BOUNDS;
       }
     }
 
