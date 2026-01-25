@@ -1,6 +1,7 @@
 #include <spdlog/spdlog.h>
 
 #include "config/enemy_types_config.hpp"
+#include "config/item_types_config.hpp"
 #include "config/player_roles_config.hpp"
 #include "config/server_config.hpp"
 #include "game/managers/game_manager.hpp"
@@ -30,12 +31,19 @@ int main() {
       spdlog::warn("未找到敌人类型配置文件，使用默认敌人类型配置");
     }
 
+    ItemsConfig items_config;
+    const bool items_loaded = LoadItemsConfig(&items_config);
+    if (!items_loaded) {
+      spdlog::warn("未找到道具配置文件，使用默认道具配置");
+    }
+
     // 设置io上下文
     asio::io_context io;
     // 设置游戏管理与房间管理基本配置
     GameManager::Instance().SetConfig(config);
     GameManager::Instance().SetPlayerRolesConfig(player_roles);
     GameManager::Instance().SetEnemyTypesConfig(enemy_types);
+    GameManager::Instance().SetItemsConfig(items_config);
     RoomManager::Instance().SetConfig(config);
 
     // 单例设置游戏管理io上下文

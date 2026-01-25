@@ -5,6 +5,7 @@
 #include <cmath>
 #include <numbers>
 #include <span>
+#include <string_view>
 #include <spdlog/spdlog.h>
 
 #include "network/tcp/tcp_session.hpp"
@@ -21,6 +22,20 @@ constexpr float kDirectionEpsilonSq =
 constexpr float kMaxDirectionLengthSq = 1.21f;    // 方向向量长度平方的上限
 constexpr float kDeltaPositionEpsilon = 1e-4f;    // delta 位置/朝向变化阈值
 constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
+constexpr std::size_t kMaxItemSpawnPerTick = 6;   // 每帧最多生成道具数量
+
+lawnmower::ItemEffectType ResolveItemEffectType(std::string_view effect) {
+  if (effect == "heal") {
+    return lawnmower::ITEM_EFFECT_HEAL;
+  }
+  if (effect == "exp") {
+    return lawnmower::ITEM_EFFECT_EXP;
+  }
+  if (effect == "speed") {
+    return lawnmower::ITEM_EFFECT_SPEED;
+  }
+  return lawnmower::ITEM_EFFECT_NONE;
+}
 
 // 计算朝向
 float DegreesFromDirection(float x, float y) {
@@ -126,6 +141,39 @@ GameManager::SceneConfig GameManager::BuildDefaultConfig() const {
   cfg.state_sync_rate = config_.state_sync_rate;
   cfg.move_speed = config_.move_speed;
   return cfg;
+}
+
+// 解析道具类型
+const ItemTypeConfig& GameManager::ResolveItemType(uint32_t type_id) const {
+  // 后备配置
+  static const ItemTypeConfig kFallback{
+      .type_id = 1,
+      .name = "默认道具",
+      .effect = "none",
+      .value = 0,
+      .can_spawn = false,
+  };
+
+  if (type_id != 0) {
+    auto it = items_config_.items.find(type_id);
+    if (it != items_config_.items.end()) {
+      return it->second;
+    }
+  }
+
+  const uint32_t default_id =
+      items_config_.default_type_id > 0 ? items_config_.default_type_id
+                                        : kFallback.type_id;
+  auto it = items_config_.items.find(default_id);
+  if (it != items_config_.items.end()) {
+    return it->second;
+  }
+
+  if (!items_config_.items.empty()) {
+    return items_config_.items.begin()->second;
+  }
+
+  return kFallback;
 }
 
 // 设置io上下文
@@ -382,8 +430,10 @@ lawnmower::SceneInfo GameManager::CreateScene(
   scene.config = BuildDefaultConfig();  // 构建默认配置
   scene.next_enemy_id = 1;
   scene.next_projectile_id = 1;
+  scene.next_item_id = 1;
   scene.elapsed = 0.0;
   scene.spawn_elapsed = 0.0;
+  scene.item_spawn_elapsed = 0.0;
   scene.wave_id = 1;
   scene.game_over = false;
   scene.rng_state = snapshot.room_id ^ static_cast<uint32_t>(NowMs().count());
@@ -519,7 +569,141 @@ bool GameManager::BuildFullState(uint32_t room_id,
     auto* enemy_state = sync->add_enemies();
     *enemy_state = runtime.state;
   }
+  // 全量同步包的道具信息的state赋值
+  for (const auto& [_, item] : scene.items) {
+    if (item.is_picked) {
+      continue;
+    }
+    auto* item_state = sync->add_items();
+    item_state->set_item_id(item.item_id);
+    item_state->set_type_id(item.type_id);
+    item_state->set_is_picked(item.is_picked);
+    item_state->set_effect_type(item.effect_type);
+    item_state->mutable_position()->set_x(item.x);
+    item_state->mutable_position()->set_y(item.y);
+  }
   return true;
+}
+
+void GameManager::ProcessItems(
+    Scene& scene, double dt_seconds,
+    std::vector<lawnmower::ItemState>* dropped_items, bool* has_dirty) {
+  if (dropped_items == nullptr || has_dirty == nullptr) {
+    return;
+  }
+
+  const std::size_t alive_players =
+      std::count_if(scene.players.begin(), scene.players.end(),
+                    [](const auto& kv) { return kv.second.state.is_alive(); });
+  if (alive_players == 0) {
+    return;
+  }
+
+  auto mark_player_low_freq_dirty = [](PlayerRuntime& runtime) {
+    runtime.low_freq_dirty = true;
+    runtime.dirty = true;
+  };
+
+  const uint32_t max_items_alive =
+      items_config_.max_items_alive > 0 ? items_config_.max_items_alive : 64;
+  const double spawn_interval =
+      items_config_.spawn_interval_seconds > 0.0f
+          ? static_cast<double>(items_config_.spawn_interval_seconds)
+          : 8.0;
+
+  scene.item_spawn_elapsed += dt_seconds;
+  std::size_t spawned = 0;
+  while (spawn_interval > 0.0 &&
+         scene.item_spawn_elapsed >= spawn_interval &&
+         scene.items.size() < max_items_alive &&
+         spawned < kMaxItemSpawnPerTick) {
+    scene.item_spawn_elapsed -= spawn_interval;
+
+    uint32_t type_id = items_config_.default_type_id;
+    if (!items_config_.spawn_type_ids.empty()) {
+      const std::size_t index = static_cast<std::size_t>(
+          NextRng(&scene.rng_state) % items_config_.spawn_type_ids.size());
+      type_id = items_config_.spawn_type_ids[index];
+    }
+
+    const ItemTypeConfig& type = ResolveItemType(type_id);
+    const lawnmower::ItemEffectType effect_type =
+        ResolveItemEffectType(type.effect);
+    if (effect_type == lawnmower::ITEM_EFFECT_NONE && type.effect != "none" &&
+        !type.effect.empty()) {
+      spdlog::warn("道具类型 {} effect={} 未识别，使用 NONE", type.type_id,
+                   type.effect);
+    }
+
+    const float map_w = static_cast<float>(scene.config.width);
+    const float map_h = static_cast<float>(scene.config.height);
+    const float x = NextRngUnitFloat(&scene.rng_state) * map_w;
+    const float y = NextRngUnitFloat(&scene.rng_state) * map_h;
+    const auto clamped_pos = ClampToMap(scene.config, x, y);
+
+    ItemRuntime runtime;
+    runtime.item_id = scene.next_item_id++;
+    runtime.type_id = type.type_id;
+    runtime.effect_type = effect_type;
+    runtime.x = clamped_pos.x();
+    runtime.y = clamped_pos.y();
+    runtime.is_picked = false;
+    runtime.dirty = true;
+    scene.items.emplace(runtime.item_id, runtime);
+
+    auto& dropped = dropped_items->emplace_back();
+    dropped.set_item_id(runtime.item_id);
+    dropped.set_type_id(runtime.type_id);
+    dropped.set_is_picked(false);
+    dropped.set_effect_type(runtime.effect_type);
+    dropped.mutable_position()->set_x(runtime.x);
+    dropped.mutable_position()->set_y(runtime.y);
+
+    spawned += 1;
+    *has_dirty = true;
+  }
+
+  const float pick_radius =
+      items_config_.pick_radius > 0.0f ? items_config_.pick_radius : 24.0f;
+  const float pick_radius_sq = pick_radius * pick_radius;
+
+  for (auto& [_, item] : scene.items) {
+    if (item.is_picked) {
+      continue;
+    }
+    for (auto& [_, player] : scene.players) {
+      if (!player.state.is_alive()) {
+        continue;
+      }
+      const float dx = player.state.position().x() - item.x;
+      const float dy = player.state.position().y() - item.y;
+      const float dist_sq = dx * dx + dy * dy;
+      if (dist_sq > pick_radius_sq) {
+        continue;
+      }
+
+      item.is_picked = true;
+      item.dirty = true;
+      *has_dirty = true;
+
+      if (item.effect_type == lawnmower::ITEM_EFFECT_HEAL) {
+        const ItemTypeConfig& type = ResolveItemType(item.type_id);
+        const int32_t heal_value = std::max<int32_t>(0, type.value);
+        if (heal_value > 0) {
+          const int32_t prev_hp = player.state.health();
+          const int32_t max_hp = player.state.max_health();
+          const int32_t next_hp =
+              std::min(max_hp, prev_hp + heal_value);
+          if (next_hp != prev_hp) {
+            player.state.set_health(next_hp);
+            mark_player_low_freq_dirty(player);
+          }
+        }
+      }
+
+      break;
+    }
+  }
 }
 
 namespace {
@@ -544,7 +728,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   std::optional<lawnmower::S2C_GameOver> game_over;
   std::vector<lawnmower::ProjectileState> projectile_spawns;
   std::vector<lawnmower::ProjectileDespawn> projectile_despawns;
+  std::vector<lawnmower::ItemState> dropped_items;
   uint64_t event_tick = 0;
+  uint32_t event_wave_id = 0;
 
   {
     std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
@@ -708,6 +894,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
 
     scene.elapsed += dt_seconds;
     ProcessEnemies(scene, dt_seconds, &has_dirty);
+    ProcessItems(scene, dt_seconds, &dropped_items, &has_dirty);
 
     // -----------------
     // 战斗：玩家攻击 + 敌人接触伤害
@@ -742,6 +929,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     const bool want_sync = should_sync || force_full_sync;
     const bool need_sync = want_sync && (force_full_sync || has_dirty);
     if (need_sync) {
+      std::vector<uint32_t> items_to_remove;
       if (force_full_sync) {
         FillSyncTiming(room_id, scene.tick, &sync);
         for (auto& [_, runtime] : scene.players) {
@@ -758,6 +946,20 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
           if (enemy.force_sync_left > 0) {
             enemy.force_sync_left -= 1;
           }
+        }
+        for (auto& [_, item] : scene.items) {
+          if (item.is_picked) {
+            items_to_remove.push_back(item.item_id);
+            continue;
+          }
+          auto* out = sync.add_items();
+          out->set_item_id(item.item_id);
+          out->set_type_id(item.type_id);
+          out->set_is_picked(item.is_picked);
+          out->set_effect_type(item.effect_type);
+          out->mutable_position()->set_x(item.x);
+          out->mutable_position()->set_y(item.y);
+          item.dirty = false;
         }
         built_sync = true;
         scene.full_sync_elapsed = 0.0;
@@ -878,9 +1080,37 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
           update_enemy_last_sync(enemy);
           enemy.dirty = false;
         }
+
+        for (auto& [_, item] : scene.items) {
+          if (!item.dirty) {
+            continue;
+          }
+          if (!sync_inited) {
+            FillSyncTiming(room_id, scene.tick, &sync);
+            sync_inited = true;
+          }
+          auto* out = sync.add_items();
+          out->set_item_id(item.item_id);
+          out->set_type_id(item.type_id);
+          out->set_is_picked(item.is_picked);
+          out->set_effect_type(item.effect_type);
+          out->mutable_position()->set_x(item.x);
+          out->mutable_position()->set_y(item.y);
+          built_sync = true;
+          item.dirty = false;
+          if (item.is_picked) {
+            items_to_remove.push_back(item.item_id);
+          }
+        }
+      }
+      if (!items_to_remove.empty()) {
+        for (const auto item_id : items_to_remove) {
+          scene.items.erase(item_id);
+        }
       }
     }
 
+    event_wave_id = scene.wave_id;
     event_tick = scene.tick;
   }
 
@@ -914,6 +1144,16 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     }
   }
 
+  lawnmower::S2C_DroppedItem dropped_item_msg;
+  const bool has_dropped_items = !dropped_items.empty();
+  if (has_dropped_items) {
+    dropped_item_msg.set_source_enemy_id(0);
+    dropped_item_msg.set_wave_id(event_wave_id);
+    for (const auto& item : dropped_items) {
+      *dropped_item_msg.add_items() = item;
+    }
+  }
+
   lawnmower::S2C_EnemyAttackStateSync enemy_attack_state_msg;
   const bool has_enemy_attack_state = !enemy_attack_states.empty();
   if (has_enemy_attack_state) {
@@ -941,9 +1181,9 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     }
   }
 
-  if (has_projectile_spawn || has_projectile_despawn || !player_hurts.empty() ||
-      has_enemy_attack_state || !enemy_dieds.empty() || !level_ups.empty() ||
-      game_over.has_value()) {
+  if (has_projectile_spawn || has_projectile_despawn || has_dropped_items ||
+      !player_hurts.empty() || has_enemy_attack_state ||
+      !enemy_dieds.empty() || !level_ups.empty() || game_over.has_value()) {
     const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
     for (const auto& weak_session : sessions) {
       auto session = weak_session.lock();
@@ -957,6 +1197,10 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       if (has_projectile_despawn) {
         session->SendProto(lawnmower::MessageType::MSG_S2C_PROJECTILE_DESPAWN,
                            projectile_despawn_msg);
+      }
+      if (has_dropped_items) {
+        session->SendProto(lawnmower::MessageType::MSG_S2C_DROPPED_ITEM,
+                           dropped_item_msg);
       }
       if (has_enemy_attack_state) {
         session->SendProto(

@@ -274,13 +274,22 @@ message EnemyState {
     bool is_friendly = 8;          // 是否为友方（通常为 false，除非有召唤机制）
 }
 
+// 道具效果类型
+enum ItemEffectType {
+    ITEM_EFFECT_NONE = 0;   // 无效果/未定义
+    ITEM_EFFECT_HEAL = 1;   // 回血
+    ITEM_EFFECT_EXP = 2;    // 经验
+    ITEM_EFFECT_SPEED = 3;  // 加速
+}
+
 // 掉落物状态
 message ItemState {
     uint32 item_id = 1;            // 道具实例ID
     uint32 type_id = 2;            // 道具类型ID（关联 ItemConfig）
     Vector2 position = 3;          // 位置
     bool is_picked = 4;            // 是否已被拾取
-    int32 value = 5;               // 数值
+    ItemEffectType effect_type = 6; // 道具效果类型
+    reserved 5;                    // 移除 value 字段避免复用
 }
 
 // =============================

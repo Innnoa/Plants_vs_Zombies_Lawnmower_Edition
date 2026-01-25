@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "config/enemy_types_config.hpp"
+#include "config/item_types_config.hpp"
 #include "config/player_roles_config.hpp"
 #include "config/server_config.hpp"
 #include "game/managers/room_manager.hpp"
@@ -49,6 +50,7 @@ class GameManager {
   void SetEnemyTypesConfig(const EnemyTypesConfig& cfg) {
     enemy_types_config_ = cfg;
   }
+  void SetItemsConfig(const ItemsConfig& cfg) { items_config_ = cfg; }
 
   // 在游戏开始后为房间启动固定逻辑帧循环与状态同步
   void StartGameLoop(uint32_t room_id);
@@ -141,17 +143,31 @@ class GameManager {
     double remaining_seconds = 0.0; // 剩余存活时间(TTL)
   };
 
+  struct ItemRuntime {
+    uint32_t item_id = 0; // 道具实例ID
+    uint32_t type_id = 0; // 道具类型ID
+    lawnmower::ItemEffectType effect_type =
+        lawnmower::ITEM_EFFECT_NONE; // 道具效果类型
+    float x = 0.0f; // 当前x坐标
+    float y = 0.0f; // 当前y坐标
+    bool is_picked = false; // 是否已被拾取
+    bool dirty = false; // 是否需要同步
+  };
+
   struct Scene {
     SceneConfig config;                                   // 场景配置
     std::unordered_map<uint32_t, PlayerRuntime> players;  // 玩家运行时状态表
     std::unordered_map<uint32_t, EnemyRuntime> enemies;   // 敌人运行时状态表
     std::unordered_map<uint32_t, ProjectileRuntime>
         projectiles;                  // 射弹运行时状态表
+    std::unordered_map<uint32_t, ItemRuntime> items;  // 道具运行时状态表
     uint32_t next_enemy_id = 1;       // 下一个生成敌人的自增id
     uint32_t next_projectile_id = 1;  // 下一个生成的射弹的自增id
+    uint32_t next_item_id = 1;        // 下一个生成的道具自增id
     uint32_t wave_id = 0;             // 当前波次编号
     double elapsed = 0.0;             // 场景累计运行时间
     double spawn_elapsed = 0.0;       // 距上次刷怪的累计时间
+    double item_spawn_elapsed = 0.0;  // 距上次生成道具的累计时间
     uint32_t rng_state = 1;           // 伪随机种子
     bool game_over = false;           // 是否已结束
     int nav_cells_x = 0;              // 寻路网格的行数
@@ -184,8 +200,12 @@ class GameManager {
   SceneConfig BuildDefaultConfig() const;
   void PlacePlayers(const RoomManager::RoomSnapshot& snapshot, Scene* scene);
   [[nodiscard]] const EnemyTypeConfig& ResolveEnemyType(uint32_t type_id) const;
+  [[nodiscard]] const ItemTypeConfig& ResolveItemType(uint32_t type_id) const;
   [[nodiscard]] uint32_t PickSpawnEnemyTypeId(uint32_t* rng_state) const;
   void ProcessEnemies(Scene& scene, double dt_seconds, bool* has_dirty);
+  void ProcessItems(Scene& scene, double dt_seconds,
+                    std::vector<lawnmower::ItemState>* dropped_items,
+                    bool* has_dirty);
   void ProcessSceneTick(uint32_t room_id, double tick_interval_seconds);
   void ProcessCombatAndProjectiles(
       Scene& scene, double dt_seconds,
@@ -214,4 +234,5 @@ class GameManager {
   ServerConfig config_;
   PlayerRolesConfig player_roles_config_;
   EnemyTypesConfig enemy_types_config_;
+  ItemsConfig items_config_;
 };

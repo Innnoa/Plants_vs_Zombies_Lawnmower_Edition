@@ -1,0 +1,34 @@
+{
+    "__comment_spawn_interval_seconds": "道具生成间隔（秒）",
+    "spawn_interval_seconds": 8.0,
+    "__comment_max_items_alive": "同时存在的道具上限",
+    "max_items_alive": 6,
+    "__comment_pick_radius": "拾取半径（像素）",
+    "pick_radius": 24.0,
+    "__comment_default_type_id": "默认道具类型",
+    "default_type_id": 1,
+    "__comment_items": "道具定义列表",
+    "items": [
+        {
+            "type_id": 1,
+            "name": "回血道具",
+            "effect": "heal",
+            "value": 30,
+            "can_spawn": true
+        },
+        {
+            "type_id": 2,
+            "name": "经验道具",
+            "effect": "exp",
+            "value": 10,
+            "can_spawn": false
+        },
+        {
+            "type_id": 3,
+            "name": "加速道具",
+            "effect": "speed",
+            "value": 5,
+            "can_spawn": false
+        }
+    ]
+}
