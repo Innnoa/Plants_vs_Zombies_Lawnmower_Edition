@@ -70,6 +70,13 @@ enum MessageType{
   MSG_S2C_PROJECTILE_SPAWN = 47; // 广播： 发射射弹（如豌豆）
   MSG_S2C_PROJECTILE_DESPAWN = 48; // 广播： 射弹消失（命中/超界/过期）
   MSG_S2C_ENEMY_ATTACK_STATE_SYNC = 49; // 广播： 敌人攻击状态变化（用于客户端播放/停止攻击动画）
+  MSG_S2C_UPGRADE_REQUEST = 50; // 服务器->客户端：升级请求
+  MSG_C2S_UPGRADE_REQUEST_ACK = 51; // 客户端->服务器：升级请求确认
+  MSG_S2C_UPGRADE_OPTIONS = 52; // 服务器->客户端：升级选项内容
+  MSG_C2S_UPGRADE_OPTIONS_ACK = 53; // 客户端->服务器：升级选项接收确认
+  MSG_C2S_UPGRADE_SELECT = 54; // 客户端->服务器：升级选择
+  MSG_S2C_UPGRADE_SELECT_ACK = 55; // 服务器->客户端：升级选择确认
+  MSG_C2S_UPGRADE_REFRESH_REQUEST = 56; // 客户端->服务器：刷新升级选项请求
 }   
 
 // =============================
@@ -227,6 +234,44 @@ message PlayerState {
     uint32 attack_speed = 16;       // 攻击速度（数值越大越快，或表示攻击间隔 ms）
     float move_speed = 17;          // 移动速度（像素/秒）
     int32 last_processed_input_seq = 18; // 玩家客户端最后一次输入码的序号
+}
+
+// 升级原因
+enum UpgradeReason {
+    UPGRADE_REASON_UNKNOWN = 0;
+    UPGRADE_REASON_LEVEL_UP = 1; // 升级触发
+    UPGRADE_REASON_REFRESH = 2;  // 刷新触发
+}
+
+// 升级类型
+enum UpgradeType {
+    UPGRADE_TYPE_UNKNOWN = 0;
+    UPGRADE_TYPE_MOVE_SPEED = 1;    // 移速
+    UPGRADE_TYPE_ATTACK = 2;        // 攻击
+    UPGRADE_TYPE_ATTACK_SPEED = 3;  // 攻速
+    UPGRADE_TYPE_MAX_HEALTH = 4;    // 最大血量
+    UPGRADE_TYPE_CRITICAL_RATE = 5; // 暴击率
+}
+
+// 升级等级
+enum UpgradeLevel {
+    UPGRADE_LEVEL_UNKNOWN = 0;
+    UPGRADE_LEVEL_LOW = 1;
+    UPGRADE_LEVEL_MEDIUM = 2;
+    UPGRADE_LEVEL_HIGH = 3;
+}
+
+// 升级效果
+message UpgradeEffect {
+    UpgradeType type = 1;   // 升级类型
+    UpgradeLevel level = 2; // 升级等级
+    int32 value = 3;        // 升级数值
+}
+
+// 升级选项（一个选项可包含多个效果）
+message UpgradeOption {
+    uint32 option_index = 1;          // 选项索引（0-based）
+    repeated UpgradeEffect effects = 2; // 升级效果列表
 }
 
 // 射弹信息（如豌豆、子弹）
@@ -428,6 +473,54 @@ message S2C_PlayerLevelUp {
   uint32 player_id = 1;      // 升级玩家ID
   uint32 new_level = 2;      // 新等级
   uint32 exp_to_next = 3;    // 升级后到下一级所需经验
+}
+
+// 升级请求（服务端发起）
+message S2C_UpgradeRequest {
+  uint32 room_id = 1;      // 房间ID
+  uint32 player_id = 2;    // 触发升级的玩家ID
+  UpgradeReason reason = 3; // 升级触发原因
+}
+
+// 升级请求确认（客户端回执）
+message C2S_UpgradeRequestAck {
+  uint32 room_id = 1;   // 房间ID
+  uint32 player_id = 2; // 玩家ID
+}
+
+// 升级选项内容（服务端下发）
+message S2C_UpgradeOptions {
+  uint32 room_id = 1;          // 房间ID
+  uint32 player_id = 2;        // 触发升级的玩家ID
+  UpgradeReason reason = 3;    // 升级触发原因
+  repeated UpgradeOption options = 4; // 升级选项
+  uint32 refresh_remaining = 5; // 剩余刷新次数
+}
+
+// 升级选项接收确认（客户端回执）
+message C2S_UpgradeOptionsAck {
+  uint32 room_id = 1;   // 房间ID
+  uint32 player_id = 2; // 玩家ID
+}
+
+// 升级选择（客户端发送）
+message C2S_UpgradeSelect {
+  uint32 room_id = 1;     // 房间ID
+  uint32 player_id = 2;   // 玩家ID
+  uint32 option_index = 3; // 选项索引（0-based）
+}
+
+// 升级选择确认（服务端回执）
+message S2C_UpgradeSelectAck {
+  uint32 room_id = 1;     // 房间ID
+  uint32 player_id = 2;   // 玩家ID
+  uint32 option_index = 3; // 选项索引（0-based）
+}
+
+// 刷新升级选项请求（客户端发送）
+message C2S_UpgradeRefreshRequest {
+  uint32 room_id = 1;   // 房间ID
+  uint32 player_id = 2; // 玩家ID
 }
 
 // 道具掉落广播

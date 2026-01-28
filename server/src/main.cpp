@@ -4,6 +4,7 @@
 #include "config/item_types_config.hpp"
 #include "config/player_roles_config.hpp"
 #include "config/server_config.hpp"
+#include "config/upgrade_config.hpp"
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
 #include "message.pb.h"
@@ -36,6 +37,11 @@ int main() {
     if (!items_loaded) {
       spdlog::warn("未找到道具配置文件，使用默认道具配置");
     }
+    UpgradeConfig upgrade_config;
+    const bool upgrade_loaded = LoadUpgradeConfig(&upgrade_config);
+    if (!upgrade_loaded) {
+      spdlog::warn("未找到升级配置文件，使用默认升级配置");
+    }
 
     // 设置io上下文
     asio::io_context io;
@@ -44,6 +50,7 @@ int main() {
     GameManager::Instance().SetPlayerRolesConfig(player_roles);
     GameManager::Instance().SetEnemyTypesConfig(enemy_types);
     GameManager::Instance().SetItemsConfig(items_config);
+    GameManager::Instance().SetUpgradeConfig(upgrade_config);
     RoomManager::Instance().SetConfig(config);
 
     // 单例设置游戏管理io上下文

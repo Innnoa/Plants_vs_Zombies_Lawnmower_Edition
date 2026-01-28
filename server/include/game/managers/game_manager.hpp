@@ -16,6 +16,7 @@
 #include "config/item_types_config.hpp"
 #include "config/player_roles_config.hpp"
 #include "config/server_config.hpp"
+#include "config/upgrade_config.hpp"
 #include "game/managers/room_manager.hpp"
 #include "message.pb.h"
 
@@ -51,6 +52,7 @@ class GameManager {
     enemy_types_config_ = cfg;
   }
   void SetItemsConfig(const ItemsConfig& cfg) { items_config_ = cfg; }
+  void SetUpgradeConfig(const UpgradeConfig& cfg) { upgrade_config_ = cfg; }
 
   // 在游戏开始后为房间启动固定逻辑帧循环与状态同步
   void StartGameLoop(uint32_t room_id);
@@ -59,6 +61,17 @@ class GameManager {
   [[nodiscard]] bool HandlePlayerInput(uint32_t player_id,
                                        const lawnmower::C2S_PlayerInput& input,
                                        uint32_t* room_id);
+  [[nodiscard]] bool HandleUpgradeRequestAck(
+      uint32_t player_id,
+      const lawnmower::C2S_UpgradeRequestAck& request);
+  [[nodiscard]] bool HandleUpgradeOptionsAck(
+      uint32_t player_id,
+      const lawnmower::C2S_UpgradeOptionsAck& request);
+  [[nodiscard]] bool HandleUpgradeSelect(
+      uint32_t player_id, const lawnmower::C2S_UpgradeSelect& request);
+  [[nodiscard]] bool HandleUpgradeRefreshRequest(
+      uint32_t player_id,
+      const lawnmower::C2S_UpgradeRefreshRequest& request);
 
   // 判断给定坐标是否在指定房间的地图边界内（基于场景宽高）
   [[nodiscard]] bool IsInsideMap(uint32_t room_id,
@@ -102,6 +115,8 @@ class GameManager {
     uint64_t last_projectile_spawn_log_tick = 0; // 最近记录射弹生成信息的tick
     int32_t kill_count = 0; // 击杀数
     int32_t damage_dealt = 0; // 伤害总量
+    uint32_t pending_upgrade_count = 0; // 待处理升级次数
+    uint32_t refresh_remaining = 0; // 剩余刷新次数
     bool low_freq_dirty = false; // 低频/全量同步字段变化标记
     bool dirty = false; // 高频同步字段变化标记
   };
@@ -154,6 +169,13 @@ class GameManager {
     bool dirty = false; // 是否需要同步
   };
 
+  enum class UpgradeStage {
+    kNone = 0,
+    kRequestSent = 1,
+    kOptionsSent = 2,
+    kWaitingSelect = 3,
+  };
+
   struct Scene {
     SceneConfig config;                                   // 场景配置
     std::unordered_map<uint32_t, PlayerRuntime> players;  // 玩家运行时状态表
@@ -170,6 +192,7 @@ class GameManager {
     double item_spawn_elapsed = 0.0;  // 距上次生成道具的累计时间
     uint32_t rng_state = 1;           // 伪随机种子
     bool game_over = false;           // 是否已结束
+    bool is_paused = false;           // 是否暂停（升级流程）
     int nav_cells_x = 0;              // 寻路网格的行数
     int nav_cells_y = 0;              // 寻路网格的列数
 
@@ -187,6 +210,11 @@ class GameManager {
     std::chrono::duration<double> full_sync_interval;      // 全量同步间隔
     std::shared_ptr<asio::steady_timer>
         loop_timer;  // Asio定时器，用于调度该房间的tick循环
+    uint32_t upgrade_player_id = 0;  // 当前升级选择玩家
+    UpgradeStage upgrade_stage = UpgradeStage::kNone; // 当前升级阶段
+    lawnmower::UpgradeReason upgrade_reason =
+        lawnmower::UPGRADE_REASON_UNKNOWN; // 升级触发原因
+    std::vector<UpgradeEffectConfig> upgrade_options; // 当前升级选项
   };
 
   static constexpr int kNavCellSize = 100;  // px
@@ -217,6 +245,13 @@ class GameManager {
       std::vector<lawnmower::ProjectileState>* projectile_spawns,
       std::vector<lawnmower::ProjectileDespawn>* projectile_despawns,
       bool* has_dirty);
+  void BuildUpgradeOptionsLocked(Scene& scene);
+  bool BeginUpgradeLocked(uint32_t room_id, Scene& scene, uint32_t player_id,
+                          lawnmower::UpgradeReason reason,
+                          lawnmower::S2C_UpgradeRequest* request);
+  void ResetUpgradeLocked(Scene& scene);
+  void ApplyUpgradeEffect(PlayerRuntime& runtime,
+                          const UpgradeEffectConfig& effect);
   void ScheduleGameTick(uint32_t room_id, std::chrono::microseconds interval,
                         const std::shared_ptr<asio::steady_timer>& timer,
                         double tick_interval_seconds);
@@ -235,4 +270,5 @@ class GameManager {
   PlayerRolesConfig player_roles_config_;
   EnemyTypesConfig enemy_types_config_;
   ItemsConfig items_config_;
+  UpgradeConfig upgrade_config_;
 };

@@ -472,6 +472,71 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
       }
       break;
     }
+    case MessageType::MSG_C2S_UPGRADE_REQUEST_ACK: {
+      lawnmower::C2S_UpgradeRequestAck ack;
+      if (!ack.ParseFromString(packet.payload())) {
+        spdlog::warn("解析升级请求确认失败");
+        break;
+      }
+      if (player_id_ == 0) {
+        spdlog::warn("未登录玩家发送升级请求确认");
+        break;
+      }
+      ack.set_player_id(player_id_);
+      if (!GameManager::Instance().HandleUpgradeRequestAck(player_id_, ack)) {
+        spdlog::debug("玩家 {} 升级请求确认被拒绝", player_id_);
+      }
+      break;
+    }
+    case MessageType::MSG_C2S_UPGRADE_OPTIONS_ACK: {
+      lawnmower::C2S_UpgradeOptionsAck ack;
+      if (!ack.ParseFromString(packet.payload())) {
+        spdlog::warn("解析升级选项确认失败");
+        break;
+      }
+      if (player_id_ == 0) {
+        spdlog::warn("未登录玩家发送升级选项确认");
+        break;
+      }
+      ack.set_player_id(player_id_);
+      if (!GameManager::Instance().HandleUpgradeOptionsAck(player_id_, ack)) {
+        spdlog::debug("玩家 {} 升级选项确认被拒绝", player_id_);
+      }
+      break;
+    }
+    case MessageType::MSG_C2S_UPGRADE_SELECT: {
+      lawnmower::C2S_UpgradeSelect select;
+      if (!select.ParseFromString(packet.payload())) {
+        spdlog::warn("解析升级选择失败");
+        break;
+      }
+      if (player_id_ == 0) {
+        spdlog::warn("未登录玩家发送升级选择");
+        break;
+      }
+      select.set_player_id(player_id_);
+      if (!GameManager::Instance().HandleUpgradeSelect(player_id_, select)) {
+        spdlog::debug("玩家 {} 升级选择被拒绝", player_id_);
+      }
+      break;
+    }
+    case MessageType::MSG_C2S_UPGRADE_REFRESH_REQUEST: {
+      lawnmower::C2S_UpgradeRefreshRequest refresh;
+      if (!refresh.ParseFromString(packet.payload())) {
+        spdlog::warn("解析刷新升级请求失败");
+        break;
+      }
+      if (player_id_ == 0) {
+        spdlog::warn("未登录玩家发送刷新升级请求");
+        break;
+      }
+      refresh.set_player_id(player_id_);
+      if (!GameManager::Instance().HandleUpgradeRefreshRequest(player_id_,
+                                                               refresh)) {
+        spdlog::debug("玩家 {} 刷新升级请求被拒绝", player_id_);
+      }
+      break;
+    }
     case MessageType::MSG_UNKNOWN:
     default:
       spdlog::warn("未知操作类型: {}", MessageTypeToString(packet.msg_type()));

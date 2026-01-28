@@ -1,0 +1,21 @@
+{
+  "option_count": 3,
+  "refresh_limit": 1,
+  "upgrades": [
+    {"type": "move_speed", "level": "low", "value": 10, "weight": 100},
+    {"type": "move_speed", "level": "medium", "value": 20, "weight": 60},
+    {"type": "move_speed", "level": "high", "value": 35, "weight": 30},
+    {"type": "attack", "level": "low", "value": 2, "weight": 100},
+    {"type": "attack", "level": "medium", "value": 4, "weight": 60},
+    {"type": "attack", "level": "high", "value": 7, "weight": 30},
+    {"type": "attack_speed", "level": "low", "value": 1, "weight": 100},
+    {"type": "attack_speed", "level": "medium", "value": 2, "weight": 60},
+    {"type": "attack_speed", "level": "high", "value": 3, "weight": 30},
+    {"type": "max_health", "level": "low", "value": 10, "weight": 100},
+    {"type": "max_health", "level": "medium", "value": 20, "weight": 60},
+    {"type": "max_health", "level": "high", "value": 35, "weight": 30},
+    {"type": "critical_rate", "level": "low", "value": 10, "weight": 100},
+    {"type": "critical_rate", "level": "medium", "value": 20, "weight": 60},
+    {"type": "critical_rate", "level": "high", "value": 30, "weight": 30}
+  ]
+}

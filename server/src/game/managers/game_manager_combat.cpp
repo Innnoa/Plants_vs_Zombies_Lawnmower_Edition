@@ -109,10 +109,7 @@ void GameManager::ProcessCombatAndProjectiles(
                                     player.state.exp_to_next() * 1.25)) +
                                 25u;
       player.state.set_exp_to_next(std::max<uint32_t>(1, next_exp));
-
-      player.state.set_max_health(player.state.max_health() + 10);
-      player.state.set_health(player.state.max_health());
-      player.state.set_attack(player.state.attack() + 2);
+      player.pending_upgrade_count += 1;
 
       lawnmower::S2C_PlayerLevelUp evt;
       evt.set_player_id(player.state.player_id());
