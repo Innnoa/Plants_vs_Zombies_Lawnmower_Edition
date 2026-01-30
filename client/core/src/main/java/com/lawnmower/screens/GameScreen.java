@@ -63,6 +63,7 @@ public class GameScreen implements Screen {
     private static final float PLAYER_SPEED = 200f;
 
     // 鏉堟挸鍙嗛崚鍡橆唽閺囧绮忛敍?0~33ms閿涘绱濋梽宥勭秵閺堝秴濮熺粩顖氱垻缁?
+
     private static final float MAX_COMMAND_DURATION = 0.025f;
     private static final float MIN_COMMAND_DURATION = 1f / 120f;
     private static final long SNAPSHOT_RETENTION_MS = 400L;
@@ -922,14 +923,14 @@ public class GameScreen implements Screen {
 
         Table panel = new Table(skin);
         panel.defaults().pad(8f);
-        upgradeTitleLabel = new Label("", skin);
+        upgradeTitleLabel = new Label("", skin,"default_32");
         upgradeTitleLabel.setAlignment(Align.center);
-        upgradeHintLabel = new Label("", skin);
+        upgradeHintLabel = new Label("", skin,"default_32");
         upgradeHintLabel.setAlignment(Align.center);
         upgradeHintLabel.setWrap(true);
 
         Table cardsRow = new Table();
-        cardsRow.defaults().pad(10f).width(320f).height(220f);
+        cardsRow.defaults().pad(10f).width(500f).height(250f);
         upgradeCards.clear();
         for (int i = 0; i < 3; i++) {
             UpgradeCard card = new UpgradeCard(skin);
@@ -943,7 +944,7 @@ public class GameScreen implements Screen {
             cardsRow.add(card).grow();
         }
 
-        upgradeRefreshButton = new TextButton("刷新", skin);
+        upgradeRefreshButton = new TextButton("刷新", skin,"CreateButton");
         upgradeRefreshButton.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
@@ -1181,6 +1182,7 @@ public class GameScreen implements Screen {
             case UPGRADE_LEVEL_HIGH -> "background/high.png";
             default -> "background/medium.png";
         };
+
     }
 
     private Texture getUpgradeOverlayTexture() {
