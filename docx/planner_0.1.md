@@ -1137,7 +1137,6 @@ public class SkillSelectDialog extends Dialog {
 
 **Day 25**:
 
-- [ ] 添加技能特效显示
 - [ ] 优化 UI 交互
 
 #### 🤝 Day 25 晚上：第一次完整游戏测试
@@ -1155,13 +1154,12 @@ public class SkillSelectDialog extends Dialog {
 
 - [ ] Day 26: 实现掉落系统
 - [ ] Day 27: 实现道具拾取逻辑
-- [ ] Day 28: 添加特殊道具（吸铁石、炸弹等）
 
 #### 🪟 队友（Java - Day 26-30）
 
-- [ ] Day 26: 添加经验宝石动画
 - [ ] Day 27-28: 实现粒子特效系统
-- [ ] Day 29: 添加音效和背景音乐
+  - [ ] Day 29: 添加音效和背景音乐
+
 - [ ] Day 30: UI 美化
 
 ------
