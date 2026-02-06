@@ -127,6 +127,9 @@ class GameManager {
     uint32_t target_player_id = 0;          // 寻路/追踪时的目标玩家id
     std::vector<std::pair<int, int>> path;  // A* 寻路生成的路径
     std::size_t path_index = 0;             // 当前走到路径中的哪一个节点
+    std::pair<int, int> last_path_start_cell = {0, 0}; // 上次寻路起点格
+    std::pair<int, int> last_path_goal_cell = {0, 0}; // 上次寻路终点格
+    bool has_cached_path = false; // 是否有可复用路径
     double replan_elapsed =
         0.0;  // 距离上次重新寻路的累计时间(用于周期性重算路径)
     double attack_cooldown_seconds = 0.0;  // 敌人攻击冷却时间
@@ -169,6 +172,28 @@ class GameManager {
     bool dirty = false; // 是否需要同步
   };
 
+  // 单帧性能采样
+  struct PerfSample {
+    uint64_t tick = 0; // 逻辑帧编号
+    double logic_ms = 0.0; // 逻辑帧耗时（毫秒）
+    uint32_t player_count = 0; // 玩家数量
+    uint32_t enemy_count = 0; // 敌人数量
+    uint32_t projectile_count = 0; // 射弹数量
+    uint32_t item_count = 0; // 道具数量
+    bool is_paused = false; // 是否处于暂停
+  };
+
+  // 单局性能统计
+  struct PerfStats {
+    std::vector<PerfSample> samples; // 逐帧采样
+    double total_ms = 0.0; // 累计耗时
+    double max_ms = 0.0; // 最大耗时
+    double min_ms = 0.0; // 最小耗时
+    uint64_t tick_count = 0; // 采样帧数
+    std::chrono::system_clock::time_point start_time; // 开始时间
+    std::chrono::system_clock::time_point end_time; // 结束时间
+  };
+
   enum class UpgradeStage {
     kNone = 0,
     kRequestSent = 1,
@@ -183,6 +208,9 @@ class GameManager {
     std::unordered_map<uint32_t, ProjectileRuntime>
         projectiles;                  // 射弹运行时状态表
     std::unordered_map<uint32_t, ItemRuntime> items;  // 道具运行时状态表
+    std::vector<EnemyRuntime> enemy_pool; // 敌人复用池
+    std::vector<ProjectileRuntime> projectile_pool; // 射弹复用池
+    std::vector<ItemRuntime> item_pool; // 道具复用池
     uint32_t next_enemy_id = 1;       // 下一个生成敌人的自增id
     uint32_t next_projectile_id = 1;  // 下一个生成的射弹的自增id
     uint32_t next_item_id = 1;        // 下一个生成的道具自增id
@@ -215,6 +243,7 @@ class GameManager {
     lawnmower::UpgradeReason upgrade_reason =
         lawnmower::UPGRADE_REASON_UNKNOWN; // 升级触发原因
     std::vector<UpgradeEffectConfig> upgrade_options; // 当前升级选项
+    PerfStats perf; // 性能统计
   };
 
   static constexpr int kNavCellSize = 100;  // px
@@ -252,6 +281,11 @@ class GameManager {
   void ResetUpgradeLocked(Scene& scene);
   void ApplyUpgradeEffect(PlayerRuntime& runtime,
                           const UpgradeEffectConfig& effect);
+  void ResetPerfStats(Scene& scene);
+  void RecordPerfSampleLocked(Scene& scene, double elapsed_ms, bool is_paused);
+  void SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
+                           uint32_t tick_rate, uint32_t sync_rate,
+                           double elapsed_seconds);
   void ScheduleGameTick(uint32_t room_id, std::chrono::microseconds interval,
                         const std::shared_ptr<asio::steady_timer>& timer,
                         double tick_interval_seconds);

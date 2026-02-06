@@ -328,6 +328,10 @@ void GameManager::ProcessCombatAndProjectiles(
     const auto [start_x, start_y] = compute_projectile_origin(player, dir_x);
 
     ProjectileRuntime proj;
+    if (!scene.projectile_pool.empty()) {
+      proj = std::move(scene.projectile_pool.back());
+      scene.projectile_pool.pop_back();
+    }
     proj.projectile_id = scene.next_projectile_id++;
     proj.owner_player_id = owner_player_id;
     proj.x = start_x;
@@ -523,6 +527,7 @@ void GameManager::ProcessCombatAndProjectiles(
       evt.mutable_position()->set_y(proj.y);
       projectile_despawns->push_back(std::move(evt));
 
+      scene.projectile_pool.push_back(std::move(proj));
       it = scene.projectiles.erase(it);
     } else {
       ++it;

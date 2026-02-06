@@ -250,6 +250,7 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
       enemy.dead_elapsed_seconds += dt_seconds;
       if (enemy.force_sync_left == 0 &&
           enemy.dead_elapsed_seconds >= kEnemyDespawnDelaySeconds) {
+        scene.enemy_pool.push_back(std::move(enemy));
         it = scene.enemies.erase(it);
         continue;
       }
@@ -304,6 +305,12 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     }
 
     EnemyRuntime runtime;
+    if (!scene.enemy_pool.empty()) {
+      runtime = std::move(scene.enemy_pool.back());
+      scene.enemy_pool.pop_back();
+      runtime.path.clear();
+    }
+    runtime.state.Clear();
     runtime.state.set_enemy_id(scene.next_enemy_id++);
     runtime.state.set_type_id(type.type_id);
     const auto clamped_pos = ClampToMap(scene.config, x, y);
@@ -314,6 +321,19 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     runtime.state.set_is_alive(true);
     runtime.state.set_wave_id(scene.wave_id);
     runtime.state.set_is_friendly(false);
+    runtime.target_player_id = 0;
+    runtime.path_index = 0;
+    runtime.last_path_start_cell = {0, 0};
+    runtime.last_path_goal_cell = {0, 0};
+    runtime.has_cached_path = false;
+    runtime.replan_elapsed = 0.0;
+    runtime.attack_cooldown_seconds = 0.0;
+    runtime.is_attacking = false;
+    runtime.attack_target_player_id = 0;
+    runtime.dead_elapsed_seconds = 0.0;
+    runtime.last_sync_position = runtime.state.position();
+    runtime.last_sync_health = runtime.state.health();
+    runtime.last_sync_is_alive = runtime.state.is_alive();
     runtime.force_sync_left = kEnemySpawnForceSyncCount;
     runtime.dirty = true;
     scene.enemies.emplace(runtime.state.enemy_id(), std::move(runtime));
@@ -399,28 +419,42 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     const bool target_changed = (enemy.target_player_id != target_id);
     enemy.replan_elapsed += dt_seconds;
 
-    if (target_changed || enemy.replan_elapsed >= kEnemyReplanIntervalSeconds) {
-      enemy.target_player_id = target_id;
-      enemy.replan_elapsed = 0.0;
+    const bool path_exhausted = enemy.path_index >= enemy.path.size();
+    const bool should_replan = target_changed ||
+                               enemy.replan_elapsed >=
+                                   kEnemyReplanIntervalSeconds ||
+                               path_exhausted;
 
+    if (should_replan) {
+      enemy.target_player_id = target_id;
       const auto start_cell = WorldToCell(nav, prev_x, prev_y);
       const auto goal_cell = WorldToCell(nav, target_x, target_y);
+      const bool same_cells = enemy.has_cached_path &&
+                              enemy.last_path_start_cell == start_cell &&
+                              enemy.last_path_goal_cell == goal_cell;
+
       if (start_cell == goal_cell) {
         enemy.path.clear();
         enemy.path_index = 0;
-      } else {
-        std::vector<std::pair<int, int>> new_path;
-        if (FindPathAstar(nav, start_cell, goal_cell, &new_path,
+        enemy.has_cached_path = false;
+        enemy.last_path_start_cell = start_cell;
+        enemy.last_path_goal_cell = goal_cell;
+      } else if (!same_cells || path_exhausted) {
+        if (FindPathAstar(nav, start_cell, goal_cell, &enemy.path,
                           scene.nav_came_from, scene.nav_g_score,
                           scene.nav_closed) &&
-            new_path.size() > 1) {
-          enemy.path = std::move(new_path);
+            enemy.path.size() > 1) {
           enemy.path_index = 1;  // 跳过起点格
+          enemy.has_cached_path = true;
+          enemy.last_path_start_cell = start_cell;
+          enemy.last_path_goal_cell = goal_cell;
         } else {
           enemy.path.clear();
           enemy.path_index = 0;
+          enemy.has_cached_path = false;
         }
       }
+      enemy.replan_elapsed = 0.0;
     }
 
     auto select_goal = [&]() -> std::pair<float, float> {

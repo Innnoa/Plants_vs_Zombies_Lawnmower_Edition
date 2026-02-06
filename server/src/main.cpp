@@ -1,3 +1,5 @@
+#include <spdlog/async.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include "config/enemy_types_config.hpp"
@@ -61,6 +63,13 @@ int main() {
     GameManager::Instance().SetUdpServer(&udp_server);
     // 设置tcp服务器io上下文与端口
     TcpServer tcp_server(io, config.tcp_port);
+
+    spdlog::init_thread_pool(8192, 1);
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    auto async_logger = std::make_shared<spdlog::async_logger>(
+        "async", console_sink, spdlog::thread_pool(),
+        spdlog::async_overflow_policy::block);
+    spdlog::set_default_logger(async_logger);
 
     // 设置日志默认等级
     spdlog::level::level_enum level = spdlog::level::info;

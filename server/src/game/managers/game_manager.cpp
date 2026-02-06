@@ -3,8 +3,13 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <numbers>
 #include <span>
+#include <sstream>
 #include <string_view>
 #include <spdlog/spdlog.h>
 
@@ -24,6 +29,7 @@ constexpr float kDeltaPositionEpsilon = 1e-4f;    // delta 位置/朝向变化�
 constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
 constexpr std::size_t kMaxItemSpawnPerTick = 6;   // 每帧最多生成道具数量
 constexpr uint32_t kUpgradeOptionCount = 3;       // 升级选项数量
+constexpr const char* kPerfRootDir = "server_metrics"; // 性能数据根目录
 
 lawnmower::ItemEffectType ResolveItemEffectType(std::string_view effect) {
   if (effect == "heal") {
@@ -51,6 +57,50 @@ float DegreesFromDirection(float x, float y) {
 std::chrono::milliseconds NowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now().time_since_epoch());
+}
+
+std::tm ToLocalTm(std::time_t value) {
+  std::tm result{};
+#if defined(_WIN32)
+  localtime_s(&result, &value);
+#else
+  localtime_r(&value, &result);
+#endif
+  return result;
+}
+
+std::string FormatDate(const std::chrono::system_clock::time_point& tp) {
+  const std::time_t time_value = std::chrono::system_clock::to_time_t(tp);
+  const std::tm tm_value = ToLocalTm(time_value);
+  std::ostringstream oss;
+  oss << std::put_time(&tm_value, "%Y-%m-%d");
+  return oss.str();
+}
+
+std::string FormatDateTime(const std::chrono::system_clock::time_point& tp) {
+  const std::time_t time_value = std::chrono::system_clock::to_time_t(tp);
+  const std::tm tm_value = ToLocalTm(time_value);
+  std::ostringstream oss;
+  oss << std::put_time(&tm_value, "%Y-%m-%d %H:%M:%S");
+  return oss.str();
+}
+
+uint64_t ToEpochMs(const std::chrono::system_clock::time_point& tp) {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          tp.time_since_epoch())
+          .count());
+}
+
+double ComputePercentile(std::vector<double> values, double percentile) {
+  if (values.empty()) {
+    return 0.0;
+  }
+  const double clamped = std::clamp(percentile, 0.0, 1.0);
+  const std::size_t index = static_cast<std::size_t>(
+      std::ceil(clamped * static_cast<double>(values.size() - 1)));
+  std::nth_element(values.begin(), values.begin() + index, values.end());
+  return values[index];
 }
 
 // 填充同步时间
@@ -153,6 +203,113 @@ GameManager::SceneConfig GameManager::BuildDefaultConfig() const {
   cfg.state_sync_rate = config_.state_sync_rate;
   cfg.move_speed = config_.move_speed;
   return cfg;
+}
+
+void GameManager::ResetPerfStats(Scene& scene) {
+  scene.perf.samples.clear();
+  scene.perf.total_ms = 0.0;
+  scene.perf.max_ms = 0.0;
+  scene.perf.min_ms = 0.0;
+  scene.perf.tick_count = 0;
+  scene.perf.start_time = std::chrono::system_clock::now();
+  scene.perf.end_time = scene.perf.start_time;
+}
+
+void GameManager::RecordPerfSampleLocked(Scene& scene, double elapsed_ms,
+                                         bool is_paused) {
+  PerfSample sample;
+  sample.tick = scene.tick;
+  sample.logic_ms = elapsed_ms;
+  sample.player_count = static_cast<uint32_t>(scene.players.size());
+  sample.enemy_count = static_cast<uint32_t>(scene.enemies.size());
+  sample.projectile_count = static_cast<uint32_t>(scene.projectiles.size());
+  sample.item_count = static_cast<uint32_t>(scene.items.size());
+  sample.is_paused = is_paused;
+
+  scene.perf.samples.push_back(sample);
+  scene.perf.tick_count += 1;
+  scene.perf.total_ms += elapsed_ms;
+  if (scene.perf.tick_count == 1) {
+    scene.perf.min_ms = elapsed_ms;
+    scene.perf.max_ms = elapsed_ms;
+  } else {
+    scene.perf.min_ms = std::min(scene.perf.min_ms, elapsed_ms);
+    scene.perf.max_ms = std::max(scene.perf.max_ms, elapsed_ms);
+  }
+}
+
+void GameManager::SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
+                                      uint32_t tick_rate,
+                                      uint32_t sync_rate,
+                                      double elapsed_seconds) {
+  const std::string date_dir = FormatDate(stats.end_time);
+  std::filesystem::path output_dir =
+      std::filesystem::current_path() / kPerfRootDir / date_dir;
+  std::error_code ec;
+  std::filesystem::create_directories(output_dir, ec);
+  if (ec) {
+    spdlog::warn("房间 {} 性能数据目录创建失败: {}", room_id, ec.message());
+    return;
+  }
+
+  const uint64_t epoch_ms = ToEpochMs(stats.end_time);
+  std::ostringstream file_name;
+  file_name << "room_" << room_id << "_run_" << epoch_ms << ".json";
+  const std::filesystem::path output_file = output_dir / file_name.str();
+
+  std::ofstream out(output_file, std::ios::out | std::ios::trunc);
+  if (!out.is_open()) {
+    spdlog::warn("房间 {} 性能数据文件打开失败: {}", room_id,
+                 output_file.string());
+    return;
+  }
+
+  const double avg_ms =
+      stats.tick_count > 0 ? stats.total_ms / stats.tick_count : 0.0;
+  std::vector<double> ms_values;
+  ms_values.reserve(stats.samples.size());
+  for (const auto& sample : stats.samples) {
+    ms_values.push_back(sample.logic_ms);
+  }
+  const double p95_ms = ComputePercentile(ms_values, 0.95);
+
+  out << "{\n";
+  out << "  \"room_id\": " << room_id << ",\n";
+  out << "  \"start_time\": \"" << FormatDateTime(stats.start_time)
+      << "\",\n";
+  out << "  \"end_time\": \"" << FormatDateTime(stats.end_time) << "\",\n";
+  out << "  \"elapsed_seconds\": " << std::fixed << std::setprecision(3)
+      << elapsed_seconds << ",\n";
+  out << "  \"tick_rate\": " << tick_rate << ",\n";
+  out << "  \"sync_rate\": " << sync_rate << ",\n";
+  out << "  \"tick_count\": " << stats.tick_count << ",\n";
+  out << "  \"avg_ms\": " << std::fixed << std::setprecision(3) << avg_ms
+      << ",\n";
+  out << "  \"min_ms\": " << std::fixed << std::setprecision(3)
+      << stats.min_ms << ",\n";
+  out << "  \"max_ms\": " << std::fixed << std::setprecision(3)
+      << stats.max_ms << ",\n";
+  out << "  \"p95_ms\": " << std::fixed << std::setprecision(3) << p95_ms
+      << ",\n";
+  out << "  \"samples\": [\n";
+  for (std::size_t i = 0; i < stats.samples.size(); ++i) {
+    const auto& sample = stats.samples[i];
+    out << "    {\"tick\": " << sample.tick << ", \"logic_ms\": "
+        << std::fixed << std::setprecision(3) << sample.logic_ms
+        << ", \"players\": " << sample.player_count << ", \"enemies\": "
+        << sample.enemy_count << ", \"projectiles\": "
+        << sample.projectile_count << ", \"items\": " << sample.item_count
+        << ", \"paused\": " << (sample.is_paused ? "true" : "false") << "}";
+    if (i + 1 < stats.samples.size()) {
+      out << ",";
+    }
+    out << "\n";
+  }
+  out << "  ]\n";
+  out << "}\n";
+  out.close();
+
+  spdlog::info("房间 {} 性能数据已保存: {}", room_id, output_file.string());
 }
 
 // 解析道具类型
@@ -276,6 +433,7 @@ void GameManager::StartGameLoop(uint32_t room_id) {
     scene.sync_accumulator = 0.0;
     scene.full_sync_elapsed = 0.0;
     scene.last_tick_time = std::chrono::steady_clock::now();
+    ResetPerfStats(scene);
   }
 
   const auto interval = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -454,6 +612,7 @@ lawnmower::SceneInfo GameManager::CreateScene(
   if (scene.rng_state == 0) {
     scene.rng_state = 1;
   }
+  ResetPerfStats(scene);
 
   scene.nav_cells_x = std::max(
       1,
@@ -671,6 +830,10 @@ void GameManager::ProcessItems(
     const auto clamped_pos = ClampToMap(scene.config, x, y);
 
     ItemRuntime runtime;
+    if (!scene.item_pool.empty()) {
+      runtime = std::move(scene.item_pool.back());
+      scene.item_pool.pop_back();
+    }
     runtime.item_id = scene.next_item_id++;
     runtime.type_id = type.type_id;
     runtime.effect_type = effect_type;
@@ -759,6 +922,10 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   std::vector<lawnmower::ProjectileState> projectile_spawns;
   std::vector<lawnmower::ProjectileDespawn> projectile_despawns;
   std::vector<lawnmower::ItemState> dropped_items;
+  std::optional<PerfStats> perf_to_save;
+  uint32_t perf_tick_rate = 0;
+  uint32_t perf_sync_rate = 0;
+  double perf_elapsed_seconds = 0.0;
   uint64_t event_tick = 0;
   uint32_t event_wave_id = 0;
 
@@ -773,6 +940,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     if (scene.game_over) {
       return;
     }
+    const auto perf_start = std::chrono::steady_clock::now();
     // 根据玩家运行时状态设置玩家高频状态报文(out)
     auto fill_player_high_freq = [](const PlayerRuntime& runtime,
                                     lawnmower::PlayerState* out) {
@@ -840,6 +1008,11 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
 
     if (scene.is_paused) {
       scene.tick += 1;
+      const auto perf_end = std::chrono::steady_clock::now();
+      const double perf_ms =
+          std::chrono::duration<double, std::milli>(perf_end - perf_start)
+              .count();
+      RecordPerfSampleLocked(scene, perf_ms, true);
       return;
     }
 
@@ -1157,9 +1330,28 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       }
       if (!items_to_remove.empty()) {
         for (const auto item_id : items_to_remove) {
-          scene.items.erase(item_id);
+          auto item_it = scene.items.find(item_id);
+          if (item_it == scene.items.end()) {
+            continue;
+          }
+          scene.item_pool.push_back(std::move(item_it->second));
+          scene.items.erase(item_it);
         }
       }
+    }
+
+    const auto perf_end = std::chrono::steady_clock::now();
+    const double perf_ms =
+        std::chrono::duration<double, std::milli>(perf_end - perf_start)
+            .count();
+    RecordPerfSampleLocked(scene, perf_ms, false);
+
+    if (game_over.has_value()) {
+      scene.perf.end_time = std::chrono::system_clock::now();
+      perf_tick_rate = scene.config.tick_rate;
+      perf_sync_rate = scene.config.state_sync_rate;
+      perf_elapsed_seconds = scene.elapsed;
+      perf_to_save = std::move(scene.perf);
     }
 
     event_wave_id = scene.wave_id;
@@ -1286,6 +1478,11 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     if (!RoomManager::Instance().FinishGame(room_id)) {
       spdlog::warn("房间 {} 未找到，无法重置游戏状态", room_id);
     }
+  }
+
+  if (perf_to_save.has_value()) {
+    SavePerfStatsToFile(room_id, *perf_to_save, perf_tick_rate,
+                        perf_sync_rate, perf_elapsed_seconds);
   }
 
   const bool has_sync_payload =
