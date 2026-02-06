@@ -85,6 +85,17 @@ std::string FormatDateTime(const std::chrono::system_clock::time_point& tp) {
   return oss.str();
 }
 
+std::filesystem::path GetServerRootDir() {
+  std::filesystem::path root = std::filesystem::path(__FILE__).parent_path();
+  for (int i = 0; i < 4; ++i) {
+    if (!root.has_parent_path()) {
+      break;
+    }
+    root = root.parent_path();
+  }
+  return root;
+}
+
 uint64_t ToEpochMs(const std::chrono::system_clock::time_point& tp) {
   return static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -243,8 +254,8 @@ void GameManager::SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
                                       uint32_t sync_rate,
                                       double elapsed_seconds) {
   const std::string date_dir = FormatDate(stats.end_time);
-  std::filesystem::path output_dir =
-      std::filesystem::current_path() / kPerfRootDir / date_dir;
+  const std::filesystem::path root_dir = GetServerRootDir();
+  std::filesystem::path output_dir = root_dir / kPerfRootDir / date_dir;
   std::error_code ec;
   std::filesystem::create_directories(output_dir, ec);
   if (ec) {
