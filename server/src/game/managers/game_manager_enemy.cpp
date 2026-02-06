@@ -420,10 +420,9 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     enemy.replan_elapsed += dt_seconds;
 
     const bool path_exhausted = enemy.path_index >= enemy.path.size();
-    const bool should_replan = target_changed ||
-                               enemy.replan_elapsed >=
-                                   kEnemyReplanIntervalSeconds ||
-                               path_exhausted;
+    const bool should_replan =
+        target_changed || enemy.replan_elapsed >= kEnemyReplanIntervalSeconds ||
+        path_exhausted;
 
     if (should_replan) {
       enemy.target_player_id = target_id;

@@ -1,5 +1,5 @@
-#!/usr/bin/env zsh
-# Format all C/C++ sources in the server folder using the cf alias from ~/.zshrc.
+#!/usr/bin/env bash
+# Format all C/C++ sources in the server folder using clang-format.
 
 set -e
 set -u
@@ -14,13 +14,21 @@ if [[ ! -d "$server_dir" ]]; then
   exit 1
 fi
 
-if [[ -f "$HOME/.zshrc" ]]; then
-  # Ensure cf alias is available.
-  source "$HOME/.zshrc"
+formatter_cmd=()
+if [[ -n "${CF_CMD:-}" ]]; then
+  read -r -a formatter_cmd <<< "$CF_CMD"
+else
+  for candidate in clang-format clang-format-18 clang-format-17 clang-format-16 \
+                   clang-format-15 clang-format-14 clang-format-13; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      formatter_cmd=("$candidate" "-i" "--style=file")
+      break
+    fi
+  done
 fi
 
-if ! alias cf >/dev/null 2>&1; then
-  echo "cf alias is not available. Please ensure it is defined in ~/.zshrc." >&2
+if (( ${#formatter_cmd[@]} == 0 )); then
+  echo "No formatter found. Install clang-format or set CF_CMD." >&2
   exit 1
 fi
 
@@ -44,8 +52,8 @@ if (( ${#files[@]} == 0 )); then
   exit 0
 fi
 
-echo "Formatting ${#files[@]} file(s) under $server_dir using cf..."
+echo "Formatting ${#files[@]} file(s) under $server_dir using ${formatter_cmd[*]}..."
 for file in "${files[@]}"; do
   echo "Formatting $file"
-  cf "$file"
+  "${formatter_cmd[@]}" "$file"
 done

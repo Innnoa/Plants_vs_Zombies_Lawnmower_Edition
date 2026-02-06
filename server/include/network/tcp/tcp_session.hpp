@@ -25,12 +25,15 @@ class TcpSession : public std::enable_shared_from_this<TcpSession> {
   void start();
   void SendProto(lawnmower::MessageType type,
                  const google::protobuf::Message& message);
+  void SendFramedPacket(const std::shared_ptr<const std::string>& framed,
+                        lawnmower::MessageType type, std::size_t payload_len,
+                        std::size_t body_len);
   static bool VerifyToken(uint32_t player_id, std::string_view token);
+  static void RevokeToken(uint32_t player_id);
 
  private:
   static std::string GenerateToken();
   static void RegisterToken(uint32_t player_id, std::string token);
-  static void RevokeToken(uint32_t player_id);
 
   void read_header();
   void read_body(std::size_t length);
@@ -38,6 +41,27 @@ class TcpSession : public std::enable_shared_from_this<TcpSession> {
   void handle_packet(const lawnmower::Packet& packet);
   void send_packet(const lawnmower::Packet& packet);
   void handle_disconnect();
+  enum class SessionCloseReason {
+    kNetworkError = 0,
+    kClientRequest = 1,
+  };
+  void CloseSession(SessionCloseReason reason);
+
+  void HandleLogin(const std::string& payload);
+  void HandleHeartbeat(const std::string& payload);
+  void HandleReconnectRequest(const std::string& payload);
+  void HandleCreateRoom(const std::string& payload);
+  void HandleGetRoomList(const std::string& payload);
+  void HandleJoinRoom(const std::string& payload);
+  void HandleLeaveRoom(const std::string& payload);
+  void HandleSetReady(const std::string& payload);
+  void HandleRequestQuit();
+  void HandleStartGame(const std::string& payload);
+  void HandlePlayerInput(const std::string& payload);
+  void HandleUpgradeRequestAck(const std::string& payload);
+  void HandleUpgradeOptionsAck(const std::string& payload);
+  void HandleUpgradeSelect(const std::string& payload);
+  void HandleUpgradeRefreshRequest(const std::string& payload);
 
   tcp::socket socket_;
   std::array<char, sizeof(uint32_t)> length_buffer_{};

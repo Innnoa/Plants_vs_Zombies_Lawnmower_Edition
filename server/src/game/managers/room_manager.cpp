@@ -423,6 +423,70 @@ std::optional<uint32_t> RoomManager::GetPlayerRoom(uint32_t player_id) const {
   return it->second;
 }
 
+bool RoomManager::MarkPlayerDisconnected(uint32_t player_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto mapping = player_room_.find(player_id);
+  if (mapping == player_room_.end()) {
+    return false;
+  }
+
+  auto room_it = rooms_.find(mapping->second);
+  if (room_it == rooms_.end()) {
+    player_room_.erase(mapping);
+    return false;
+  }
+
+  Room& room = room_it->second;
+  const auto player_it = std::find_if(room.players.begin(), room.players.end(),
+                                      [player_id](const RoomPlayer& player) {
+                                        return player.player_id == player_id;
+                                      });
+  if (player_it == room.players.end()) {
+    return false;
+  }
+
+  player_it->session.reset();
+  return true;
+}
+
+bool RoomManager::AttachSession(uint32_t player_id, uint32_t room_id,
+                                std::weak_ptr<TcpSession> session,
+                                bool* out_is_playing,
+                                std::string* out_player_name) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto mapping = player_room_.find(player_id);
+  if (mapping == player_room_.end()) {
+    return false;
+  }
+  if (room_id != 0 && mapping->second != room_id) {
+    return false;
+  }
+
+  auto room_it = rooms_.find(mapping->second);
+  if (room_it == rooms_.end()) {
+    player_room_.erase(mapping);
+    return false;
+  }
+
+  Room& room = room_it->second;
+  auto player_it = std::find_if(room.players.begin(), room.players.end(),
+                                [player_id](const RoomPlayer& player) {
+                                  return player.player_id == player_id;
+                                });
+  if (player_it == room.players.end()) {
+    return false;
+  }
+
+  player_it->session = std::move(session);
+  if (out_is_playing != nullptr) {
+    *out_is_playing = room.is_playing;
+  }
+  if (out_player_name != nullptr) {
+    *out_player_name = player_it->player_name;
+  }
+  return true;
+}
+
 // 更新房间基本信息
 RoomManager::RoomUpdate RoomManager::BuildRoomUpdateLocked(
     const Room& room) const {

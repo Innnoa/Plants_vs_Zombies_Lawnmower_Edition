@@ -10,9 +10,17 @@ struct ServerConfig {
   uint32_t max_players_per_room = 4;
   uint32_t tick_rate = 60;
   uint32_t state_sync_rate = 30;
+  // 动态同步参数（空闲时放慢同步）
+  float sync_idle_light_seconds = 2.0f;  // 低活跃阈值（秒）
+  float sync_idle_heavy_seconds = 5.0f;  // 长时间空闲阈值（秒）
+  float sync_scale_light = 1.5f;         // 轻度放大倍数
+  float sync_scale_medium = 2.0f;        // 中度放大倍数
+  float sync_scale_idle = 4.0f;          // 长时间空闲放大倍数
   uint32_t map_width = 2000;
   uint32_t map_height = 2000;
   float move_speed = 200.0f;
+  // 预测配套（服务器侧历史窗口）
+  float prediction_history_seconds = 2.0f;  // 历史缓冲窗口（秒）
   // 刷怪/难度参数（用于快速调参，不用重新编译）
   float wave_interval_seconds = 15.0f;       // 波次增长间隔（秒）
   float enemy_spawn_base_per_second = 1.0f;  // 基础刷怪速率（只要有人存活）
@@ -32,7 +40,8 @@ struct ServerConfig {
   float projectile_attack_min_interval_seconds =
       0.05f;  // 射速上限（最小间隔，秒）
   float projectile_attack_max_interval_seconds =
-      2.0f;  // 射速下限（最大间隔，秒）
+      2.0f;                               // 射速下限（最大间隔，秒）
+  float reconnect_grace_seconds = 15.0f;  // 断线重连宽限期（秒）
   std::string log_level = "info";
 };
 

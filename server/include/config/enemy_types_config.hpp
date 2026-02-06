@@ -15,7 +15,7 @@ struct EnemyTypeConfig {
   float move_speed = 60.0f;
   int32_t damage = 0;
   int32_t exp_reward = 10;
-  uint32_t drop_chance = 30;  // 掉落概率（0-100）
+  uint32_t drop_chance = 30;          // 掉落概率（0-100）
   float attack_enter_radius = 34.0f;  // 进入攻击状态的距离阈值（像素）
   float attack_exit_radius =
       40.0f;  // 退出攻击状态的距离阈值（像素，需 >= enter）

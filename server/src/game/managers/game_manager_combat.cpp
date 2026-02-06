@@ -3,6 +3,7 @@
 #include <limits>
 #include <numbers>
 #include <spdlog/spdlog.h>
+#include <string_view>
 
 #include "game/managers/game_manager.hpp"
 
@@ -23,6 +24,20 @@ constexpr float kProjectileMouthOffsetSide = 36.0f;
 // 默认射速 clamp（若配置缺失/非法则回退）
 constexpr double kMinAttackIntervalSeconds = 0.05;  // 射速上限（最小间隔，秒）
 constexpr double kMaxAttackIntervalSeconds = 2.0;   // 射速下限（最大间隔，秒）
+
+// 道具效果类型映射（与 game_manager.cpp 保持一致）
+lawnmower::ItemEffectType ResolveItemEffectType(std::string_view effect) {
+  if (effect == "heal") {
+    return lawnmower::ITEM_EFFECT_HEAL;
+  }
+  if (effect == "exp") {
+    return lawnmower::ITEM_EFFECT_EXP;
+  }
+  if (effect == "speed") {
+    return lawnmower::ITEM_EFFECT_SPEED;
+  }
+  return lawnmower::ITEM_EFFECT_NONE;
+}
 
 float DistanceSq(float ax, float ay, float bx, float by) {
   const float dx = ax - bx;
@@ -79,8 +94,7 @@ void GameManager::ProcessCombatAndProjectiles(
     std::optional<lawnmower::S2C_GameOver>* game_over,
     std::vector<lawnmower::ProjectileState>* projectile_spawns,
     std::vector<lawnmower::ProjectileDespawn>* projectile_despawns,
-    std::vector<lawnmower::ItemState>* dropped_items,
-    bool* has_dirty) {
+    std::vector<lawnmower::ItemState>* dropped_items, bool* has_dirty) {
   if (player_hurts == nullptr || enemy_dieds == nullptr ||
       level_ups == nullptr || enemy_attack_states == nullptr ||
       game_over == nullptr || projectile_spawns == nullptr ||
@@ -155,8 +169,9 @@ void GameManager::ProcessCombatAndProjectiles(
   const double tick_interval_seconds =
       scene.tick_interval.count() > 0.0
           ? scene.tick_interval.count()
-          : (config_.tick_rate > 0 ? 1.0 / static_cast<double>(config_.tick_rate)
-                                   : 1.0 / 60.0);
+          : (config_.tick_rate > 0
+                 ? 1.0 / static_cast<double>(config_.tick_rate)
+                 : 1.0 / 60.0);
   const bool allow_catchup =
       dt_seconds <= tick_interval_seconds * 1.5;  // 轻微抖动允许补发
 
@@ -174,10 +189,10 @@ void GameManager::ProcessCombatAndProjectiles(
   };
 
   auto compute_projectile_origin =
-      [&](const PlayerRuntime& player, float facing_dir_x)
-      -> std::pair<float, float> {
-    const float side =
-        facing_dir_x >= 0.0f ? kProjectileMouthOffsetSide : -kProjectileMouthOffsetSide;
+      [&](const PlayerRuntime& player,
+          float facing_dir_x) -> std::pair<float, float> {
+    const float side = facing_dir_x >= 0.0f ? kProjectileMouthOffsetSide
+                                            : -kProjectileMouthOffsetSide;
     return {player.state.position().x() + side,
             player.state.position().y() + kProjectileMouthOffsetUp};
   };
@@ -253,17 +268,18 @@ void GameManager::ProcessCombatAndProjectiles(
   };
 
   // 低频射弹调试日志
-  auto log_projectile_spawn =
-      [&](PlayerRuntime& player, uint32_t projectile_id,
-          const EnemyRuntime& target, float origin_x, float origin_y,
-          float dir_x, float dir_y, float rotation) {
+  auto log_projectile_spawn = [&](PlayerRuntime& player, uint32_t projectile_id,
+                                  const EnemyRuntime& target, float origin_x,
+                                  float origin_y, float dir_x, float dir_y,
+                                  float rotation) {
     if (scene.tick < player.last_projectile_spawn_log_tick +
                          kProjectileSpawnLogIntervalTicks) {
       return;
     }
     player.last_projectile_spawn_log_tick = scene.tick;
     spdlog::debug(
-        "Projectile spawn: tick={} player={} projectile={} origin=({:.2f},{:.2f}) "
+        "Projectile spawn: tick={} player={} projectile={} "
+        "origin=({:.2f},{:.2f}) "
         "target={} target_pos=({:.2f},{:.2f}) dir=({:.3f},{:.3f}) rot={:.2f}",
         scene.tick, player.state.player_id(), projectile_id, origin_x, origin_y,
         target.state.enemy_id(), target.state.position().x(),
@@ -462,8 +478,8 @@ void GameManager::ProcessCombatAndProjectiles(
     if (type_id == 0) {
       return;
     }
-    spawn_drop_item(enemy.state.position().x(),
-                    enemy.state.position().y(), type_id);
+    spawn_drop_item(enemy.state.position().x(), enemy.state.position().y(),
+                    type_id);
   };
 
   // 开火：attack_speed 控制射速；dt 被 clamp 后最多补几发，避免掉帧时 DPS
@@ -524,8 +540,7 @@ void GameManager::ProcessCombatAndProjectiles(
     proj.remaining_seconds -= dt_seconds;
     const float prev_x = proj.x;
     const float prev_y = proj.y;
-    const float delta_seconds =
-        static_cast<float>(std::max(0.0, dt_seconds));
+    const float delta_seconds = static_cast<float>(std::max(0.0, dt_seconds));
     const float next_x = prev_x + proj.dir_x * proj.speed * delta_seconds;
     const float next_y = prev_y + proj.dir_y * proj.speed * delta_seconds;
     proj.x = next_x;

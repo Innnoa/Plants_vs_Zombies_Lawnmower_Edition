@@ -1,26 +1,32 @@
 #include "game/managers/game_manager.hpp"
 
 #include <algorithm>
+#if defined(_WIN32)
+#include <winsock2.h>
+#else
+#include <arpa/inet.h>
+#endif
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <numbers>
 #include <span>
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <string_view>
-#include <spdlog/spdlog.h>
 
 #include "network/tcp/tcp_session.hpp"
 #include "network/udp/udp_server.hpp"
 
 namespace {
-constexpr float kSpawnRadius = 120.0f;            // 生成半径
-constexpr int32_t kDefaultMaxHealth = 100;  // 默认最大血量
-constexpr uint32_t kDefaultAttack = 10;           // 默认攻击力
-constexpr uint32_t kDefaultExpToNext = 100;       // 默认升级所需经验
+constexpr float kSpawnRadius = 120.0f;         // 生成半径
+constexpr int32_t kDefaultMaxHealth = 100;     // 默认最大血量
+constexpr uint32_t kDefaultAttack = 10;        // 默认攻击力
+constexpr uint32_t kDefaultExpToNext = 100;    // 默认升级所需经验
 constexpr std::size_t kMaxPendingInputs = 64;  // 单个玩家输入队列的最大缓存条数
 constexpr float kDirectionEpsilonSq =
     1e-6f;  // 方向向量长度平方的极小阈值，小于此视为无效输入
@@ -28,7 +34,7 @@ constexpr float kMaxDirectionLengthSq = 1.21f;    // 方向向量长度平方的
 constexpr float kDeltaPositionEpsilon = 1e-4f;    // delta 位置/朝向变化阈值
 constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
 constexpr uint32_t kUpgradeOptionCount = 3;       // 升级选项数量
-constexpr const char* kPerfRootDir = "server_metrics"; // 性能数据根目录
+constexpr const char* kPerfRootDir = "server_metrics";  // 性能数据根目录
 
 lawnmower::ItemEffectType ResolveItemEffectType(std::string_view effect) {
   if (effect == "heal") {
@@ -147,35 +153,61 @@ void FillDeltaTiming(uint32_t room_id, uint64_t tick,
 }
 
 // 向各个会话发送同步消息
-void SendSyncToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
-                        const lawnmower::S2C_GameStateSync& sync) {
+struct FramedPacket {
+  lawnmower::MessageType type = lawnmower::MessageType::MSG_UNKNOWN;
+  std::shared_ptr<const std::string> framed;
+  std::size_t payload_len = 0;
+  std::size_t body_len = 0;
+};
+
+FramedPacket BuildFramedPacket(lawnmower::MessageType type,
+                               const google::protobuf::Message& message) {
+  lawnmower::Packet packet;
+  packet.set_msg_type(type);
+  const std::string payload = message.SerializeAsString();
+  packet.set_payload(payload);
+  const std::string body = packet.SerializeAsString();
+  const uint32_t net_len = htonl(static_cast<uint32_t>(body.size()));
+  std::string framed;
+  framed.resize(sizeof(net_len) + body.size());
+  std::memcpy(framed.data(), &net_len, sizeof(net_len));
+  std::memcpy(framed.data() + sizeof(net_len), body.data(), body.size());
+  return {type, std::make_shared<std::string>(std::move(framed)),
+          payload.size(), body.size()};
+}
+
+void SendFramedToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
+                          const FramedPacket& packet) {
   for (const auto& weak_session : sessions) {
     if (auto session = weak_session.lock()) {
-      session->SendProto(lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
+      session->SendFramedPacket(packet.framed, packet.type, packet.payload_len,
+                                packet.body_len);
     }
   }
+}
+
+// 向各个会话发送同步消息
+void SendSyncToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
+                        const lawnmower::S2C_GameStateSync& sync) {
+  const auto packet =
+      BuildFramedPacket(lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
+  SendFramedToSessions(sessions, packet);
 }
 
 // 向各个会话发送增量同步消息
 void SendDeltaToSessions(std::span<const std::weak_ptr<TcpSession>> sessions,
                          const lawnmower::S2C_GameStateDeltaSync& sync) {
-  for (const auto& weak_session : sessions) {
-    if (auto session = weak_session.lock()) {
-      session->SendProto(lawnmower::MessageType::MSG_S2C_GAME_STATE_DELTA_SYNC,
-                         sync);
-    }
-  }
+  const auto packet = BuildFramedPacket(
+      lawnmower::MessageType::MSG_S2C_GAME_STATE_DELTA_SYNC, sync);
+  SendFramedToSessions(sessions, packet);
 }
 
 template <typename T>
 void BroadcastToRoom(uint32_t room_id, lawnmower::MessageType type,
                      const T& message) {
   const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
-  for (const auto& weak_session : sessions) {
-    if (auto session = weak_session.lock()) {
-      session->SendProto(type, message);
-    }
-  }
+  const auto packet = BuildFramedPacket(type, message);
+  SendFramedToSessions(sessions, packet);
 }
 }  // namespace
 
@@ -225,6 +257,82 @@ void GameManager::ResetPerfStats(Scene& scene) {
   scene.perf.end_time = scene.perf.start_time;
 }
 
+std::size_t GameManager::GetPredictionHistoryLimit(const Scene& scene) const {
+  double tick_interval = scene.tick_interval.count();
+  if (tick_interval <= 0.0) {
+    tick_interval = config_.tick_rate > 0
+                        ? 1.0 / static_cast<double>(config_.tick_rate)
+                        : 1.0 / 60.0;
+  }
+  const double seconds = std::max(0.1f, config_.prediction_history_seconds);
+  const std::size_t limit =
+      static_cast<std::size_t>(std::ceil(seconds / tick_interval));
+  return std::max<std::size_t>(1, limit);
+}
+
+void GameManager::RecordPlayerHistoryLocked(Scene& scene) {
+  const std::size_t limit = GetPredictionHistoryLimit(scene);
+  for (auto& [_, runtime] : scene.players) {
+    PlayerRuntime::HistoryEntry entry;
+    entry.tick = scene.tick;
+    entry.position = runtime.state.position();
+    entry.rotation = runtime.state.rotation();
+    entry.health = runtime.state.health();
+    entry.is_alive = runtime.state.is_alive();
+    entry.last_processed_input_seq = runtime.last_input_seq;
+    runtime.history.push_back(entry);
+    while (runtime.history.size() > limit) {
+      runtime.history.pop_front();
+    }
+  }
+}
+
+void GameManager::CollectExpiredPlayersLocked(
+    const Scene& scene, double grace_seconds,
+    std::vector<uint32_t>* out) const {
+  if (out == nullptr) {
+    return;
+  }
+  if (grace_seconds < 0.0) {
+    return;
+  }
+  const auto now_steady = std::chrono::steady_clock::now();
+  for (const auto& [player_id, runtime] : scene.players) {
+    if (!runtime.is_connected) {
+      const double disconnected_seconds =
+          std::chrono::duration<double>(now_steady - runtime.disconnected_at)
+              .count();
+      if (disconnected_seconds >= grace_seconds) {
+        out->push_back(player_id);
+      }
+    }
+  }
+}
+
+bool GameManager::HandlePausedTickLocked(
+    Scene& scene, double dt_seconds,
+    const std::chrono::steady_clock::time_point& perf_start) {
+  if (!scene.is_paused) {
+    return false;
+  }
+  scene.tick += 1;
+  const auto perf_end = std::chrono::steady_clock::now();
+  const double perf_ms =
+      std::chrono::duration<double, std::milli>(perf_end - perf_start).count();
+  RecordPerfSampleLocked(scene, perf_ms, dt_seconds, true, 0, 0);
+  return true;
+}
+
+void GameManager::CleanupExpiredPlayers(
+    const std::vector<uint32_t>& expired_players) {
+  for (const uint32_t player_id : expired_players) {
+    spdlog::info("玩家 {} 断线超时，移除", player_id);
+    RoomManager::Instance().RemovePlayer(player_id);
+    RemovePlayer(player_id);
+    TcpSession::RevokeToken(player_id);
+  }
+}
+
 void GameManager::RecordPerfSampleLocked(Scene& scene, double elapsed_ms,
                                          double dt_seconds, bool is_paused,
                                          uint32_t delta_items_size,
@@ -254,8 +362,7 @@ void GameManager::RecordPerfSampleLocked(Scene& scene, double elapsed_ms,
 }
 
 void GameManager::SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
-                                      uint32_t tick_rate,
-                                      uint32_t sync_rate,
+                                      uint32_t tick_rate, uint32_t sync_rate,
                                       double elapsed_seconds) {
   const std::string date_dir = FormatDate(stats.end_time);
   const std::filesystem::path root_dir = GetServerRootDir();
@@ -290,8 +397,7 @@ void GameManager::SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
 
   out << "{\n";
   out << "  \"room_id\": " << room_id << ",\n";
-  out << "  \"start_time\": \"" << FormatDateTime(stats.start_time)
-      << "\",\n";
+  out << "  \"start_time\": \"" << FormatDateTime(stats.start_time) << "\",\n";
   out << "  \"end_time\": \"" << FormatDateTime(stats.end_time) << "\",\n";
   out << "  \"elapsed_seconds\": " << std::fixed << std::setprecision(3)
       << elapsed_seconds << ",\n";
@@ -300,17 +406,17 @@ void GameManager::SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
   out << "  \"tick_count\": " << stats.tick_count << ",\n";
   out << "  \"avg_ms\": " << std::fixed << std::setprecision(3) << avg_ms
       << ",\n";
-  out << "  \"min_ms\": " << std::fixed << std::setprecision(3)
-      << stats.min_ms << ",\n";
-  out << "  \"max_ms\": " << std::fixed << std::setprecision(3)
-      << stats.max_ms << ",\n";
+  out << "  \"min_ms\": " << std::fixed << std::setprecision(3) << stats.min_ms
+      << ",\n";
+  out << "  \"max_ms\": " << std::fixed << std::setprecision(3) << stats.max_ms
+      << ",\n";
   out << "  \"p95_ms\": " << std::fixed << std::setprecision(3) << p95_ms
       << ",\n";
   out << "  \"samples\": [\n";
   for (std::size_t i = 0; i < stats.samples.size(); ++i) {
     const auto& sample = stats.samples[i];
-    out << "    {\"tick\": " << sample.tick << ", \"logic_ms\": "
-        << std::fixed << std::setprecision(3) << sample.logic_ms
+    out << "    {\"tick\": " << sample.tick << ", \"logic_ms\": " << std::fixed
+        << std::setprecision(3) << sample.logic_ms
         << ", \"dt_seconds\": " << std::fixed << std::setprecision(6)
         << sample.dt_seconds << ", \"players\": " << sample.player_count
         << ", \"enemies\": " << sample.enemy_count
@@ -349,9 +455,9 @@ const ItemTypeConfig& GameManager::ResolveItemType(uint32_t type_id) const {
     }
   }
 
-  const uint32_t default_id =
-      items_config_.default_type_id > 0 ? items_config_.default_type_id
-                                        : kFallback.type_id;
+  const uint32_t default_id = items_config_.default_type_id > 0
+                                  ? items_config_.default_type_id
+                                  : kFallback.type_id;
   auto it = items_config_.items.find(default_id);
   if (it != items_config_.items.end()) {
     return it->second;
@@ -450,8 +556,10 @@ void GameManager::StartGameLoop(uint32_t room_id) {
     scene.loop_timer = timer;
     scene.tick = 0;
     scene.sync_accumulator = 0.0;
+    scene.sync_idle_elapsed = 0.0;
     scene.full_sync_elapsed = 0.0;
     scene.last_tick_time = std::chrono::steady_clock::now();
+    scene.dynamic_sync_interval = scene.sync_interval;
     ResetPerfStats(scene);
   }
 
@@ -822,8 +930,7 @@ void GameManager::ProcessItems(Scene& scene, bool* has_dirty) {
         if (heal_value > 0) {
           const int32_t prev_hp = player.state.health();
           const int32_t max_hp = player.state.max_health();
-          const int32_t next_hp =
-              std::min(max_hp, prev_hp + heal_value);
+          const int32_t next_hp = std::min(max_hp, prev_hp + heal_value);
           if (next_hp != prev_hp) {
             player.state.set_health(next_hp);
             mark_player_low_freq_dirty(player);
@@ -846,8 +953,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
                                    double tick_interval_seconds) {
   lawnmower::S2C_GameStateSync sync;
   lawnmower::S2C_GameStateDeltaSync delta;
-  bool force_full_sync = false; // 强制全量同步
-  bool should_sync = false; // 需要同步
+  bool force_full_sync = false;  // 强制全量同步
+  bool should_sync = false;      // 需要同步
   bool built_sync = false;
   bool built_delta = false;
 
@@ -860,6 +967,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   std::vector<lawnmower::ProjectileState> projectile_spawns;
   std::vector<lawnmower::ProjectileDespawn> projectile_despawns;
   std::vector<lawnmower::ItemState> dropped_items;
+  std::vector<uint32_t> expired_players;
+  bool paused_only = false;
   std::optional<PerfStats> perf_to_save;
   uint32_t perf_tick_rate = 0;
   uint32_t perf_sync_rate = 0;
@@ -870,7 +979,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   uint32_t event_wave_id = 0;
 
   {
-    std::lock_guard<std::mutex> lock(mutex_); // 互斥锁
+    std::lock_guard<std::mutex> lock(mutex_);  // 互斥锁
     auto scene_it = scenes_.find(room_id);
     if (scene_it == scenes_.end()) {
       return;
@@ -906,7 +1015,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         // 全量状态
         *out = runtime.state;
         out->set_last_processed_input_seq(runtime.last_input_seq);
-      } else { 
+      } else {
         // 只填充高频字段
         fill_player_high_freq(runtime, out);
       }
@@ -946,363 +1055,432 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     const double dt_seconds =
         elapsed_seconds > 0.0 ? elapsed_seconds : tick_interval_seconds;
 
-    if (scene.is_paused) {
+    const double grace_seconds =
+        std::max(0.0, static_cast<double>(config_.reconnect_grace_seconds));
+    CollectExpiredPlayersLocked(scene, grace_seconds, &expired_players);
+
+    if (HandlePausedTickLocked(scene, dt_seconds, perf_start)) {
+      paused_only = true;
+    } else {
+      bool has_dirty = false;
+
+      for (auto& [_, runtime] : scene.players) {
+        runtime.attack_cooldown_seconds -= dt_seconds;
+        if (!runtime.is_connected) {
+          runtime.pending_inputs.clear();
+          runtime.wants_attacking = false;
+          runtime.has_attack_dir = false;
+          continue;
+        }
+        bool moved = false;
+        bool consumed_input = false;
+        double processed_seconds = 0.0;
+
+        // 消耗输入队列，尽量在当前 tick 内吃掉完整的输入 delta（上限
+        // kMaxTickDeltaSeconds）
+        while (!runtime.pending_inputs.empty() &&
+               processed_seconds < kMaxTickDeltaSeconds) {
+          auto& input = runtime.pending_inputs.front();
+          const float dx_raw = input.move_direction().x();
+          const float dy_raw = input.move_direction().y();
+          const float len_sq = dx_raw * dx_raw + dy_raw * dy_raw;
+
+          const double reported_dt =
+              input.delta_ms() > 0 ? std::clamp(input.delta_ms() / 1000.0, 0.0,
+                                                kMaxInputDeltaSeconds)
+                                   : tick_interval_seconds;
+          const double remaining_budget =
+              kMaxTickDeltaSeconds - processed_seconds;
+          const double input_dt = std::min(reported_dt, remaining_budget);
+
+          const bool can_move = runtime.state.is_alive();
+          if (len_sq >= kDirectionEpsilonSq &&
+              len_sq <= kMaxDirectionLengthSq && input_dt > 0.0 && can_move) {
+            const float len = std::sqrt(len_sq);
+            const float dx = dx_raw / len;
+            const float dy = dy_raw / len;
+
+            const float speed = runtime.state.move_speed() > 0.0f
+                                    ? runtime.state.move_speed()
+                                    : scene.config.move_speed;
+
+            auto* position = runtime.state.mutable_position();
+            const auto new_pos = ClampToMap(
+                scene.config,
+                position->x() + dx * speed * static_cast<float>(input_dt),
+                position->y() + dy * speed * static_cast<float>(input_dt));
+            const float new_x = new_pos.x();
+            const float new_y = new_pos.y();
+
+            if (std::abs(new_x - position->x()) > 1e-4f ||
+                std::abs(new_y - position->y()) > 1e-4f) {
+              moved = true;
+            }
+
+            position->set_x(new_x);
+            position->set_y(new_y);
+            runtime.state.set_rotation(DegreesFromDirection(dx, dy));
+            processed_seconds += input_dt;
+            consumed_input = true;
+          } else {
+            // 无效方向也要前进时间，防止队列阻塞
+            processed_seconds += input_dt;
+            consumed_input = true;
+          }
+
+          // 更新序号（即便被拆分）
+          if (input.input_seq() > runtime.last_input_seq) {
+            runtime.last_input_seq = input.input_seq();
+          }
+
+          const double remaining_dt = reported_dt - input_dt;
+          if (remaining_dt > 1e-5) {
+            // 当前 tick 只消耗了一部分，保留剩余 delta_ms 在队首
+            const uint32_t remaining_ms = static_cast<uint32_t>(std::clamp(
+                std::llround(remaining_dt * 1000.0), 1LL,
+                static_cast<long long>(kMaxInputDeltaSeconds * 1000.0)));
+            input.set_delta_ms(remaining_ms);
+            break;
+          } else {
+            runtime.pending_inputs.pop_front();
+          }
+        }
+
+        if (moved || consumed_input || runtime.low_freq_dirty) {
+          runtime.dirty = true;
+        }
+        has_dirty = has_dirty || runtime.dirty || runtime.low_freq_dirty;
+      }
+
+      scene.elapsed += dt_seconds;
+      ProcessEnemies(scene, dt_seconds, &has_dirty);
+      ProcessItems(scene, &has_dirty);
+
+      // -----------------
+      // 战斗：玩家攻击 + 敌人接触伤害
+      // -----------------
+
+      ProcessCombatAndProjectiles(
+          scene, dt_seconds, &player_hurts, &enemy_dieds, &enemy_attack_states,
+          &level_ups, &game_over, &projectile_spawns, &projectile_despawns,
+          &dropped_items, &has_dirty);
+      if (scene.upgrade_stage == UpgradeStage::kNone) {
+        uint32_t candidate_player_id = 0;
+        for (const auto& [player_id, runtime] : scene.players) {
+          if (runtime.pending_upgrade_count > 0) {
+            candidate_player_id = player_id;
+            break;
+          }
+        }
+        if (candidate_player_id != 0) {
+          lawnmower::S2C_UpgradeRequest request;
+          if (BeginUpgradeLocked(room_id, scene, candidate_player_id,
+                                 lawnmower::UPGRADE_REASON_LEVEL_UP,
+                                 &request)) {
+            upgrade_request = request;
+          }
+        }
+      }
+
+      RecordPlayerHistoryLocked(scene);
+
+      uint32_t pending_dirty_players = 0;
+      for (const auto& [_, runtime] : scene.players) {
+        if (runtime.dirty || runtime.low_freq_dirty) {
+          pending_dirty_players += 1;
+        }
+      }
+      uint32_t pending_dirty_enemies = 0;
+      for (const auto& [_, enemy] : scene.enemies) {
+        if (enemy.dirty || enemy.force_sync_left > 0) {
+          pending_dirty_enemies += 1;
+        }
+      }
+      uint32_t pending_dirty_items = 0;
+      for (const auto& [_, item] : scene.items) {
+        if (item.dirty) {
+          pending_dirty_items += 1;
+        }
+      }
+
+      const bool has_priority_events =
+          !projectile_spawns.empty() || !projectile_despawns.empty() ||
+          !dropped_items.empty() || !player_hurts.empty() ||
+          !enemy_attack_states.empty() || !enemy_dieds.empty() ||
+          !level_ups.empty() || game_over.has_value() ||
+          upgrade_request.has_value();
+
       scene.tick += 1;
+      scene.sync_accumulator += dt_seconds;
+      scene.full_sync_elapsed += dt_seconds;
+      const double base_sync_interval = scene.sync_interval.count() > 0.0
+                                            ? scene.sync_interval.count()
+                                            : tick_interval_seconds;
+      const double idle_light_seconds =
+          std::max(0.0f, config_.sync_idle_light_seconds);
+      const double idle_heavy_seconds =
+          std::max(idle_light_seconds,
+                   static_cast<double>(config_.sync_idle_heavy_seconds));
+      const double scale_light = std::max(1.0f, config_.sync_scale_light);
+      const double scale_medium =
+          std::max(scale_light, static_cast<double>(config_.sync_scale_medium));
+      const double scale_idle =
+          std::max(scale_medium, static_cast<double>(config_.sync_scale_idle));
+      if (has_priority_events || pending_dirty_players > 0) {
+        scene.sync_idle_elapsed = 0.0;
+        scene.dynamic_sync_interval =
+            std::chrono::duration<double>(base_sync_interval);
+      } else {
+        scene.sync_idle_elapsed += dt_seconds;
+        double scale = 1.0;
+        if (pending_dirty_enemies > 0 || pending_dirty_items > 0) {
+          scale = scene.sync_idle_elapsed >= idle_light_seconds ? scale_medium
+                                                                : scale_light;
+        } else {
+          scale = scene.sync_idle_elapsed >= idle_heavy_seconds ? scale_idle
+                                                                : scale_medium;
+        }
+        scene.dynamic_sync_interval =
+            std::chrono::duration<double>(base_sync_interval * scale);
+      }
+
+      const double sync_interval = scene.dynamic_sync_interval.count() > 0.0
+                                       ? scene.dynamic_sync_interval.count()
+                                       : base_sync_interval;
+
+      while (scene.sync_accumulator >= sync_interval) {
+        scene.sync_accumulator -= sync_interval;
+        should_sync = true;
+      }
+
+      const double full_sync_interval_seconds =
+          scene.full_sync_interval.count() > 0.0
+              ? scene.full_sync_interval.count()
+              : tick_interval_seconds *
+                    static_cast<double>(kFullSyncIntervalTicks);
+
+      force_full_sync = full_sync_interval_seconds > 0.0 &&
+                        scene.full_sync_elapsed >= full_sync_interval_seconds;
+
+      const bool want_sync = should_sync || force_full_sync;
+      const bool need_sync = want_sync && (force_full_sync || has_dirty);
+      if (need_sync) {
+        perf_delta_items_size = 0;
+        perf_sync_items_size = 0;
+        std::vector<uint32_t> items_to_remove;
+        if (force_full_sync) {
+          FillSyncTiming(room_id, scene.tick, &sync);
+          for (auto& [_, runtime] : scene.players) {
+            fill_player_for_sync(runtime, sync.add_players());
+            update_player_last_sync(runtime);
+            runtime.dirty = false;
+            runtime.low_freq_dirty = false;
+          }
+          for (auto& [_, enemy] : scene.enemies) {
+            auto* out = sync.add_enemies();
+            *out = enemy.state;
+            update_enemy_last_sync(enemy);
+            enemy.dirty = false;
+            if (enemy.force_sync_left > 0) {
+              enemy.force_sync_left -= 1;
+            }
+          }
+          for (auto& [_, item] : scene.items) {
+            if (item.is_picked) {
+              items_to_remove.push_back(item.item_id);
+              continue;
+            }
+            auto* out = sync.add_items();
+            out->set_item_id(item.item_id);
+            out->set_type_id(item.type_id);
+            out->set_is_picked(item.is_picked);
+            out->set_effect_type(item.effect_type);
+            out->mutable_position()->set_x(item.x);
+            out->mutable_position()->set_y(item.y);
+            item.dirty = false;
+          }
+          perf_sync_items_size = static_cast<uint32_t>(sync.items_size());
+          built_sync = true;
+          scene.full_sync_elapsed = 0.0;
+        } else {
+          bool sync_inited = false;
+          bool delta_inited = false;
+
+          for (auto& [_, runtime] : scene.players) {
+            if (!runtime.dirty && !runtime.low_freq_dirty) {
+              continue;
+            }
+            if (runtime.low_freq_dirty) {
+              if (!sync_inited) {
+                FillSyncTiming(room_id, scene.tick, &sync);
+                sync_inited = true;
+              }
+              fill_player_for_sync(runtime, sync.add_players());
+              built_sync = true;
+              update_player_last_sync(runtime);
+              runtime.dirty = false;
+              runtime.low_freq_dirty = false;
+              continue;
+            }
+            uint32_t changed_mask = 0;
+            const auto& position = runtime.state.position();
+            if (position_changed(position, runtime.last_sync_position)) {
+              changed_mask |= lawnmower::PLAYER_DELTA_POSITION;
+            }
+            if (std::abs(runtime.state.rotation() -
+                         runtime.last_sync_rotation) > kDeltaPositionEpsilon) {
+              changed_mask |= lawnmower::PLAYER_DELTA_ROTATION;
+            }
+            if (runtime.state.is_alive() != runtime.last_sync_is_alive) {
+              changed_mask |= lawnmower::PLAYER_DELTA_IS_ALIVE;
+            }
+            if (runtime.last_input_seq != runtime.last_sync_input_seq) {
+              changed_mask |= lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ;
+            }
+            if (changed_mask == 0) {
+              runtime.dirty = false;
+              continue;
+            }
+            if (!delta_inited) {
+              FillDeltaTiming(room_id, scene.tick, &delta);
+              delta_inited = true;
+            }
+            auto* out = delta.add_players();
+            out->set_player_id(runtime.state.player_id());
+            out->set_changed_mask(changed_mask);
+            if ((changed_mask & lawnmower::PLAYER_DELTA_POSITION) != 0) {
+              *out->mutable_position() = position;
+            }
+            if ((changed_mask & lawnmower::PLAYER_DELTA_ROTATION) != 0) {
+              out->set_rotation(runtime.state.rotation());
+            }
+            if ((changed_mask & lawnmower::PLAYER_DELTA_IS_ALIVE) != 0) {
+              out->set_is_alive(runtime.state.is_alive());
+            }
+            if ((changed_mask &
+                 lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ) != 0) {
+              out->set_last_processed_input_seq(
+                  static_cast<int32_t>(runtime.last_input_seq));
+            }
+            built_delta = true;
+            update_player_last_sync(runtime);
+            runtime.dirty = false;
+          }
+
+          for (auto& [_, enemy] : scene.enemies) {
+            if (!enemy.dirty && enemy.force_sync_left == 0) {
+              continue;
+            }
+            if (enemy.force_sync_left > 0) {
+              if (!sync_inited) {
+                FillSyncTiming(room_id, scene.tick, &sync);
+                sync_inited = true;
+              }
+              auto* out = sync.add_enemies();
+              *out = enemy.state;
+              built_sync = true;
+              update_enemy_last_sync(enemy);
+              enemy.dirty = false;
+              enemy.force_sync_left -= 1;
+              continue;
+            }
+            uint32_t changed_mask = 0;
+            const auto& position = enemy.state.position();
+            if (position_changed(position, enemy.last_sync_position)) {
+              changed_mask |= lawnmower::ENEMY_DELTA_POSITION;
+            }
+            if (enemy.state.health() != enemy.last_sync_health) {
+              changed_mask |= lawnmower::ENEMY_DELTA_HEALTH;
+            }
+            if (enemy.state.is_alive() != enemy.last_sync_is_alive) {
+              changed_mask |= lawnmower::ENEMY_DELTA_IS_ALIVE;
+            }
+            if (changed_mask == 0) {
+              enemy.dirty = false;
+              continue;
+            }
+            if (!delta_inited) {
+              FillDeltaTiming(room_id, scene.tick, &delta);
+              delta_inited = true;
+            }
+            auto* out = delta.add_enemies();
+            out->set_enemy_id(enemy.state.enemy_id());
+            out->set_changed_mask(changed_mask);
+            if ((changed_mask & lawnmower::ENEMY_DELTA_POSITION) != 0) {
+              *out->mutable_position() = position;
+            }
+            if ((changed_mask & lawnmower::ENEMY_DELTA_HEALTH) != 0) {
+              out->set_health(enemy.state.health());
+            }
+            if ((changed_mask & lawnmower::ENEMY_DELTA_IS_ALIVE) != 0) {
+              out->set_is_alive(enemy.state.is_alive());
+            }
+            built_delta = true;
+            update_enemy_last_sync(enemy);
+            enemy.dirty = false;
+          }
+
+          for (auto& [_, item] : scene.items) {
+            if (!item.dirty) {
+              continue;
+            }
+            if (!delta_inited) {
+              FillDeltaTiming(room_id, scene.tick, &delta);
+              delta_inited = true;
+            }
+            auto* out = delta.add_items();
+            out->set_item_id(item.item_id);
+            out->set_type_id(item.type_id);
+            out->set_is_picked(item.is_picked);
+            out->set_effect_type(item.effect_type);
+            out->mutable_position()->set_x(item.x);
+            out->mutable_position()->set_y(item.y);
+            built_delta = true;
+            item.dirty = false;
+            if (item.is_picked) {
+              items_to_remove.push_back(item.item_id);
+            }
+          }
+          if (delta_inited) {
+            perf_delta_items_size = static_cast<uint32_t>(delta.items_size());
+          }
+        }
+        if (!items_to_remove.empty()) {
+          for (const auto item_id : items_to_remove) {
+            auto item_it = scene.items.find(item_id);
+            if (item_it == scene.items.end()) {
+              continue;
+            }
+            scene.item_pool.push_back(std::move(item_it->second));
+            scene.items.erase(item_it);
+          }
+        }
+      }
+
       const auto perf_end = std::chrono::steady_clock::now();
       const double perf_ms =
           std::chrono::duration<double, std::milli>(perf_end - perf_start)
               .count();
-      RecordPerfSampleLocked(scene, perf_ms, dt_seconds, true, 0, 0);
-      return;
-    }
+      RecordPerfSampleLocked(scene, perf_ms, dt_seconds, false,
+                             perf_delta_items_size, perf_sync_items_size);
 
-    bool has_dirty = false;
-
-    for (auto& [_, runtime] : scene.players) {
-      runtime.attack_cooldown_seconds -= dt_seconds;
-      bool moved = false;
-      bool consumed_input = false;
-      double processed_seconds = 0.0;
-
-      // 消耗输入队列，尽量在当前 tick 内吃掉完整的输入 delta（上限
-      // kMaxTickDeltaSeconds）
-      while (!runtime.pending_inputs.empty() &&
-             processed_seconds < kMaxTickDeltaSeconds) {
-        auto& input = runtime.pending_inputs.front();
-        const float dx_raw = input.move_direction().x();
-        const float dy_raw = input.move_direction().y();
-        const float len_sq = dx_raw * dx_raw + dy_raw * dy_raw;
-
-        const double reported_dt = input.delta_ms() > 0
-                                       ? std::clamp(input.delta_ms() / 1000.0,
-                                                    0.0, kMaxInputDeltaSeconds)
-                                       : tick_interval_seconds;
-        const double remaining_budget =
-            kMaxTickDeltaSeconds - processed_seconds;
-        const double input_dt = std::min(reported_dt, remaining_budget);
-
-        const bool can_move = runtime.state.is_alive();
-        if (len_sq >= kDirectionEpsilonSq && len_sq <= kMaxDirectionLengthSq &&
-            input_dt > 0.0 && can_move) {
-          const float len = std::sqrt(len_sq);
-          const float dx = dx_raw / len;
-          const float dy = dy_raw / len;
-
-          const float speed = runtime.state.move_speed() > 0.0f
-                                  ? runtime.state.move_speed()
-                                  : scene.config.move_speed;
-
-          auto* position = runtime.state.mutable_position();
-          const auto new_pos = ClampToMap(
-              scene.config,
-              position->x() + dx * speed * static_cast<float>(input_dt),
-              position->y() + dy * speed * static_cast<float>(input_dt));
-          const float new_x = new_pos.x();
-          const float new_y = new_pos.y();
-
-          if (std::abs(new_x - position->x()) > 1e-4f ||
-              std::abs(new_y - position->y()) > 1e-4f) {
-            moved = true;
-          }
-
-          position->set_x(new_x);
-          position->set_y(new_y);
-          runtime.state.set_rotation(DegreesFromDirection(dx, dy));
-          processed_seconds += input_dt;
-          consumed_input = true;
-        } else {
-          // 无效方向也要前进时间，防止队列阻塞
-          processed_seconds += input_dt;
-          consumed_input = true;
-        }
-
-        // 更新序号（即便被拆分）
-        if (input.input_seq() > runtime.last_input_seq) {
-          runtime.last_input_seq = input.input_seq();
-        }
-
-        const double remaining_dt = reported_dt - input_dt;
-        if (remaining_dt > 1e-5) {
-          // 当前 tick 只消耗了一部分，保留剩余 delta_ms 在队首
-          const uint32_t remaining_ms = static_cast<uint32_t>(std::clamp(
-              std::llround(remaining_dt * 1000.0), 1LL,
-              static_cast<long long>(kMaxInputDeltaSeconds * 1000.0)));
-          input.set_delta_ms(remaining_ms);
-          break;
-        } else {
-          runtime.pending_inputs.pop_front();
-        }
+      if (game_over.has_value()) {
+        scene.perf.end_time = std::chrono::system_clock::now();
+        perf_tick_rate = scene.config.tick_rate;
+        perf_sync_rate = scene.config.state_sync_rate;
+        perf_elapsed_seconds = scene.elapsed;
+        perf_to_save = std::move(scene.perf);
       }
 
-      if (moved || consumed_input || runtime.low_freq_dirty) {
-        runtime.dirty = true;
-      }
-      has_dirty = has_dirty || runtime.dirty || runtime.low_freq_dirty;
+      event_wave_id = scene.wave_id;
+      event_tick = scene.tick;
     }
+  }
 
-    scene.elapsed += dt_seconds;
-    ProcessEnemies(scene, dt_seconds, &has_dirty);
-    ProcessItems(scene, &has_dirty);
+  CleanupExpiredPlayers(expired_players);
 
-    // -----------------
-    // 战斗：玩家攻击 + 敌人接触伤害
-    // -----------------
-
-    ProcessCombatAndProjectiles(scene, dt_seconds, &player_hurts, &enemy_dieds,
-                                &enemy_attack_states, &level_ups, &game_over,
-                                &projectile_spawns, &projectile_despawns,
-                                &dropped_items, &has_dirty);
-    if (scene.upgrade_stage == UpgradeStage::kNone) {
-      uint32_t candidate_player_id = 0;
-      for (const auto& [player_id, runtime] : scene.players) {
-        if (runtime.pending_upgrade_count > 0) {
-          candidate_player_id = player_id;
-          break;
-        }
-      }
-      if (candidate_player_id != 0) {
-        lawnmower::S2C_UpgradeRequest request;
-        if (BeginUpgradeLocked(room_id, scene, candidate_player_id,
-                               lawnmower::UPGRADE_REASON_LEVEL_UP,
-                               &request)) {
-          upgrade_request = request;
-        }
-      }
-    }
-    scene.tick += 1;
-    scene.sync_accumulator += dt_seconds;
-    scene.full_sync_elapsed += dt_seconds;
-
-    const double sync_interval = scene.sync_interval.count() > 0.0
-                                     ? scene.sync_interval.count()
-                                     : tick_interval_seconds;
-
-    while (scene.sync_accumulator >= sync_interval) {
-      scene.sync_accumulator -= sync_interval;
-      should_sync = true;
-    }
-
-    const double full_sync_interval_seconds =
-        scene.full_sync_interval.count() > 0.0
-            ? scene.full_sync_interval.count()
-            : tick_interval_seconds *
-                  static_cast<double>(kFullSyncIntervalTicks);
-
-    force_full_sync = full_sync_interval_seconds > 0.0 &&
-                      scene.full_sync_elapsed >= full_sync_interval_seconds;
-
-    const bool want_sync = should_sync || force_full_sync;
-    const bool need_sync = want_sync && (force_full_sync || has_dirty);
-    if (need_sync) {
-      perf_delta_items_size = 0;
-      perf_sync_items_size = 0;
-      std::vector<uint32_t> items_to_remove;
-      if (force_full_sync) {
-        FillSyncTiming(room_id, scene.tick, &sync);
-        for (auto& [_, runtime] : scene.players) {
-          fill_player_for_sync(runtime, sync.add_players());
-          update_player_last_sync(runtime);
-          runtime.dirty = false;
-          runtime.low_freq_dirty = false;
-        }
-        for (auto& [_, enemy] : scene.enemies) {
-          auto* out = sync.add_enemies();
-          *out = enemy.state;
-          update_enemy_last_sync(enemy);
-          enemy.dirty = false;
-          if (enemy.force_sync_left > 0) {
-            enemy.force_sync_left -= 1;
-          }
-        }
-        for (auto& [_, item] : scene.items) {
-          if (item.is_picked) {
-            items_to_remove.push_back(item.item_id);
-            continue;
-          }
-          auto* out = sync.add_items();
-          out->set_item_id(item.item_id);
-          out->set_type_id(item.type_id);
-          out->set_is_picked(item.is_picked);
-          out->set_effect_type(item.effect_type);
-          out->mutable_position()->set_x(item.x);
-          out->mutable_position()->set_y(item.y);
-          item.dirty = false;
-        }
-        perf_sync_items_size = static_cast<uint32_t>(sync.items_size());
-        built_sync = true;
-        scene.full_sync_elapsed = 0.0;
-      } else {
-        bool sync_inited = false;
-        bool delta_inited = false;
-
-        for (auto& [_, runtime] : scene.players) {
-          if (!runtime.dirty && !runtime.low_freq_dirty) {
-            continue;
-          }
-          if (runtime.low_freq_dirty) {
-            if (!sync_inited) {
-              FillSyncTiming(room_id, scene.tick, &sync);
-              sync_inited = true;
-            }
-            fill_player_for_sync(runtime, sync.add_players());
-            built_sync = true;
-            update_player_last_sync(runtime);
-            runtime.dirty = false;
-            runtime.low_freq_dirty = false;
-            continue;
-          }
-          uint32_t changed_mask = 0;
-          const auto& position = runtime.state.position();
-          if (position_changed(position, runtime.last_sync_position)) {
-            changed_mask |= lawnmower::PLAYER_DELTA_POSITION;
-          }
-          if (std::abs(runtime.state.rotation() - runtime.last_sync_rotation) >
-              kDeltaPositionEpsilon) {
-            changed_mask |= lawnmower::PLAYER_DELTA_ROTATION;
-          }
-          if (runtime.state.is_alive() != runtime.last_sync_is_alive) {
-            changed_mask |= lawnmower::PLAYER_DELTA_IS_ALIVE;
-          }
-          if (runtime.last_input_seq != runtime.last_sync_input_seq) {
-            changed_mask |= lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ;
-          }
-          if (changed_mask == 0) {
-            runtime.dirty = false;
-            continue;
-          }
-          if (!delta_inited) {
-            FillDeltaTiming(room_id, scene.tick, &delta);
-            delta_inited = true;
-          }
-          auto* out = delta.add_players();
-          out->set_player_id(runtime.state.player_id());
-          out->set_changed_mask(changed_mask);
-          if ((changed_mask & lawnmower::PLAYER_DELTA_POSITION) != 0) {
-            *out->mutable_position() = position;
-          }
-          if ((changed_mask & lawnmower::PLAYER_DELTA_ROTATION) != 0) {
-            out->set_rotation(runtime.state.rotation());
-          }
-          if ((changed_mask & lawnmower::PLAYER_DELTA_IS_ALIVE) != 0) {
-            out->set_is_alive(runtime.state.is_alive());
-          }
-          if ((changed_mask &
-               lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ) != 0) {
-            out->set_last_processed_input_seq(
-                static_cast<int32_t>(runtime.last_input_seq));
-          }
-          built_delta = true;
-          update_player_last_sync(runtime);
-          runtime.dirty = false;
-        }
-
-        for (auto& [_, enemy] : scene.enemies) {
-          if (!enemy.dirty && enemy.force_sync_left == 0) {
-            continue;
-          }
-          if (enemy.force_sync_left > 0) {
-            if (!sync_inited) {
-              FillSyncTiming(room_id, scene.tick, &sync);
-              sync_inited = true;
-            }
-            auto* out = sync.add_enemies();
-            *out = enemy.state;
-            built_sync = true;
-            update_enemy_last_sync(enemy);
-            enemy.dirty = false;
-            enemy.force_sync_left -= 1;
-            continue;
-          }
-          uint32_t changed_mask = 0;
-          const auto& position = enemy.state.position();
-          if (position_changed(position, enemy.last_sync_position)) {
-            changed_mask |= lawnmower::ENEMY_DELTA_POSITION;
-          }
-          if (enemy.state.health() != enemy.last_sync_health) {
-            changed_mask |= lawnmower::ENEMY_DELTA_HEALTH;
-          }
-          if (enemy.state.is_alive() != enemy.last_sync_is_alive) {
-            changed_mask |= lawnmower::ENEMY_DELTA_IS_ALIVE;
-          }
-          if (changed_mask == 0) {
-            enemy.dirty = false;
-            continue;
-          }
-          if (!delta_inited) {
-            FillDeltaTiming(room_id, scene.tick, &delta);
-            delta_inited = true;
-          }
-          auto* out = delta.add_enemies();
-          out->set_enemy_id(enemy.state.enemy_id());
-          out->set_changed_mask(changed_mask);
-          if ((changed_mask & lawnmower::ENEMY_DELTA_POSITION) != 0) {
-            *out->mutable_position() = position;
-          }
-          if ((changed_mask & lawnmower::ENEMY_DELTA_HEALTH) != 0) {
-            out->set_health(enemy.state.health());
-          }
-          if ((changed_mask & lawnmower::ENEMY_DELTA_IS_ALIVE) != 0) {
-            out->set_is_alive(enemy.state.is_alive());
-          }
-          built_delta = true;
-          update_enemy_last_sync(enemy);
-          enemy.dirty = false;
-        }
-
-        for (auto& [_, item] : scene.items) {
-          if (!item.dirty) {
-            continue;
-          }
-          if (!delta_inited) {
-            FillDeltaTiming(room_id, scene.tick, &delta);
-            delta_inited = true;
-          }
-          auto* out = delta.add_items();
-          out->set_item_id(item.item_id);
-          out->set_type_id(item.type_id);
-          out->set_is_picked(item.is_picked);
-          out->set_effect_type(item.effect_type);
-          out->mutable_position()->set_x(item.x);
-          out->mutable_position()->set_y(item.y);
-          built_delta = true;
-          item.dirty = false;
-          if (item.is_picked) {
-            items_to_remove.push_back(item.item_id);
-          }
-        }
-        if (delta_inited) {
-          perf_delta_items_size = static_cast<uint32_t>(delta.items_size());
-        }
-      }
-      if (!items_to_remove.empty()) {
-        for (const auto item_id : items_to_remove) {
-          auto item_it = scene.items.find(item_id);
-          if (item_it == scene.items.end()) {
-            continue;
-          }
-          scene.item_pool.push_back(std::move(item_it->second));
-          scene.items.erase(item_it);
-        }
-      }
-    }
-
-    const auto perf_end = std::chrono::steady_clock::now();
-    const double perf_ms =
-        std::chrono::duration<double, std::milli>(perf_end - perf_start)
-            .count();
-    RecordPerfSampleLocked(scene, perf_ms, dt_seconds, false,
-                           perf_delta_items_size, perf_sync_items_size);
-
-    if (game_over.has_value()) {
-      scene.perf.end_time = std::chrono::system_clock::now();
-      perf_tick_rate = scene.config.tick_rate;
-      perf_sync_rate = scene.config.state_sync_rate;
-      perf_elapsed_seconds = scene.elapsed;
-      perf_to_save = std::move(scene.perf);
-    }
-
-    event_wave_id = scene.wave_id;
-    event_tick = scene.tick;
+  if (paused_only) {
+    return;
   }
 
   const auto event_now_ms = NowMs();
@@ -1373,8 +1551,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   }
 
   if (has_projectile_spawn || has_projectile_despawn || has_dropped_items ||
-      !player_hurts.empty() || has_enemy_attack_state ||
-      !enemy_dieds.empty() || !level_ups.empty() || game_over.has_value() ||
+      !player_hurts.empty() || has_enemy_attack_state || !enemy_dieds.empty() ||
+      !level_ups.empty() || game_over.has_value() ||
       upgrade_request.has_value()) {
     const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
     for (const auto& weak_session : sessions) {
@@ -1428,8 +1606,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   }
 
   if (perf_to_save.has_value()) {
-    SavePerfStatsToFile(room_id, *perf_to_save, perf_tick_rate,
-                        perf_sync_rate, perf_elapsed_seconds);
+    SavePerfStatsToFile(room_id, *perf_to_save, perf_tick_rate, perf_sync_rate,
+                        perf_elapsed_seconds);
   }
 
   const bool has_sync_payload =
@@ -1524,6 +1702,19 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
 
   PlayerRuntime& runtime = player_it->second;
 
+  const uint32_t input_tick = input.input_time().tick();
+  if (input_tick > 0) {
+    const uint64_t scene_tick = scene.tick;
+    const std::size_t history_limit = GetPredictionHistoryLimit(scene);
+    if (scene_tick > input_tick && (scene_tick - input_tick) > history_limit) {
+      spdlog::debug(
+          "HandlePlayerInput: player {} 输入过期 input_tick={} scene_tick={} "
+          "window={}",
+          player_id, input_tick, scene_tick, history_limit);
+      return false;
+    }
+  }
+
   const uint32_t seq = input.input_seq();  // 输入序号（客户端递增）
   if (seq != 0 && seq <= runtime.last_input_seq) {
     spdlog::debug("HandlePlayerInput: player {} 输入序号回退 seq={} last={}",
@@ -1597,7 +1788,8 @@ void GameManager::BuildUpgradeOptionsLocked(Scene& scene) {
 
     uint64_t total_weight = 0;
     for (std::size_t idx : candidates) {
-      total_weight += std::max<uint32_t>(1, upgrade_config_.effects[idx].weight);
+      total_weight +=
+          std::max<uint32_t>(1, upgrade_config_.effects[idx].weight);
     }
     if (total_weight == 0) {
       break;
@@ -1662,8 +1854,8 @@ void GameManager::ApplyUpgradeEffect(PlayerRuntime& runtime,
   switch (effect.type) {
     case lawnmower::UPGRADE_TYPE_MOVE_SPEED: {
       const float delta_speed = static_cast<float>(delta);
-      const float next = std::clamp(runtime.state.move_speed() + delta_speed,
-                                    0.0f, 5000.0f);
+      const float next =
+          std::clamp(runtime.state.move_speed() + delta_speed, 0.0f, 5000.0f);
       runtime.state.set_move_speed(next);
       break;
     }
@@ -1674,18 +1866,14 @@ void GameManager::ApplyUpgradeEffect(PlayerRuntime& runtime,
       break;
     }
     case lawnmower::UPGRADE_TYPE_ATTACK_SPEED: {
-      const int64_t next =
-          std::clamp<int64_t>(static_cast<int64_t>(runtime.state.attack_speed()) +
-                                  delta,
-                              1, 1000);
+      const int64_t next = std::clamp<int64_t>(
+          static_cast<int64_t>(runtime.state.attack_speed()) + delta, 1, 1000);
       runtime.state.set_attack_speed(static_cast<uint32_t>(next));
       break;
     }
     case lawnmower::UPGRADE_TYPE_MAX_HEALTH: {
-      const int64_t next =
-          std::clamp<int64_t>(static_cast<int64_t>(runtime.state.max_health()) +
-                                  delta,
-                              1, 100000);
+      const int64_t next = std::clamp<int64_t>(
+          static_cast<int64_t>(runtime.state.max_health()) + delta, 1, 100000);
       runtime.state.set_max_health(static_cast<int32_t>(next));
       if (runtime.state.health() > next) {
         runtime.state.set_health(static_cast<int32_t>(next));
@@ -1714,7 +1902,8 @@ bool GameManager::HandleUpgradeRequestAck(
     std::lock_guard<std::mutex> lock(mutex_);
     const auto mapping = player_scene_.find(player_id);
     if (mapping == player_scene_.end()) {
-      spdlog::debug("HandleUpgradeRequestAck: player {} 未映射到场景", player_id);
+      spdlog::debug("HandleUpgradeRequestAck: player {} 未映射到场景",
+                    player_id);
       return false;
     }
     room_id = mapping->second;
@@ -1726,9 +1915,8 @@ bool GameManager::HandleUpgradeRequestAck(
     Scene& scene = scene_it->second;
     if (scene.upgrade_stage != UpgradeStage::kRequestSent ||
         scene.upgrade_player_id != player_id) {
-      spdlog::debug(
-          "HandleUpgradeRequestAck: room {} 升级阶段不匹配 player={}", room_id,
-          player_id);
+      spdlog::debug("HandleUpgradeRequestAck: room {} 升级阶段不匹配 player={}",
+                    room_id, player_id);
       return false;
     }
     auto player_it = scene.players.find(player_id);
@@ -1785,17 +1973,16 @@ bool GameManager::HandleUpgradeOptionsAck(
   Scene& scene = scene_it->second;
   if (scene.upgrade_stage != UpgradeStage::kOptionsSent ||
       scene.upgrade_player_id != player_id) {
-    spdlog::debug(
-        "HandleUpgradeOptionsAck: room {} 升级阶段不匹配 player={}", room_id,
-        player_id);
+    spdlog::debug("HandleUpgradeOptionsAck: room {} 升级阶段不匹配 player={}",
+                  room_id, player_id);
     return false;
   }
   scene.upgrade_stage = UpgradeStage::kWaitingSelect;
   return true;
 }
 
-bool GameManager::HandleUpgradeSelect(uint32_t player_id,
-                                      const lawnmower::C2S_UpgradeSelect& request) {
+bool GameManager::HandleUpgradeSelect(
+    uint32_t player_id, const lawnmower::C2S_UpgradeSelect& request) {
   uint32_t room_id = 0;
   std::optional<lawnmower::S2C_UpgradeRequest> next_request;
   lawnmower::S2C_UpgradeSelectAck ack;
@@ -1949,6 +2136,90 @@ bool GameManager::IsInsideMap(uint32_t room_id,
 
   return x >= 0.0f && x <= static_cast<float>(cfg.width) && y >= 0.0f &&
          y <= static_cast<float>(cfg.height);
+}
+
+bool GameManager::MarkPlayerDisconnected(uint32_t player_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto mapping = player_scene_.find(player_id);
+  if (mapping == player_scene_.end()) {
+    return false;
+  }
+
+  auto scene_it = scenes_.find(mapping->second);
+  if (scene_it == scenes_.end()) {
+    player_scene_.erase(mapping);
+    return false;
+  }
+
+  Scene& scene = scene_it->second;
+  auto player_it = scene.players.find(player_id);
+  if (player_it == scene.players.end()) {
+    player_scene_.erase(mapping);
+    return false;
+  }
+
+  PlayerRuntime& runtime = player_it->second;
+  if (!runtime.is_connected) {
+    return true;
+  }
+  runtime.is_connected = false;
+  runtime.disconnected_at = std::chrono::steady_clock::now();
+  runtime.pending_inputs.clear();
+  runtime.wants_attacking = false;
+  runtime.has_attack_dir = false;
+  runtime.attack_cooldown_seconds = 0.0;
+  spdlog::info("玩家 {} 断线，进入重连宽限期", player_id);
+  return true;
+}
+
+bool GameManager::TryReconnectPlayer(uint32_t player_id, uint32_t room_id,
+                                     uint32_t last_input_seq,
+                                     uint32_t last_server_tick,
+                                     ReconnectSnapshot* out) {
+  if (out == nullptr) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto mapping = player_scene_.find(player_id);
+  if (mapping == player_scene_.end()) {
+    return false;
+  }
+  if (room_id != 0 && mapping->second != room_id) {
+    return false;
+  }
+
+  auto scene_it = scenes_.find(mapping->second);
+  if (scene_it == scenes_.end()) {
+    return false;
+  }
+
+  Scene& scene = scene_it->second;
+  auto player_it = scene.players.find(player_id);
+  if (player_it == scene.players.end()) {
+    return false;
+  }
+
+  PlayerRuntime& runtime = player_it->second;
+  runtime.is_connected = true;
+  runtime.disconnected_at = {};
+  runtime.pending_inputs.clear();
+  runtime.wants_attacking = false;
+  runtime.has_attack_dir = false;
+  runtime.attack_cooldown_seconds = 0.0;
+  runtime.last_input_seq = last_input_seq;
+  runtime.last_sync_input_seq = last_input_seq;
+
+  out->room_id = mapping->second;
+  out->server_tick = scene.tick;
+  out->is_paused = scene.is_paused;
+  out->player_name = runtime.player_name;
+
+  spdlog::info(
+      "玩家 {} 重连成功 room={} last_input_seq={} client_tick={} "
+      "server_tick={}",
+      player_id, out->room_id, last_input_seq, last_server_tick,
+      out->server_tick);
+  return true;
 }
 
 // 移除玩家

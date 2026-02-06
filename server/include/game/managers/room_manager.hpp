@@ -68,6 +68,12 @@ class RoomManager {
 
   // 断线清理，不返回离开结果
   void RemovePlayer(uint32_t player_id);
+  // 标记玩家断线（保留房间映射）
+  bool MarkPlayerDisconnected(uint32_t player_id);
+  // 重连后更新会话
+  bool AttachSession(uint32_t player_id, uint32_t room_id,
+                     std::weak_ptr<TcpSession> session, bool* out_is_playing,
+                     std::string* out_player_name);
 
  private:
   RoomManager() = default;

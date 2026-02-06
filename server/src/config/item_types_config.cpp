@@ -124,12 +124,10 @@ bool LoadItemsConfig(ItemsConfig* out) {
   ExtractUint(content, "max_items_alive", &cfg.max_items_alive);
   ExtractFloat(content, "pick_radius", &cfg.pick_radius);
 
-  cfg.max_items_alive =
-      ClampUInt32(cfg.max_items_alive, 1u, 1000u);
+  cfg.max_items_alive = ClampUInt32(cfg.max_items_alive, 1u, 1000u);
   cfg.pick_radius = std::clamp(cfg.pick_radius, 1.0f, 500.0f);
 
-  std::regex obj_re(
-      "\\{[^\\{\\}]*\"type_id\"\\s*:\\s*(\\d+)[^\\{\\}]*\\}");
+  std::regex obj_re("\\{[^\\{\\}]*\"type_id\"\\s*:\\s*(\\d+)[^\\{\\}]*\\}");
   std::size_t parsed = 0;
   for (std::sregex_iterator it(content.begin(), content.end(), obj_re), end;
        it != end; ++it) {
@@ -140,8 +138,7 @@ bool LoadItemsConfig(ItemsConfig* out) {
     ExtractString(obj, "name", &item.name);
     ExtractString(obj, "effect", &item.effect);
 
-    uint32_t value_u =
-        static_cast<uint32_t>(std::max<int32_t>(0, item.value));
+    uint32_t value_u = static_cast<uint32_t>(std::max<int32_t>(0, item.value));
     ExtractUint(obj, "value", &value_u);
     item.value = static_cast<int32_t>(ClampUInt32(value_u, 0u, 100000u));
 

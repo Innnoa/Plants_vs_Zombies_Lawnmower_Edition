@@ -102,9 +102,18 @@ bool LoadServerConfig(ServerConfig* out) {
   ExtractUint(content, "max_players_per_room", &cfg.max_players_per_room);
   ExtractUint(content, "tick_rate", &cfg.tick_rate);
   ExtractUint(content, "state_sync_rate", &cfg.state_sync_rate);
+  ExtractFloat(content, "sync_idle_light_seconds",
+               &cfg.sync_idle_light_seconds);
+  ExtractFloat(content, "sync_idle_heavy_seconds",
+               &cfg.sync_idle_heavy_seconds);
+  ExtractFloat(content, "sync_scale_light", &cfg.sync_scale_light);
+  ExtractFloat(content, "sync_scale_medium", &cfg.sync_scale_medium);
+  ExtractFloat(content, "sync_scale_idle", &cfg.sync_scale_idle);
   ExtractUint(content, "map_width", &cfg.map_width);
   ExtractUint(content, "map_height", &cfg.map_height);
   ExtractFloat(content, "move_speed", &cfg.move_speed);
+  ExtractFloat(content, "prediction_history_seconds",
+               &cfg.prediction_history_seconds);
   ExtractFloat(content, "wave_interval_seconds", &cfg.wave_interval_seconds);
   ExtractFloat(content, "enemy_spawn_base_per_second",
                &cfg.enemy_spawn_base_per_second);
@@ -126,7 +135,24 @@ bool LoadServerConfig(ServerConfig* out) {
                &cfg.projectile_attack_min_interval_seconds);
   ExtractFloat(content, "projectile_attack_max_interval_seconds",
                &cfg.projectile_attack_max_interval_seconds);
+  ExtractFloat(content, "reconnect_grace_seconds",
+               &cfg.reconnect_grace_seconds);
   ExtractString(content, "log_level", &cfg.log_level);
+
+  cfg.prediction_history_seconds =
+      std::clamp(cfg.prediction_history_seconds, 0.1f, 30.0f);
+
+  cfg.sync_idle_light_seconds =
+      std::clamp(cfg.sync_idle_light_seconds, 0.0f, 120.0f);
+  cfg.sync_idle_heavy_seconds = std::clamp(cfg.sync_idle_heavy_seconds,
+                                           cfg.sync_idle_light_seconds, 300.0f);
+  cfg.sync_scale_light = std::clamp(cfg.sync_scale_light, 1.0f, 20.0f);
+  cfg.sync_scale_medium =
+      std::clamp(cfg.sync_scale_medium, cfg.sync_scale_light, 20.0f);
+  cfg.sync_scale_idle =
+      std::clamp(cfg.sync_scale_idle, cfg.sync_scale_medium, 30.0f);
+  cfg.reconnect_grace_seconds =
+      std::clamp(cfg.reconnect_grace_seconds, 1.0f, 600.0f);
 
   *out = cfg;
   return true;
