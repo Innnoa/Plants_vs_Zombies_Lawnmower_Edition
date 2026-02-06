@@ -73,6 +73,13 @@ public class TcpClient {
         sendPacket(Message.MessageType.MSG_C2S_START_GAME, msg);
     }
 
+    public void sendReconnectRequest(Message.C2S_ReconnectRequest request) throws IOException {
+        if (request == null) {
+            throw new IllegalArgumentException("request == null");
+        }
+        sendPacket(Message.MessageType.MSG_C2S_RECONNECT_REQUEST, request);
+    }
+
     public void sendUpgradeRequestAck(int roomId, int playerId) throws IOException {
         var msg = Message.C2S_UpgradeRequestAck.newBuilder()
                 .setRoomId(roomId)

@@ -72,7 +72,6 @@ public class GameScreen implements Screen {
     private static final long SNAPSHOT_RETENTION_MS = 400L;
     private static final long MAX_EXTRAPOLATION_MS = 150L;
     private static final int PLACEHOLDER_ENEMY_ID = -1;
-    private static final long ENEMY_TIMEOUT_MS = 5000L;
     private static final int DEFAULT_ENEMY_TYPE_ID = EnemyDefinitions.getDefaultTypeId();
     private static final long INTERP_DELAY_MIN_MS = 60L;
     private static final long INTERP_DELAY_MAX_MS = 180L;
@@ -124,6 +123,9 @@ public class GameScreen implements Screen {
     private final Map<Integer, TextureRegion> itemTextureRegions = new HashMap<>();
     private final Map<Integer, Texture> itemTextureHandles = new HashMap<>();
     private final Vector2 itemPositionBuffer = new Vector2();
+    private long lastItemSnapshotTick = -1L;
+    private long lastItemDeltaTick = -1L;
+    private long lastItemSyncServerTimeMs = -1L;
 
     private Main game;
     private OrthographicCamera camera;
@@ -185,6 +187,7 @@ public class GameScreen implements Screen {
     private static final long INITIAL_STATE_WARNING_MS = 4000L;
     private static final long INITIAL_STATE_CRITICAL_MS = 10000L;
     private static final long INITIAL_STATE_FAILURE_HINT_MS = 16000L;
+    private static final long RECONNECT_OVERLAY_PULSE_MS = 1200L;
     private static final long DELTA_RESYNC_COOLDOWN_MS = 1200L;
 
     private boolean hasPendingInputChunk = false;
@@ -200,6 +203,8 @@ public class GameScreen implements Screen {
     private float autoAttackHoldTimer = 0f;
     private int lockedEnemyId = 0;
     private float targetRefreshTimer = TARGET_REFRESH_INTERVAL;
+    private boolean reconnectHoldActive = false;
+    private long reconnectHoldStartMs = 0L;
 
     private double clockOffsetMs = 0.0;
     private final long localClockBaseMillis = System.currentTimeMillis();
@@ -315,10 +320,11 @@ public class GameScreen implements Screen {
      */
     private void syncItemViews(Collection<Message.ItemState> items) {
         if (items == null) {
+            clearItemState(false);
             return;
         }
         if (items.isEmpty()) {
-            clearItemState();
+            clearItemState(false);
             return;
         }
         Set<Integer> seenIds = new HashSet<>(items.size());
@@ -345,22 +351,87 @@ public class GameScreen implements Screen {
             return;
         }
         int itemId = (int) itemState.getItemId();
-        itemStateCache.put(itemId, itemState);
         if (itemState.getIsPicked()) {
             itemViews.remove(itemId);
+            itemStateCache.remove(itemId);
             return;
         }
-        if (!itemState.hasPosition()) {
+        Message.ItemState resolvedState = ensureItemPosition(itemState);
+        itemStateCache.put(itemId, resolvedState);
+        if (!resolvedState.hasPosition()) {
             return;
         }
-        setVectorFromProto(itemState.getPosition(), itemPositionBuffer);
+        setVectorFromProto(resolvedState.getPosition(), itemPositionBuffer);
         clampPositionToMap(itemPositionBuffer);
-        TextureRegion region = resolveItemTexture((int) itemState.getTypeId());
+        TextureRegion region = resolveItemTexture((int) resolvedState.getTypeId());
         if (region == null) {
             region = getItemFallbackRegion();
         }
         ItemView view = itemViews.computeIfAbsent(itemId, ItemView::new);
-        view.update(region, itemPositionBuffer, (int) itemState.getTypeId(), itemState.getEffectType());
+        view.update(region, itemPositionBuffer, (int) resolvedState.getTypeId(), resolvedState.getEffectType());
+    }
+
+    private Message.ItemState ensureItemPosition(Message.ItemState incoming) {
+        if (incoming == null || incoming.hasPosition()) {
+            return incoming;
+        }
+        Message.ItemState cached = itemStateCache.get((int) incoming.getItemId());
+        if (cached == null || !cached.hasPosition()) {
+            return incoming;
+        }
+        return incoming.toBuilder().setPosition(cached.getPosition()).build();
+    }
+
+    private boolean shouldApplyItemSnapshot(long incomingTick, long serverTimeMs) {
+        if (incomingTick >= 0) {
+            if (lastItemSnapshotTick >= 0 && Long.compareUnsigned(incomingTick, lastItemSnapshotTick) <= 0) {
+                return false;
+            }
+            lastItemSnapshotTick = incomingTick;
+            lastItemDeltaTick = incomingTick;
+            lastItemSyncServerTimeMs = serverTimeMs;
+            return true;
+        }
+        if (serverTimeMs <= lastItemSyncServerTimeMs) {
+            return false;
+        }
+        lastItemSnapshotTick = -1L;
+        lastItemDeltaTick = -1L;
+        lastItemSyncServerTimeMs = serverTimeMs;
+        return true;
+    }
+
+    private boolean shouldApplyItemDelta(long incomingTick, long serverTimeMs) {
+        if (incomingTick >= 0) {
+            if (lastItemSnapshotTick >= 0 && Long.compareUnsigned(incomingTick, lastItemSnapshotTick) < 0) {
+                return false;
+            }
+            if (lastItemDeltaTick >= 0 && Long.compareUnsigned(incomingTick, lastItemDeltaTick) <= 0) {
+                return false;
+            }
+            lastItemDeltaTick = incomingTick;
+            if (serverTimeMs > lastItemSyncServerTimeMs) {
+                lastItemSyncServerTimeMs = serverTimeMs;
+            }
+            return true;
+        }
+        if (serverTimeMs <= lastItemSyncServerTimeMs) {
+            return false;
+        }
+        lastItemSyncServerTimeMs = serverTimeMs;
+        return true;
+    }
+
+    private void applyItemDeltaStates(List<Message.ItemState> items, long incomingTick, long serverTimeMs) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        if (!shouldApplyItemDelta(incomingTick, serverTimeMs)) {
+            return;
+        }
+        for (Message.ItemState itemState : items) {
+            applyItemState(itemState);
+        }
     }
 
     /**
@@ -391,14 +462,21 @@ public class GameScreen implements Screen {
     濞撳憡鍨欐稉璇叉儕閻?     */
     @Override
     public void render(float delta) {
-        advanceLogicalClock(delta);//閺囧瓨鏌婃稉鈧稉顏喦旂€规氨娈戦弮鍫曟？鐠哄啿褰?        pumpPendingNetworkInput();
+        advanceLogicalClock(delta);//閺囧瓨鏌婃稉鈧稉顏喦旂€规氨娈戦弮鍫曟？鐠哄啿褰?
+        if (!reconnectHoldActive) {
+            pumpPendingNetworkInput();
+        }
 
         /*
         hasReceivedInitialState:濞撳憡鍨欓崚婵嗩潗閻樿埖鈧?        playerTextureRegion:鐟欐帟澹婄痪鍦倞
          */
         if (!hasReceivedInitialState || playerTextureRegion == null) {
             maybeRequestInitialStateResync();
-            renderLoadingOverlay();
+            if (reconnectHoldActive) {
+                renderReconnectOverlay();
+            } else {
+                renderLoadingOverlay();
+            }
             return;
         }
         /*
@@ -407,12 +485,13 @@ public class GameScreen implements Screen {
         float renderDelta = getStableDelta(delta);
         Vector2 dir = getMovementInput();
         isLocallyMoving = dir.len2() > 0.0001f;//閸掋倖鏌囬弰顖氭儊閸︺劎些閸?
-        boolean overlayActive = isUpgradeOverlayActive();
-        if (overlayActive) {
+        boolean upgradeOverlayActive = isUpgradeOverlayActive();
+        boolean suppressInput = upgradeOverlayActive || reconnectHoldActive;
+        if (suppressInput) {
             dir.setZero();
             isLocallyMoving = false;
         }
-        if (Gdx.input.isKeyJustPressed(AUTO_ATTACK_TOGGLE_KEY)) {
+        if (!reconnectHoldActive && Gdx.input.isKeyJustPressed(AUTO_ATTACK_TOGGLE_KEY)) {
             autoAttackToggle = !autoAttackToggle;
             if (autoAttackToggle) {
                 resetAutoAttackState();
@@ -422,8 +501,8 @@ public class GameScreen implements Screen {
             }
             showStatusToast(autoAttackToggle ? "閼奉亜濮╅弨璇插毊瀹告彃绱戦崥?" : "濮╅弨璇插毊瀹告彃鍙ч梻?");
         }
-        boolean attacking = resolveAttackingState(renderDelta);
-        if (overlayActive) {
+        boolean attacking = reconnectHoldActive ? false : resolveAttackingState(renderDelta);
+        if (upgradeOverlayActive) {
             attacking = false;
         }
 
@@ -431,7 +510,11 @@ public class GameScreen implements Screen {
         妫板嫭绁撮幙宥勭稊
          */
         simulateLocalStep(dir, renderDelta);
-        processInputChunk(dir, attacking, renderDelta);
+        if (reconnectHoldActive) {
+            resetPendingInputAccumulator();
+        } else {
+            processInputChunk(dir, attacking, renderDelta);
+        }
 
         /*
         濞撳懎鐫嗛崝鐘垫祲閺堥缚绐￠梾?         */
@@ -485,6 +568,9 @@ public class GameScreen implements Screen {
 
         batch.end();
         renderUpgradeOverlay(renderDelta);
+        if (reconnectHoldActive) {
+            renderReconnectBanner();
+        }
     }
 
     /**
@@ -1479,19 +1565,6 @@ public class GameScreen implements Screen {
     /**
      * 濞撳懐鎮婇梹鎸庢闂傚瓨婀弴瀛樻煀閻ㄥ嫭鏅禍?     * @param serverTimeMs
      */
-    private void purgeStaleEnemies(long serverTimeMs) {
-        Iterator<Map.Entry<Integer, Long>> iterator = enemyLastSeen.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Integer, Long> entry = iterator.next();
-            if ((serverTimeMs - entry.getValue()) > ENEMY_TIMEOUT_MS) {
-                int enemyId = entry.getKey();
-                iterator.remove();
-                enemyViews.remove(enemyId);
-                enemyStateCache.remove(enemyId);
-            }
-        }
-    }
-
     /**
      * 鐏忎浇顥婃稉鈧稉顏勫灡瀵ょ瘝nemyView鐎电钖勯惃鍕煙濞?     * @param enemyState
      * @return
@@ -2017,20 +2090,30 @@ public class GameScreen implements Screen {
         setCurrentRoomId((int) sync.getRoomId());
         //鐎瑰鍙忛張鍝勫煑
         Message.Timestamp syncTime = sync.hasSyncTime() ? sync.getSyncTime() : null;
+        long incomingTick = syncTime != null ? Integer.toUnsignedLong(syncTime.getTick()) : -1L;
         if (!shouldAcceptStatePacket(syncTime, sync.getServerTimeMs(), arrivalMs)) {
             return;
+        }
+        if (syncTime != null) {
+            game.updateServerTick(Integer.toUnsignedLong(syncTime.getTick()));
         }
         updateSyncArrivalStats(arrivalMs);
         sampleClockOffset(sync.getServerTimeMs());
         //婢跺嫮鎮婇弫灞兼眽閻樿埖鈧?
+        enemyStateCache.clear();
         if (!sync.getEnemiesList().isEmpty()) {
             for (Message.EnemyState enemy : sync.getEnemiesList()) {
                 enemyStateCache.put((int) enemy.getEnemyId(), enemy);
             }
-            syncEnemyViews(sync.getEnemiesList(), sync.getServerTimeMs());
         }
+        syncEnemyViews(sync.getEnemiesList(), sync.getServerTimeMs(), true);
         handlePlayersFromServer(sync.getPlayersList(), sync.getServerTimeMs());
-        syncItemViews(sync.getItemsList());
+        if (shouldApplyItemSnapshot(incomingTick, sync.getServerTimeMs())) {
+            syncItemViews(sync.getItemsList());
+        }
+        if (game.isAwaitingReconnectSnapshot()) {
+            game.onReconnectSnapshotApplied();
+        }
     }
 
     /**
@@ -2042,6 +2125,7 @@ public class GameScreen implements Screen {
         long arrivalMs = TimeUtils.millis();
         setCurrentRoomId((int) delta.getRoomId());
         Message.Timestamp syncTime = delta.hasSyncTime() ? delta.getSyncTime() : null;
+        long deltaTick = syncTime != null ? Integer.toUnsignedLong(syncTime.getTick()) : -1L;
         //閺堝鏅ラ幀褎顥呮?
         if (!shouldAcceptStatePacket(syncTime, delta.getServerTimeMs(), arrivalMs)) {
             return;
@@ -2068,8 +2152,45 @@ public class GameScreen implements Screen {
         // 閸掑棗褰傛径鍕倞閻樿埖鈧?
         handlePlayersFromServer(mergedPlayers, delta.getServerTimeMs());
         if (!updatedEnemies.isEmpty()) {
-            syncEnemyViews(updatedEnemies, delta.getServerTimeMs());
+            syncEnemyViews(updatedEnemies, delta.getServerTimeMs(), false);
         }
+        if (!delta.getItemsList().isEmpty()) {
+            applyItemDeltaStates(delta.getItemsList(), deltaTick, delta.getServerTimeMs());
+        }
+        if (delta.hasSyncTime()) {
+            game.updateServerTick(Integer.toUnsignedLong(delta.getSyncTime().getTick()));
+        }
+    }
+
+    public void enterReconnectHold() {
+        if (reconnectHoldActive) {
+            return;
+        }
+        reconnectHoldActive = true;
+        reconnectHoldStartMs = TimeUtils.millis();
+        pendingRateLimitedInput = null;
+        resetPendingInputAccumulator();
+    }
+
+    public void exitReconnectHold() {
+        reconnectHoldActive = false;
+        reconnectHoldStartMs = 0L;
+    }
+
+    public void resetWorldStateForFullSync() {
+        serverPlayerStates.clear();
+        enemyViews.clear();
+        enemyStateCache.clear();
+        enemyLastSeen.clear();
+        projectileViews.clear();
+        projectileImpacts.clear();
+        clearItemState();
+        removePlaceholderEnemy();
+        spawnPlaceholderEnemy();
+        resetTargetingState();
+        resetAutoAttackState();
+        resetInitialStateTracking();
+        hasReceivedInitialState = false;
     }
 
     private UpgradeSession ensureUpgradeSession() {
@@ -2082,6 +2203,7 @@ public class GameScreen implements Screen {
     private void setCurrentRoomId(int roomId) {
         if (roomId > 0) {
             currentRoomId = roomId;
+            game.updateActiveRoomId(roomId);
         }
     }
 
@@ -2186,30 +2308,29 @@ public class GameScreen implements Screen {
      * 鐎广垺鍩涚粩顖濈箼缁嬪鎮撳銉︽櫕娴滆桨淇婇幁?     * @param enemies
      * @param serverTimeMs
      */
-    private void syncEnemyViews(Collection<Message.EnemyState> enemies, long serverTimeMs) {
-        //缁屽搫鍨介弬?
+    private void syncEnemyViews(Collection<Message.EnemyState> enemies, long serverTimeMs, boolean replaceAll) {
+        if (replaceAll) {
+            enemyViews.clear();
+            enemyLastSeen.clear();
+            removePlaceholderEnemy();
+        }
         if (enemies == null || enemies.isEmpty()) {
-            purgeStaleEnemies(serverTimeMs);
             return;
         }
 
         removePlaceholderEnemy();
-        //闁秴宸婚弫灞兼眽閻樿埖鈧?
         for (Message.EnemyState enemy : enemies) {
             if (enemy == null || !enemy.hasPosition()) {
                 continue;
             }
-            //閺佸奔姹夊璁抽婢跺嫮鎮?
             int enemyId = (int) enemy.getEnemyId();
             if (!enemy.getIsAlive()) {
                 removeEnemy(enemyId);
                 continue;
             }
             EnemyView view = ensureEnemyView(enemy);
-            //娴ｅ秶鐤嗘径鍕倞
             renderBuffer.set(enemy.getPosition().getX(), enemy.getPosition().getY());
             clampPositionToMap(renderBuffer);
-            //濞撳弶鐓嬮張宥呭閸ｃ劎濮搁幀浣稿煂鐟欏棗娴?
             int typeId = (int) enemy.getTypeId();
             view.updateFromServer(
                     typeId,
@@ -2222,11 +2343,8 @@ public class GameScreen implements Screen {
                     resolveEnemyAttackAnimation(typeId),
                     getEnemyFallbackRegion()
             );
-            //鐠佹澘缍嶉張鈧崥搴″讲鐟欎焦妞傞梻?
             enemyLastSeen.put(enemyId, serverTimeMs);
         }
-        //濞撳懐鎮婃潻鍥ㄦ埂閺佸奔姹?
-        purgeStaleEnemies(serverTimeMs);
     }
 
     /**
@@ -2242,6 +2360,7 @@ public class GameScreen implements Screen {
         clampPositionToMap(serverPos);
         //閹绘劕褰囬崗鍐╂殶閹?婢跺嫮鎮婇張鈧崥搴ょ翻閸忋儳娈戞惔蹇撳娇
         int lastProcessedSeq = selfStateFromServer.getLastProcessedInputSeq();
+        game.updateConfirmedInputSeq(lastProcessedSeq);
         //閸掓稑缂撶€涙ê鍋嶉悩鑸碘偓浣告彥閻?
         PlayerStateSnapshot snapshot = new PlayerStateSnapshot(
                 serverPos,
@@ -2748,6 +2867,14 @@ public class GameScreen implements Screen {
         }
         showStatusToast("鎺夎惤浜?" + droppedItem.getItemsCount() + " 涓垬鍒╁搧");
         for (Message.ItemState itemState : droppedItem.getItemsList()) {
+            if (itemState == null) {
+                continue;
+            }
+            int itemId = (int) itemState.getItemId();
+            Message.ItemState cached = itemStateCache.get(itemId);
+            if (cached != null && !cached.getIsPicked()) {
+                continue;
+            }
             applyItemState(itemState);
         }
     }
@@ -3010,8 +3137,17 @@ public class GameScreen implements Screen {
     }
 
     private void clearItemState() {
+        clearItemState(true);
+    }
+
+    private void clearItemState(boolean resetTracking) {
         itemViews.clear();
         itemStateCache.clear();
+        if (resetTracking) {
+            lastItemSnapshotTick = -1L;
+            lastItemDeltaTick = -1L;
+            lastItemSyncServerTimeMs = -1L;
+        }
     }
 
     private void updatePlayerFacing(float delta) {
@@ -3157,6 +3293,38 @@ public class GameScreen implements Screen {
     /**
      * 閸︺劍鐖堕幋蹇撳灥婵绁┃鎰梾閸旂姾娴囬幋鎰閻ㄥ嫭妞傞崐娆忓鏉炴垝绔存稉顏勫灥婵鏅棃?     */
     private void renderLoadingOverlay() {
+        renderTextOverlay(getLoadingMessage());
+    }
+
+    private void renderReconnectOverlay() {
+        renderTextOverlay("连接异常，正在重连...");
+    }
+
+    private void renderReconnectBanner() {
+        if (batch == null || loadingFont == null || loadingLayout == null || camera == null) {
+            return;
+        }
+        batch.setProjectionMatrix(camera.combined);
+        batch.begin();
+        String message = "连接异常，正在重连...";
+        loadingLayout.setText(loadingFont, message);
+        float centerX = camera.position.x;
+        float centerY = camera.position.y + WORLD_HEIGHT * 0.25f;
+        float x = centerX - loadingLayout.width / 2f;
+        float y = centerY + loadingLayout.height / 2f;
+        float alpha = 0.65f;
+        if (reconnectHoldStartMs > 0L) {
+            float phase = (TimeUtils.timeSinceMillis(reconnectHoldStartMs) % RECONNECT_OVERLAY_PULSE_MS)
+                    / (float) RECONNECT_OVERLAY_PULSE_MS;
+            alpha = MathUtils.lerp(0.3f, 1f, phase);
+        }
+        loadingFont.setColor(1f, 1f, 1f, alpha);
+        loadingFont.draw(batch, loadingLayout, x, y);
+        batch.end();
+        loadingFont.setColor(Color.WHITE);
+    }
+
+    private void renderTextOverlay(String message) {
         Gdx.gl.glClearColor(0.06f, 0.06f, 0.08f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
         if (camera == null || batch == null || loadingFont == null || loadingLayout == null) {
@@ -3166,7 +3334,6 @@ public class GameScreen implements Screen {
         camera.update();
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
-        String message = getLoadingMessage();
         loadingLayout.setText(loadingFont, message);
         float centerX = WORLD_WIDTH / 2f;
         float centerY = WORLD_HEIGHT / 2f;

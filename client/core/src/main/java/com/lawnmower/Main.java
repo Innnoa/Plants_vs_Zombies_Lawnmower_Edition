@@ -18,6 +18,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main extends Game {
@@ -25,6 +28,13 @@ public class Main extends Game {
     private static final int LOGIN_RESULT_SESSION_TOKEN_FIELD_NUMBER = 4;
     // 客户端构建标识，用于确认版本
     private static final String CLIENT_BUILD_VERSION = "2026-01-24-rot-log";
+    private static final long RECONNECT_GRACE_MS = 15_000L;
+    private static final long RECONNECT_RETRY_INTERVAL_MS = 1000L;
+    private enum ReconnectState {
+        IDLE,
+        RECONNECTING,
+        AWAITING_SNAPSHOT
+    }
     private Skin skin;
     private TcpClient tcpClient;
     private UdpClient udpClient;
@@ -36,6 +46,14 @@ public class Main extends Game {
     private long lastUdpServerTimeMs = -1L;
     private final AtomicBoolean roomReturnRequested = new AtomicBoolean(false);
     private volatile Message.S2C_RoomUpdate pendingRoomUpdate;
+    private int currentRoomId = 0;
+    private long lastServerTick = -1L;
+    private int lastConfirmedInputSeq = 0;
+    private volatile ReconnectState reconnectState = ReconnectState.IDLE;
+    private long reconnectStartMs = 0L;
+    private int reconnectAttempts = 0;
+    private ScheduledExecutorService reconnectExecutor;
+    private boolean allowReconnect = true;
 
     private final AtomicBoolean networkRunning = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
@@ -51,6 +69,8 @@ public class Main extends Game {
         try {
             tcpClient = new TcpClient();
             tcpClient.connect(Config.SERVER_HOST, Config.SERVER_PORT);
+            allowReconnect = true;
+            reconnectState = ReconnectState.IDLE;
             log.info("Connected to server {}:{}", Config.SERVER_HOST, Config.SERVER_PORT);
             startNetworkThread();
         } catch (IOException e) {
@@ -82,6 +102,9 @@ public class Main extends Game {
                     switch (type) {
                         case MSG_S2C_LOGIN_RESULT:
                             payload = Message.S2C_LoginResult.parseFrom(packet.getPayload());
+                            break;
+                        case MSG_S2C_RECONNECT_ACK:
+                            payload = Message.S2C_ReconnectAck.parseFrom(packet.getPayload());
                             break;
                         case MSG_S2C_ROOM_LIST:
                             payload = Message.S2C_RoomList.parseFrom(packet.getPayload());
@@ -159,14 +182,7 @@ public class Main extends Game {
             // 线程退出
             networkRunning.set(false);
             stopUdpClient();
-            Gdx.app.postRunnable(() -> {
-                setPlayerId(-1);
-                setSessionToken("");
-                // 可选：提示连接断开，返回主菜单等
-                if (!(getScreen() instanceof MainMenuScreen)) {
-                    setScreen(new MainMenuScreen(Main.this, skin));
-                }
-            });
+            handleConnectionClosed();
         }, "NetworkThread");
 
         networkThread.setDaemon(true); // 随主线程退出而终止
@@ -202,10 +218,24 @@ public class Main extends Game {
         }
     }
 
+    private void handleConnectionClosed() {
+        if (!allowReconnect || !shouldAttemptReconnect()) {
+            Gdx.app.postRunnable(this::resetToMainMenu);
+            return;
+        }
+        beginReconnectLoop();
+    }
+
+    private boolean shouldAttemptReconnect() {
+        return playerId > 0 && sessionToken != null && !sessionToken.isBlank();
+    }
+
     private Object parsePacketPayload(Message.Packet packet, Message.MessageType type) throws IOException {
         switch (type) {
             case MSG_S2C_LOGIN_RESULT:
                 return Message.S2C_LoginResult.parseFrom(packet.getPayload());
+            case MSG_S2C_RECONNECT_ACK:
+                return Message.S2C_ReconnectAck.parseFrom(packet.getPayload());
             case MSG_S2C_ROOM_LIST:
                 return Message.S2C_RoomList.parseFrom(packet.getPayload());
             case MSG_S2C_CREATE_ROOM_RESULT:
@@ -315,6 +345,151 @@ public class Main extends Game {
         }
         udpClient.stop();
         udpClient = null;
+    }
+
+    private void beginReconnectLoop() {
+        if (reconnectState != ReconnectState.IDLE) {
+            return;
+        }
+        reconnectState = ReconnectState.RECONNECTING;
+        reconnectStartMs = System.currentTimeMillis();
+        reconnectAttempts = 0;
+        notifyGameScreenReconnectStart();
+        scheduleReconnectAttempt(0L);
+    }
+
+    private void scheduleReconnectAttempt(long delayMs) {
+        if (reconnectExecutor == null || reconnectExecutor.isShutdown()) {
+            reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
+        }
+        reconnectExecutor.schedule(this::attemptReconnectOnce, delayMs, TimeUnit.MILLISECONDS);
+    }
+
+    private void attemptReconnectOnce() {
+        if (reconnectState != ReconnectState.RECONNECTING) {
+            return;
+        }
+        long elapsed = System.currentTimeMillis() - reconnectStartMs;
+        if (elapsed >= RECONNECT_GRACE_MS) {
+            handleReconnectFailure("timeout");
+            return;
+        }
+        reconnectAttempts++;
+        try {
+            reconnectTcpAndSendRequest();
+        } catch (IOException e) {
+            log.warn("Reconnect attempt {} failed: {}", reconnectAttempts, e.getMessage());
+            scheduleReconnectAttempt(RECONNECT_RETRY_INTERVAL_MS);
+        }
+    }
+
+    private void reconnectTcpAndSendRequest() throws IOException {
+        if (tcpClient != null) {
+            try {
+                tcpClient.close();
+            } catch (IOException ignore) {
+            }
+        }
+        tcpClient = new TcpClient();
+        tcpClient.connect(Config.SERVER_HOST, Config.SERVER_PORT);
+        allowReconnect = true;
+        startNetworkThread();
+        sendReconnectRequest();
+    }
+
+    private void sendReconnectRequest() throws IOException {
+        if (tcpClient == null) {
+            throw new IOException("TCP client not ready");
+        }
+        Message.C2S_ReconnectRequest request = Message.C2S_ReconnectRequest.newBuilder()
+                .setPlayerId(Math.max(0, playerId))
+                .setRoomId(Math.max(0, currentRoomId))
+                .setSessionToken(sessionToken == null ? "" : sessionToken)
+                .setLastInputSeq(Math.max(0, lastConfirmedInputSeq))
+                .setLastServerTick((int) Math.max(0, lastServerTick))
+                .build();
+        tcpClient.sendReconnectRequest(request);
+    }
+
+    private void handleReconnectFailure(String reason) {
+        log.warn("Reconnect failed: {}", reason);
+        stopReconnectExecutor();
+        reconnectState = ReconnectState.IDLE;
+        Gdx.app.postRunnable(() -> {
+            notifyGameScreenReconnectFinish();
+            resetToMainMenu();
+        });
+    }
+
+    private void stopReconnectExecutor() {
+        if (reconnectExecutor != null) {
+            reconnectExecutor.shutdownNow();
+            reconnectExecutor = null;
+        }
+    }
+
+    private void notifyGameScreenReconnectStart() {
+        Gdx.app.postRunnable(() -> {
+            if (getScreen() instanceof GameScreen gameScreen) {
+                gameScreen.enterReconnectHold();
+            }
+        });
+    }
+
+    private void notifyGameScreenReconnectFinish() {
+        if (Gdx.app == null) {
+            return;
+        }
+        Gdx.app.postRunnable(() -> {
+            if (getScreen() instanceof GameScreen gameScreen) {
+                gameScreen.exitReconnectHold();
+            }
+        });
+    }
+
+    private void handleReconnectAck(Message.S2C_ReconnectAck ack) {
+        if (ack == null) {
+            handleReconnectFailure("empty_ack");
+            return;
+        }
+        if (!ack.getSuccess()) {
+            handleReconnectFailure(ack.getMessage());
+            return;
+        }
+        stopReconnectExecutor();
+        allowReconnect = true;
+        lastServerTick = Integer.toUnsignedLong(ack.getServerTick());
+        if (!ack.getSessionToken().isBlank()) {
+            setSessionToken(ack.getSessionToken());
+        }
+        updateActiveRoomId((int) ack.getRoomId());
+        setPlayerId((int) ack.getPlayerId());
+        if (ack.getIsPlaying()) {
+            reconnectState = ReconnectState.AWAITING_SNAPSHOT;
+            Gdx.app.postRunnable(() -> {
+                if (!(getScreen() instanceof GameScreen)) {
+                    setScreen(new GameScreen(Main.this));
+                }
+                if (getScreen() instanceof GameScreen gameScreen) {
+                    gameScreen.resetWorldStateForFullSync();
+                }
+            });
+            prepareUdpClientForMatch();
+        } else {
+            reconnectState = ReconnectState.IDLE;
+            notifyGameScreenReconnectFinish();
+            Gdx.app.postRunnable(() -> {
+                setScreen(new GameRoomScreen(Main.this, skin));
+            });
+        }
+    }
+
+    public synchronized void onReconnectSnapshotApplied() {
+        if (reconnectState != ReconnectState.AWAITING_SNAPSHOT) {
+            return;
+        }
+        reconnectState = ReconnectState.IDLE;
+        notifyGameScreenReconnectFinish();
     }
 
     /*
@@ -513,6 +688,35 @@ public class Main extends Game {
                 .build();
     }
 
+    public synchronized void updateConfirmedInputSeq(int seq) {
+        if (seq < 0) {
+            return;
+        }
+        if (Integer.compareUnsigned(seq, lastConfirmedInputSeq) > 0) {
+            lastConfirmedInputSeq = seq;
+        }
+    }
+
+    public synchronized void updateServerTick(long tick) {
+        if (tick < 0L) {
+            return;
+        }
+        if (Long.compareUnsigned(tick, lastServerTick) > 0) {
+            lastServerTick = tick;
+        }
+    }
+
+    public synchronized boolean isAwaitingReconnectSnapshot() {
+        return reconnectState == ReconnectState.AWAITING_SNAPSHOT;
+    }
+
+    public synchronized void updateActiveRoomId(int roomId) {
+        if (roomId <= 0) {
+            return;
+        }
+        currentRoomId = roomId;
+    }
+
     // ———————— 网络消息处理入口（由网络线程调用） ————————
 
     public void handleNetworkMessage(Message.MessageType type, Object message) {
@@ -541,6 +745,10 @@ public class Main extends Game {
                             ((MainMenuScreen) getScreen()).showError("登录失败: " + result.getMessageLogin());
                         }
                     }
+                    break;
+
+                case MSG_S2C_RECONNECT_ACK:
+                    handleReconnectAck((Message.S2C_ReconnectAck) message);
                     break;
 
                 case MSG_S2C_CREATE_ROOM_RESULT:
@@ -676,6 +884,7 @@ public class Main extends Game {
 
     private void shutdownNetworking() {
         networkRunning.set(false);
+        allowReconnect = false;
 
         if (tcpClient != null) {
             try {
@@ -716,6 +925,19 @@ public class Main extends Game {
             log.debug("Sent UDP hello to register endpoint (playerId={})", playerId);
         } else {
             log.warn("Failed to send UDP hello; UDP sync may be delayed until player input occurs");
+        }
+    }
+
+    private void resetToMainMenu() {
+        stopReconnectExecutor();
+        reconnectState = ReconnectState.IDLE;
+        currentRoomId = 0;
+        lastServerTick = -1L;
+        lastConfirmedInputSeq = 0;
+        setPlayerId(-1);
+        setSessionToken("");
+        if (!(getScreen() instanceof MainMenuScreen)) {
+            setScreen(new MainMenuScreen(Main.this, skin));
         }
     }
 }
