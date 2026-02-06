@@ -227,15 +227,20 @@ void GameManager::ResetPerfStats(Scene& scene) {
 }
 
 void GameManager::RecordPerfSampleLocked(Scene& scene, double elapsed_ms,
-                                         bool is_paused) {
+                                         double dt_seconds, bool is_paused,
+                                         uint32_t delta_items_size,
+                                         uint32_t sync_items_size) {
   PerfSample sample;
   sample.tick = scene.tick;
   sample.logic_ms = elapsed_ms;
+  sample.dt_seconds = dt_seconds;
   sample.player_count = static_cast<uint32_t>(scene.players.size());
   sample.enemy_count = static_cast<uint32_t>(scene.enemies.size());
   sample.projectile_count = static_cast<uint32_t>(scene.projectiles.size());
   sample.item_count = static_cast<uint32_t>(scene.items.size());
   sample.is_paused = is_paused;
+  sample.delta_items_size = delta_items_size;
+  sample.sync_items_size = sync_items_size;
 
   scene.perf.samples.push_back(sample);
   scene.perf.tick_count += 1;
@@ -307,9 +312,13 @@ void GameManager::SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
     const auto& sample = stats.samples[i];
     out << "    {\"tick\": " << sample.tick << ", \"logic_ms\": "
         << std::fixed << std::setprecision(3) << sample.logic_ms
-        << ", \"players\": " << sample.player_count << ", \"enemies\": "
-        << sample.enemy_count << ", \"projectiles\": "
-        << sample.projectile_count << ", \"items\": " << sample.item_count
+        << ", \"dt_seconds\": " << std::fixed << std::setprecision(6)
+        << sample.dt_seconds << ", \"players\": " << sample.player_count
+        << ", \"enemies\": " << sample.enemy_count
+        << ", \"projectiles\": " << sample.projectile_count
+        << ", \"items\": " << sample.item_count
+        << ", \"delta_items\": " << sample.delta_items_size
+        << ", \"sync_items\": " << sample.sync_items_size
         << ", \"paused\": " << (sample.is_paused ? "true" : "false") << "}";
     if (i + 1 < stats.samples.size()) {
       out << ",";
@@ -937,6 +946,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
   uint32_t perf_tick_rate = 0;
   uint32_t perf_sync_rate = 0;
   double perf_elapsed_seconds = 0.0;
+  uint32_t perf_delta_items_size = 0;
+  uint32_t perf_sync_items_size = 0;
   uint64_t event_tick = 0;
   uint32_t event_wave_id = 0;
 
@@ -1023,7 +1034,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       const double perf_ms =
           std::chrono::duration<double, std::milli>(perf_end - perf_start)
               .count();
-      RecordPerfSampleLocked(scene, perf_ms, true);
+      RecordPerfSampleLocked(scene, perf_ms, dt_seconds, true, 0, 0);
       return;
     }
 
@@ -1165,6 +1176,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     const bool want_sync = should_sync || force_full_sync;
     const bool need_sync = want_sync && (force_full_sync || has_dirty);
     if (need_sync) {
+      perf_delta_items_size = 0;
+      perf_sync_items_size = 0;
       std::vector<uint32_t> items_to_remove;
       if (force_full_sync) {
         FillSyncTiming(room_id, scene.tick, &sync);
@@ -1197,6 +1210,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
           out->mutable_position()->set_y(item.y);
           item.dirty = false;
         }
+        perf_sync_items_size = static_cast<uint32_t>(sync.items_size());
         built_sync = true;
         scene.full_sync_elapsed = 0.0;
       } else {
@@ -1321,22 +1335,25 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
           if (!item.dirty) {
             continue;
           }
-          if (!sync_inited) {
-            FillSyncTiming(room_id, scene.tick, &sync);
-            sync_inited = true;
+          if (!delta_inited) {
+            FillDeltaTiming(room_id, scene.tick, &delta);
+            delta_inited = true;
           }
-          auto* out = sync.add_items();
+          auto* out = delta.add_items();
           out->set_item_id(item.item_id);
           out->set_type_id(item.type_id);
           out->set_is_picked(item.is_picked);
           out->set_effect_type(item.effect_type);
           out->mutable_position()->set_x(item.x);
           out->mutable_position()->set_y(item.y);
-          built_sync = true;
+          built_delta = true;
           item.dirty = false;
           if (item.is_picked) {
             items_to_remove.push_back(item.item_id);
           }
+        }
+        if (delta_inited) {
+          perf_delta_items_size = static_cast<uint32_t>(delta.items_size());
         }
       }
       if (!items_to_remove.empty()) {
@@ -1355,7 +1372,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
     const double perf_ms =
         std::chrono::duration<double, std::milli>(perf_end - perf_start)
             .count();
-    RecordPerfSampleLocked(scene, perf_ms, false);
+    RecordPerfSampleLocked(scene, perf_ms, dt_seconds, false,
+                           perf_delta_items_size, perf_sync_items_size);
 
     if (game_over.has_value()) {
       scene.perf.end_time = std::chrono::system_clock::now();
@@ -1500,7 +1518,8 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
       built_sync && (sync.players_size() > 0 || sync.enemies_size() > 0 ||
                      sync.items_size() > 0);
   const bool has_delta_payload =
-      built_delta && (delta.players_size() > 0 || delta.enemies_size() > 0);
+      built_delta && (delta.players_size() > 0 || delta.enemies_size() > 0 ||
+                      delta.items_size() > 0);
 
   if (!has_sync_payload && !has_delta_payload) {
     return;

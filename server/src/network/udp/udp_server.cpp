@@ -146,8 +146,9 @@ std::size_t UdpServer::BroadcastDeltaState(
 
   if (spdlog::should_log(spdlog::level::debug)) {
     spdlog::debug(
-        "UDP 广播房间 {} 状态增量，players={} enemies={}，目标端点 {}", room_id,
-        sync.players_size(), sync.enemies_size(), targets.size());
+        "UDP 广播房间 {} 状态增量，players={} enemies={} items={}，目标端点 {}",
+        room_id, sync.players_size(), sync.enemies_size(), sync.items_size(),
+        targets.size());
   }
   for (const auto& endpoint : targets) {
     SendPacket(data, endpoint);

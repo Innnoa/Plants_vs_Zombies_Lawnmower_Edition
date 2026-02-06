@@ -176,11 +176,14 @@ class GameManager {
   struct PerfSample {
     uint64_t tick = 0; // 逻辑帧编号
     double logic_ms = 0.0; // 逻辑帧耗时（毫秒）
+    double dt_seconds = 0.0; // 逻辑步长（秒）
     uint32_t player_count = 0; // 玩家数量
     uint32_t enemy_count = 0; // 敌人数量
     uint32_t projectile_count = 0; // 射弹数量
     uint32_t item_count = 0; // 道具数量
     bool is_paused = false; // 是否处于暂停
+    uint32_t delta_items_size = 0; // delta 中道具数量
+    uint32_t sync_items_size = 0; // full sync 中道具数量
   };
 
   // 单局性能统计
@@ -282,7 +285,10 @@ class GameManager {
   void ApplyUpgradeEffect(PlayerRuntime& runtime,
                           const UpgradeEffectConfig& effect);
   void ResetPerfStats(Scene& scene);
-  void RecordPerfSampleLocked(Scene& scene, double elapsed_ms, bool is_paused);
+  void RecordPerfSampleLocked(Scene& scene, double elapsed_ms,
+                              double dt_seconds, bool is_paused,
+                              uint32_t delta_items_size,
+                              uint32_t sync_items_size);
   void SavePerfStatsToFile(uint32_t room_id, const PerfStats& stats,
                            uint32_t tick_rate, uint32_t sync_rate,
                            double elapsed_seconds);

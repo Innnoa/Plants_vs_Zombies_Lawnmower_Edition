@@ -382,7 +382,7 @@ message EnemyStateDelta {
   optional bool is_alive = 5;
 }
 
-// 高频同步包：只包含玩家/敌人的 Delta（字段级增量）
+// 高频同步包：包含玩家/敌人/道具的增量（字段级增量或变更列表）
 message S2C_GameStateDeltaSync {
   Timestamp sync_time = 1;
   uint32 room_id = 2;
@@ -390,6 +390,7 @@ message S2C_GameStateDeltaSync {
 
   repeated PlayerStateDelta players = 4;
   repeated EnemyStateDelta enemies = 5;
+  repeated ItemState items = 6; // 道具状态增量（仅包含变化的道具）
 }
 
 // --------------客户端->服务器--------------
