@@ -36,6 +36,7 @@ constexpr float kDeltaPositionEpsilon = 1e-4f;    // delta 位置/朝向变化�
 constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
 constexpr uint32_t kUpgradeOptionCount = 3;       // 升级选项数量
 constexpr const char* kPerfRootDir = "server_metrics";  // 性能数据根目录
+constexpr uint64_t kItemLogIntervalSeconds = 2;          // 道具日志输出间隔
 
 void DedupProjectileSpawns(std::vector<lawnmower::ProjectileState>* spawns) {
   if (spawns == nullptr || spawns->size() < 2) {
@@ -1754,6 +1755,21 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
 
       event_wave_id = scene.wave_id;
       event_tick = scene.tick;
+
+      const uint64_t log_interval_ticks = std::max<uint64_t>(
+          1, static_cast<uint64_t>(scene.config.tick_rate) *
+                 kItemLogIntervalSeconds);
+      if (scene.tick >= scene.last_item_log_tick + log_interval_ticks) {
+        scene.last_item_log_tick = scene.tick;
+        spdlog::info(
+            "[item] room={} tick={} items={} dirty_items={} "
+            "dropped_events={} built_sync={} built_delta={} delta_items={} "
+            "sync_items={}",
+            room_id, scene.tick, scene.items.size(),
+            scene.dirty_item_ids.size(), dropped_items.size(),
+            built_sync ? "true" : "false", built_delta ? "true" : "false",
+            perf_delta_items_size, perf_sync_items_size);
+      }
     }
   }
 

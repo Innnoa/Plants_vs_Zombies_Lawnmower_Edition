@@ -266,6 +266,7 @@ class GameManager {
     std::chrono::steady_clock::time_point last_tick_time;  // 上一次tick的时间点
     std::chrono::steady_clock::time_point next_tick_time;  // 下一帧调度时间点
     std::chrono::duration<double> tick_interval;           // 逻辑帧固定间隔
+    uint64_t last_item_log_tick = 0;                       // 上次道具日志tick
     std::chrono::duration<double> sync_interval;           // 状态同步间隔
     std::chrono::duration<double> dynamic_sync_interval;   // 动态同步间隔
     std::chrono::duration<double> full_sync_interval;      // 全量同步间隔
