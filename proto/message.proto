@@ -125,12 +125,9 @@ message S2C_ReconnectAck {
   uint32 player_id = 3; // 玩家ID
   uint32 room_id = 4; // 房间ID
   uint32 server_tick = 5; // 服务器当前 tick
-  bool is_playing = 7; // 房间是否处于游戏中
-  bool is_paused = 8; // 游戏是否暂停（升级流程）
-  string session_token = 9; // 会话令牌（可选刷新）
-
-  reserved 6;
-  reserved "server_time_ms";
+  bool is_playing = 6; // 房间是否处于游戏中
+  bool is_paused = 7; // 游戏是否暂停（升级流程）
+  string session_token = 8; // 会话令牌（可选刷新）
 }
 
 // =============================
@@ -433,12 +430,9 @@ message S2C_GameStateDeltaSync {
   Timestamp sync_time = 1;
   uint32 room_id = 2;
 
-  repeated PlayerStateDelta players = 4;
-  repeated EnemyStateDelta enemies = 5;
-  repeated ItemStateDelta items = 6; // 道具状态增量（仅包含变化的道具）
-
-  reserved 3;
-  reserved "server_time_ms";
+  repeated PlayerStateDelta players = 3;
+  repeated EnemyStateDelta enemies = 4;
+  repeated ItemStateDelta items = 5; // 道具状态增量（仅包含变化的道具）
 }
 
 // --------------客户端->服务器--------------
@@ -463,30 +457,21 @@ message S2C_GameStateSync {
   repeated EnemyState enemies = 3;             // 变化的敌人状态,容器
   repeated ItemState items = 4;                // 道具状态（如新掉落或被拾取）,容器
   uint32 room_id = 5;                          // 所属房间ID（便于客户端路由/校验）
-  bool is_full_snapshot = 7;                   // 是否为全量快照（true=全量，false=变化集合）
-
-  reserved 6;
-  reserved "server_time_ms";
+  bool is_full_snapshot = 6;                   // 是否为全量快照（true=全量，false=变化集合）
 }
 
 // 射弹发射广播：客户端据此创建本地射弹并模拟飞行
 message S2C_ProjectileSpawn {
   Timestamp sync_time = 1;
   uint32 room_id = 2;
-  repeated ProjectileState projectiles = 4;
-
-  reserved 3;
-  reserved "server_time_ms";
+  repeated ProjectileState projectiles = 3;
 }
 
 // 射弹消失广播：客户端据此移除本地射弹（命中/超界/过期）
 message S2C_ProjectileDespawn {
   Timestamp sync_time = 1;
   uint32 room_id = 2;
-  repeated ProjectileDespawn projectiles = 4;
-
-  reserved 3;
-  reserved "server_time_ms";
+  repeated ProjectileDespawn projectiles = 3;
 }
 
 // =============================
@@ -504,10 +489,7 @@ message EnemyAttackStateDelta {
 message S2C_EnemyAttackStateSync {
   Timestamp sync_time = 1;
   uint32 room_id = 2;
-  repeated EnemyAttackStateDelta enemies = 4;
-
-  reserved 3;
-  reserved "server_time_ms";
+  repeated EnemyAttackStateDelta enemies = 3;
 }
 
 // 玩家受伤广播
