@@ -100,6 +100,11 @@ public class GameScreen implements Screen {
     private static final int ENEMY_DELTA_HEALTH_MASK = Message.EnemyDeltaMask.ENEMY_DELTA_HEALTH_VALUE;
     private static final int ENEMY_DELTA_IS_ALIVE_MASK = Message.EnemyDeltaMask.ENEMY_DELTA_IS_ALIVE_VALUE;
 
+    private static final int ITEM_DELTA_POSITION_MASK = Message.ItemDeltaMask.ITEM_DELTA_POSITION_VALUE;
+    private static final int ITEM_DELTA_IS_PICKED_MASK = Message.ItemDeltaMask.ITEM_DELTA_IS_PICKED_VALUE;
+    private static final int ITEM_DELTA_TYPE_MASK = Message.ItemDeltaMask.ITEM_DELTA_TYPE_VALUE;
+    private static final int ITEM_DELTA_EFFECT_MASK = Message.ItemDeltaMask.ITEM_DELTA_EFFECT_VALUE;
+
     private final Vector2 renderBuffer = new Vector2();
     private final Vector2 projectileTempVector = new Vector2();
     private final Vector2 projectileOriginBuffer = new Vector2();
@@ -119,7 +124,7 @@ public class GameScreen implements Screen {
     private final Array<ProjectileImpact> projectileImpacts = new Array<>();
     private final Vector2 targetingBuffer = new Vector2();
     private final Map<Integer, Message.ItemState> itemStateCache = new HashMap<>();
-    private final Map<Integer, Message.ItemState> itemDeltaBuffer = new LinkedHashMap<>();
+    private final Map<Integer, Message.ItemStateDelta> itemDeltaBuffer = new LinkedHashMap<>();
     private final Set<Integer> droppedItemDedupSet = new HashSet<>();
     private final Map<Integer, ItemView> itemViews = new HashMap<>();
     private final Map<Integer, TextureRegion> itemTextureRegions = new HashMap<>();
@@ -128,6 +133,7 @@ public class GameScreen implements Screen {
     private long lastItemSnapshotTick = -1L;
     private long lastItemDeltaTick = -1L;
     private long lastItemSyncServerTimeMs = -1L;
+    private long lastDroppedItemServerTimeMs = -1L;
 
     private Main game;
     private OrthographicCamera camera;
@@ -394,15 +400,19 @@ public class GameScreen implements Screen {
             }
             lastItemSnapshotTick = incomingTick;
             lastItemDeltaTick = incomingTick;
-            lastItemSyncServerTimeMs = serverTimeMs;
+            if (serverTimeMs > lastItemSyncServerTimeMs) {
+                lastItemSyncServerTimeMs = serverTimeMs;
+            }
             return true;
         }
-        if (serverTimeMs <= lastItemSyncServerTimeMs) {
+        if (serverTimeMs > 0L && serverTimeMs <= lastItemSyncServerTimeMs) {
             return false;
         }
         lastItemSnapshotTick = -1L;
         lastItemDeltaTick = -1L;
-        lastItemSyncServerTimeMs = serverTimeMs;
+        if (serverTimeMs > 0L) {
+            lastItemSyncServerTimeMs = serverTimeMs;
+        }
         return true;
     }
 
@@ -420,14 +430,16 @@ public class GameScreen implements Screen {
             }
             return true;
         }
-        if (serverTimeMs <= lastItemSyncServerTimeMs) {
+        if (serverTimeMs > 0L && serverTimeMs <= lastItemSyncServerTimeMs) {
             return false;
         }
-        lastItemSyncServerTimeMs = serverTimeMs;
+        if (serverTimeMs > 0L) {
+            lastItemSyncServerTimeMs = serverTimeMs;
+        }
         return true;
     }
 
-    private void applyItemDeltaStates(List<Message.ItemState> items, long incomingTick, long serverTimeMs) {
+    private void applyItemDeltaStates(List<Message.ItemStateDelta> items, long incomingTick, long serverTimeMs) {
         if (items == null || items.isEmpty()) {
             return;
         }
@@ -435,17 +447,69 @@ public class GameScreen implements Screen {
             return;
         }
         itemDeltaBuffer.clear();
-        for (Message.ItemState itemState : items) {
-            if (itemState == null) {
+        for (Message.ItemStateDelta itemDelta : items) {
+            if (itemDelta == null) {
                 continue;
             }
-            int itemId = (int) itemState.getItemId();
-            itemDeltaBuffer.put(itemId, itemState);
+            int itemId = (int) itemDelta.getItemId();
+            Message.ItemStateDelta existing = itemDeltaBuffer.get(itemId);
+            if (existing == null) {
+                itemDeltaBuffer.put(itemId, itemDelta);
+            } else {
+                itemDeltaBuffer.put(itemId, mergeItemDelta(existing, itemDelta));
+            }
         }
-        for (Message.ItemState dedupedState : itemDeltaBuffer.values()) {
-            applyItemState(dedupedState);
+        for (Message.ItemStateDelta dedupedState : itemDeltaBuffer.values()) {
+            Message.ItemState resolved = materializeItemDelta(dedupedState);
+            applyItemState(resolved);
         }
         itemDeltaBuffer.clear();
+    }
+
+    private Message.ItemStateDelta mergeItemDelta(Message.ItemStateDelta base, Message.ItemStateDelta incoming) {
+        if (base == null) {
+            return incoming;
+        }
+        Message.ItemStateDelta.Builder builder = base.toBuilder();
+        builder.setChangedMask(base.getChangedMask() | incoming.getChangedMask());
+        if (incoming.hasPosition()) {
+            builder.setPosition(incoming.getPosition());
+        }
+        if (incoming.hasIsPicked()) {
+            builder.setIsPicked(incoming.getIsPicked());
+        }
+        if (incoming.hasTypeId()) {
+            builder.setTypeId(incoming.getTypeId());
+        }
+        if (incoming.hasEffectType()) {
+            builder.setEffectType(incoming.getEffectType());
+        }
+        return builder.build();
+    }
+
+    private Message.ItemState materializeItemDelta(Message.ItemStateDelta delta) {
+        if (delta == null) {
+            return null;
+        }
+        int itemId = (int) delta.getItemId();
+        Message.ItemState base = itemStateCache.get(itemId);
+        Message.ItemState.Builder builder = base != null
+                ? base.toBuilder()
+                : Message.ItemState.newBuilder().setItemId(delta.getItemId());
+        int mask = delta.getChangedMask();
+        if ((mask & ITEM_DELTA_POSITION_MASK) != 0 && delta.hasPosition()) {
+            builder.setPosition(delta.getPosition());
+        }
+        if ((mask & ITEM_DELTA_IS_PICKED_MASK) != 0 && delta.hasIsPicked()) {
+            builder.setIsPicked(delta.getIsPicked());
+        }
+        if ((mask & ITEM_DELTA_TYPE_MASK) != 0 && delta.hasTypeId()) {
+            builder.setTypeId(delta.getTypeId());
+        }
+        if ((mask & ITEM_DELTA_EFFECT_MASK) != 0 && delta.hasEffectType()) {
+            builder.setEffectType(delta.getEffectType());
+        }
+        return builder.build();
     }
 
     /**
@@ -1895,12 +1959,7 @@ public class GameScreen implements Screen {
      * @param arrivalMs
      * @return
      */
-    private boolean shouldAcceptStatePacket(Message.Timestamp syncTime, long serverTimeMs, long arrivalMs) {
-        //閺嶅洤鍣崠鏉ck
-        long incomingTick = syncTime != null
-                ? Integer.toUnsignedLong(syncTime.getTick())
-                : -1L;
-        //tick閺嶏繝鐛?
+    private boolean shouldAcceptStatePacket(long incomingTick, long serverTimeMs, long arrivalMs) {
         if (incomingTick >= 0) {
             if (lastAppliedSyncTick >= 0L && Long.compareUnsigned(incomingTick, lastAppliedSyncTick) <= 0) {
                 logDroppedSync("tick", incomingTick, serverTimeMs, arrivalMs);
@@ -1912,11 +1971,39 @@ public class GameScreen implements Screen {
             }
             return true;
         }
-        //tick閺冪姵鏅ラ惃鍕礀闁偓
-        if (lastAppliedServerTimeMs >= 0L && serverTimeMs <= lastAppliedServerTimeMs) {
+        if (serverTimeMs > 0L && lastAppliedServerTimeMs >= 0L && serverTimeMs <= lastAppliedServerTimeMs) {
             logDroppedSync("serverTime", serverTimeMs, serverTimeMs, arrivalMs);
             return false;
         }
+        if (serverTimeMs > 0L) {
+            lastAppliedServerTimeMs = serverTimeMs;
+        }
+        return true;
+    }
+
+    private long extractSyncTick(Message.Timestamp syncTime) {
+        return syncTime != null ? Integer.toUnsignedLong(syncTime.getTick()) : -1L;
+    }
+
+    private long extractServerTime(Message.Timestamp syncTime) {
+        if (syncTime == null) {
+            return -1L;
+        }
+        long serverTime = syncTime.getServerTime();
+        return serverTime > 0L ? serverTime : -1L;
+    }
+
+    private long resolveServerTime(Message.Timestamp syncTime, long arrivalMs) {
+        long serverTimeMs = extractServerTime(syncTime);
+        if (serverTimeMs > 0L) {
+            return serverTimeMs;
+        }
+        long estimate = estimateServerTimeMs();
+        if (estimate > 0L) {
+            return estimate;
+        }
+        return arrivalMs;
+    }
 
         lastAppliedServerTimeMs = serverTimeMs;
         return true;
@@ -2100,23 +2187,27 @@ public class GameScreen implements Screen {
      * 鐎广垺鍩涚粩顖氼槱閻炲棙婀囬崝鈥虫珤閸忋劑鍣哄〒鍛婂灆閸氬本顒為崠?     * @param sync
      */
     public void onGameStateReceived(Message.S2C_GameStateSync sync) {
-        long arrivalMs = TimeUtils.millis();//閸栧懎鍩屾潏鍓ф畱閺冨爼妫?
+        long arrivalMs = TimeUtils.millis();//
         setCurrentRoomId((int) sync.getRoomId());
-        //鐎瑰鍙忛張鍝勫煑
+        //
         Message.Timestamp syncTime = sync.hasSyncTime() ? sync.getSyncTime() : null;
-        long incomingTick = syncTime != null ? Integer.toUnsignedLong(syncTime.getTick()) : -1L;
-        if (!shouldAcceptStatePacket(syncTime, sync.getServerTimeMs(), arrivalMs)) {
+        long incomingTick = extractSyncTick(syncTime);
+        long serverTimeMs = resolveServerTime(syncTime, arrivalMs);
+        if (!shouldAcceptStatePacket(incomingTick, serverTimeMs, arrivalMs)) {
             return;
         }
-        if (syncTime != null) {
-            game.updateServerTick(Integer.toUnsignedLong(syncTime.getTick()));
+        if (incomingTick >= 0L) {
+            game.updateServerTick(incomingTick);
         }
-        boolean isFullSnapshot = shouldTreatSyncAsFullSnapshot();
+        boolean isFullSnapshot = shouldTreatSyncAsFullSnapshot(sync.getIsFullSnapshot());
         if (isFullSnapshot && Gdx.app != null) {
-            Gdx.app.log(TAG, "Applying full GameStateSync (" + awaitingFullStateReason + ")");
+            String snapshotReason = sync.getIsFullSnapshot() ? "server_full" : awaitingFullStateReason;
+            Gdx.app.log(TAG, "Applying full GameStateSync (" + snapshotReason + ")");
         }
         updateSyncArrivalStats(arrivalMs);
-        sampleClockOffset(sync.getServerTimeMs());
+        if (serverTimeMs > 0L) {
+            sampleClockOffset(serverTimeMs);
+        }
         List<Message.EnemyState> enemies = sync.getEnemiesList();
         if (isFullSnapshot) {
             enemyStateCache.clear();
@@ -2125,15 +2216,15 @@ public class GameScreen implements Screen {
                     enemyStateCache.put((int) enemy.getEnemyId(), enemy);
                 }
             }
-            syncEnemyViews(enemies, sync.getServerTimeMs(), true);
+            syncEnemyViews(enemies, serverTimeMs, true);
         } else if (!enemies.isEmpty()) {
             for (Message.EnemyState enemy : enemies) {
                 enemyStateCache.put((int) enemy.getEnemyId(), enemy);
             }
-            syncEnemyViews(enemies, sync.getServerTimeMs(), false);
+            syncEnemyViews(enemies, serverTimeMs, false);
         }
-        handlePlayersFromServer(sync.getPlayersList(), sync.getServerTimeMs());
-        if (isFullSnapshot && shouldApplyItemSnapshot(incomingTick, sync.getServerTimeMs())) {
+        handlePlayersFromServer(sync.getPlayersList(), serverTimeMs);
+        if (isFullSnapshot && shouldApplyItemSnapshot(incomingTick, serverTimeMs)) {
             syncItemViews(sync.getItemsList());
         }
         if (game.isAwaitingReconnectSnapshot()) {
@@ -2146,16 +2237,17 @@ public class GameScreen implements Screen {
      * @param delta
      */
     public void onGameStateDeltaReceived(Message.S2C_GameStateDeltaSync delta) {
-        //閹恒儲鏁归崠鍛板箯閸欐牕鎮撳銉︽闂?
+        //
         long arrivalMs = TimeUtils.millis();
         setCurrentRoomId((int) delta.getRoomId());
         Message.Timestamp syncTime = delta.hasSyncTime() ? delta.getSyncTime() : null;
-        long deltaTick = syncTime != null ? Integer.toUnsignedLong(syncTime.getTick()) : -1L;
-        //閺堝鏅ラ幀褎顥呮?
-        if (!shouldAcceptStatePacket(syncTime, delta.getServerTimeMs(), arrivalMs)) {
+        long deltaTick = extractSyncTick(syncTime);
+        long serverTimeMs = resolveServerTime(syncTime, arrivalMs);
+        //
+        if (!shouldAcceptStatePacket(deltaTick, serverTimeMs, arrivalMs)) {
             return;
         }
-        //閸氬牆鑻熼悳鈺侇啀婢х偤鍣洪崚鏉跨暚閺佸濮搁幀?
+        //
         List<Message.PlayerState> mergedPlayers = new ArrayList<>(delta.getPlayersCount());
         for (Message.PlayerStateDelta playerDelta : delta.getPlayersList()) {
             Message.PlayerState merged = mergePlayerDelta(playerDelta);
@@ -2163,7 +2255,7 @@ public class GameScreen implements Screen {
                 mergedPlayers.add(merged);
             }
         }
-        //閸氬牆鑻熼弫灞兼眽婢х偤鍣洪崚鏉跨暚閺佸濮搁幀?
+        //
         List<Message.EnemyState> updatedEnemies = new ArrayList<>(delta.getEnemiesCount());
         for (Message.EnemyStateDelta enemyDelta : delta.getEnemiesList()) {
             Message.EnemyState mergedEnemy = mergeEnemyDelta(enemyDelta);
@@ -2171,19 +2263,21 @@ public class GameScreen implements Screen {
                 updatedEnemies.add(mergedEnemy);
             }
         }
-        //缂冩垹绮剁拹銊╁櫤+閺冨爼鎸撻弽鈥冲櫙
-        updateSyncArrivalStats(arrivalMs);//閺囧瓨鏌婇崑蹇曅╅幐鍥ㄧ垼
-        sampleClockOffset(delta.getServerTimeMs());//娴兼壆鐣荤€广垺鍩涚粩顖氬煂閺堝秴濮熼崳銊ф畱閸嬪繒些闁?
-        // 閸掑棗褰傛径鍕倞閻樿埖鈧?
-        handlePlayersFromServer(mergedPlayers, delta.getServerTimeMs());
+        //
+        updateSyncArrivalStats(arrivalMs);//
+        if (serverTimeMs > 0L) {
+            sampleClockOffset(serverTimeMs);//
+        }
+        //
+        handlePlayersFromServer(mergedPlayers, serverTimeMs);
         if (!updatedEnemies.isEmpty()) {
-            syncEnemyViews(updatedEnemies, delta.getServerTimeMs(), false);
+            syncEnemyViews(updatedEnemies, serverTimeMs, false);
         }
         if (!delta.getItemsList().isEmpty()) {
-            applyItemDeltaStates(delta.getItemsList(), deltaTick, delta.getServerTimeMs());
+            applyItemDeltaStates(delta.getItemsList(), deltaTick, serverTimeMs);
         }
-        if (delta.hasSyncTime()) {
-            game.updateServerTick(Integer.toUnsignedLong(delta.getSyncTime().getTick()));
+        if (deltaTick >= 0L) {
+            game.updateServerTick(deltaTick);
         }
     }
 
@@ -2225,7 +2319,11 @@ public class GameScreen implements Screen {
         awaitingFullStateReason = (reason == null || reason.isBlank()) ? "unknown" : reason;
     }
 
-    private boolean shouldTreatSyncAsFullSnapshot() {
+    private boolean shouldTreatSyncAsFullSnapshot(boolean serverRequestsFullSnapshot) {
+        if (serverRequestsFullSnapshot) {
+            awaitingFullWorldState = false;
+            return true;
+        }
         if (!hasReceivedInitialState) {
             awaitingFullWorldState = false;
             return true;
@@ -2249,6 +2347,10 @@ public class GameScreen implements Screen {
             currentRoomId = roomId;
             game.updateActiveRoomId(roomId);
         }
+    }
+
+    private boolean isMessageForCurrentRoom(long roomId) {
+        return roomId <= 0 || currentRoomId <= 0 || roomId == currentRoomId;
     }
 
     public void onUpgradeRequest(Message.S2C_UpgradeRequest request) {
@@ -2674,8 +2776,13 @@ public class GameScreen implements Screen {
         if (spawn == null || spawn.getProjectilesCount() == 0) {
             return;
         }
-        long serverTimeMs = spawn.getServerTimeMs();
-        if (serverTimeMs == 0L) {
+        if (!isMessageForCurrentRoom(spawn.getRoomId())) {
+            return;
+        }
+        long arrivalMs = TimeUtils.millis();
+        Message.Timestamp syncTime = spawn.hasSyncTime() ? spawn.getSyncTime() : null;
+        long serverTimeMs = resolveServerTime(syncTime, arrivalMs);
+        if (serverTimeMs <= 0L) {
             serverTimeMs = estimateServerTimeMs();
         }
         int spawned = 0;
@@ -2694,7 +2801,6 @@ public class GameScreen implements Screen {
             }
             Vector2 originPosition = projectileOriginBuffer;
             if (hasSpawnPosition) {
-                // 浠ユ湇鍔＄涓嬪彂鐨勫嚭鐢熺偣涓烘潈濞佷綅缃?
                 originPosition.set(spawnPosition);
             } else {
                 resolveProjectileOrigin(state, spawnPosition, originPosition);
@@ -2705,7 +2811,6 @@ public class GameScreen implements Screen {
             float serverSpeed = state.hasProjectile() ? state.getProjectile().getSpeed() : 0f;
             float appliedSpeed = PEA_PROJECTILE_SPEED > 0f ? PEA_PROJECTILE_SPEED : serverSpeed;
             Vector2 direction = projectileDirectionBuffer;
-            // 鏂瑰悜浣跨敤鏈嶅姟绔绠楃殑 rotation锛岄伩鍏嶅鎴风浜屾鎺ㄧ畻甯︽潵鍋忓樊
             float dirX = MathUtils.cosDeg(rotationDeg);
             float dirY = MathUtils.sinDeg(rotationDeg);
             direction.set(dirX, dirY);
@@ -2772,6 +2877,9 @@ public class GameScreen implements Screen {
         if (despawn == null || despawn.getProjectilesCount() == 0) {
             return;
         }
+        if (!isMessageForCurrentRoom(despawn.getRoomId())) {
+            return;
+        }
         for (Message.ProjectileDespawn entry : despawn.getProjectilesList()) {
             if (entry == null) {
                 continue;
@@ -2828,7 +2936,12 @@ public class GameScreen implements Screen {
         if (sync == null || sync.getEnemiesCount() == 0) {
             return;
         }
-        long serverTimeMs = sync.getServerTimeMs();
+        if (!isMessageForCurrentRoom(sync.getRoomId())) {
+            return;
+        }
+        long arrivalMs = TimeUtils.millis();
+        Message.Timestamp syncTime = sync.hasSyncTime() ? sync.getSyncTime() : null;
+        long serverTimeMs = resolveServerTime(syncTime, arrivalMs);
         if (serverTimeMs <= 0L) {
             serverTimeMs = estimateServerTimeMs();
         }
@@ -2917,7 +3030,19 @@ public class GameScreen implements Screen {
         if (droppedItem == null || droppedItem.getItemsCount() == 0) {
             return;
         }
-        showStatusToast("鎺夎惤浜?" + droppedItem.getItemsCount() + " 涓垬鍒╁搧");
+        if (!isMessageForCurrentRoom(droppedItem.getRoomId())) {
+            return;
+        }
+        long arrivalMs = TimeUtils.millis();
+        Message.Timestamp syncTime = droppedItem.hasSyncTime() ? droppedItem.getSyncTime() : null;
+        long serverTimeMs = resolveServerTime(syncTime, arrivalMs);
+        if (serverTimeMs > 0L && lastDroppedItemServerTimeMs > 0L && serverTimeMs < lastDroppedItemServerTimeMs) {
+            return;
+        }
+        if (serverTimeMs > 0L) {
+            lastDroppedItemServerTimeMs = serverTimeMs;
+        }
+        showStatusToast("???????" + droppedItem.getItemsCount() + " ?????????");
         droppedItemDedupSet.clear();
         for (Message.ItemState itemState : droppedItem.getItemsList()) {
             if (itemState == null) {
@@ -3204,6 +3329,7 @@ public class GameScreen implements Screen {
             lastItemSnapshotTick = -1L;
             lastItemDeltaTick = -1L;
             lastItemSyncServerTimeMs = -1L;
+            lastDroppedItemServerTimeMs = -1L;
         }
     }
 

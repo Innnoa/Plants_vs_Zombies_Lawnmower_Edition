@@ -279,17 +279,17 @@ public class Main extends Game {
     }
 
     private boolean shouldDropUdpSync(Message.S2C_GameStateSync sync) {
-        long tick = sync.hasSyncTime()
-                ? Integer.toUnsignedLong(sync.getSyncTime().getTick())
-                : -1L;
-        return shouldDropUdpState(tick, sync.getServerTimeMs());
+        Message.Timestamp syncTime = sync.hasSyncTime() ? sync.getSyncTime() : null;
+        long tick = extractSyncTick(syncTime);
+        long serverTimeMs = extractServerTime(syncTime);
+        return shouldDropUdpState(tick, serverTimeMs);
     }
 
     private boolean shouldDropUdpDelta(Message.S2C_GameStateDeltaSync delta) {
-        long tick = delta.hasSyncTime()
-                ? Integer.toUnsignedLong(delta.getSyncTime().getTick())
-                : -1L;
-        return shouldDropUdpState(tick, delta.getServerTimeMs());
+        Message.Timestamp syncTime = delta.hasSyncTime() ? delta.getSyncTime() : null;
+        long tick = extractSyncTick(syncTime);
+        long serverTimeMs = extractServerTime(syncTime);
+        return shouldDropUdpState(tick, serverTimeMs);
     }
 
     private boolean shouldDropUdpState(long tick, long serverTimeMs) {
@@ -304,12 +304,26 @@ public class Main extends Game {
             return false;
         }
 
-        if (serverTimeMs <= lastUdpServerTimeMs) {
+        long effectiveServerTime = serverTimeMs > 0L ? serverTimeMs : System.currentTimeMillis();
+        if (lastUdpServerTimeMs > 0L && effectiveServerTime <= lastUdpServerTimeMs) {
             return true;
         }
-        lastUdpServerTimeMs = serverTimeMs;
+        lastUdpServerTimeMs = effectiveServerTime;
         return false;
     }
+
+    private long extractSyncTick(Message.Timestamp syncTime) {
+        return syncTime != null ? Integer.toUnsignedLong(syncTime.getTick()) : -1L;
+    }
+
+    private long extractServerTime(Message.Timestamp syncTime) {
+        if (syncTime == null) {
+            return -1L;
+        }
+        long serverTime = syncTime.getServerTime();
+        return serverTime > 0L ? serverTime : -1L;
+    }
+
 
     private synchronized void prepareUdpClientForMatch() {
         if (playerId <= 0) {
