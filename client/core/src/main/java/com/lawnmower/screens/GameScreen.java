@@ -1954,7 +1954,6 @@ public class GameScreen implements Screen {
 
     /**
      * 闂冨弶顒涙径鍕倞鏉╁洦婀￠幋鏍偓鍛础鎼村繐瀵?
-     * @param syncTime
      * @param serverTimeMs
      * @param arrivalMs
      * @return
@@ -2003,10 +2002,6 @@ public class GameScreen implements Screen {
             return estimate;
         }
         return arrivalMs;
-    }
-
-        lastAppliedServerTimeMs = serverTimeMs;
-        return true;
     }
 
     /**
