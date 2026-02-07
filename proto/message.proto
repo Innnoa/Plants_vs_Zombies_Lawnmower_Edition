@@ -368,17 +368,6 @@ enum ItemDeltaMask {
   ITEM_DELTA_EFFECT = 8;     // 效果类型更新
 }
 
-// 高频道具状态增量（主要用于 UDP 高频同步）
-message ItemStateDelta {
-  uint32 item_id = 1;
-  uint32 changed_mask = 2;
-
-  Vector2 position = 3;
-  optional bool is_picked = 4;
-  optional uint32 type_id = 5;
-  optional ItemEffectType effect_type = 6;
-}
-
 // =============================
 // 高频 Delta 同步（仅变化字段）
 // =============================
@@ -423,6 +412,17 @@ message EnemyStateDelta {
   Vector2 position = 3;
   optional int32 health = 4;
   optional bool is_alive = 5;
+}
+
+// 高频道具状态增量（主要用于 UDP 高频同步）
+message ItemStateDelta {
+  uint32 item_id = 1;
+  uint32 changed_mask = 2;
+
+  Vector2 position = 3;
+  optional bool is_picked = 4;
+  optional uint32 type_id = 5;
+  optional ItemEffectType effect_type = 6;
 }
 
 // 高频同步包：包含玩家/敌人/道具的增量（字段级增量或变更列表）
