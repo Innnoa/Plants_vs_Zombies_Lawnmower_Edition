@@ -195,8 +195,6 @@ class GameManager {
     float last_sync_y = 0.0f;          // delta 同步基线y
     bool last_sync_is_picked = false;  // delta 同步基线拾取状态
     uint32_t last_sync_type_id = 0;    // delta 同步基线类型
-    lawnmower::ItemEffectType last_sync_effect_type =
-        lawnmower::ITEM_EFFECT_NONE;  // delta 同步基线效果
     uint32_t force_sync_left = 0;     // 强制同步次数（用于新生成道具首包）
     bool dirty = false;               // 是否需要同步
   };

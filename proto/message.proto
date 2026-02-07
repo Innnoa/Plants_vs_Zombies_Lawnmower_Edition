@@ -356,7 +356,6 @@ message ItemState {
     uint32 type_id = 2;            // 道具类型ID
     Vector2 position = 3;          // 位置
     bool is_picked = 4;            // 是否已被拾取
-    ItemEffectType effect_type = 5; // 道具效果类型
 }
 
 // 道具字段级增量掩码
@@ -365,7 +364,6 @@ enum ItemDeltaMask {
   ITEM_DELTA_POSITION = 1;   // 位置更新
   ITEM_DELTA_IS_PICKED = 2;  // 拾取状态更新
   ITEM_DELTA_TYPE = 4;       // 类型更新
-  ITEM_DELTA_EFFECT = 8;     // 效果类型更新
 }
 
 // =============================
@@ -422,7 +420,6 @@ message ItemStateDelta {
   Vector2 position = 3;
   optional bool is_picked = 4;
   optional uint32 type_id = 5;
-  optional ItemEffectType effect_type = 6;
 }
 
 // 高频同步包：包含玩家/敌人/道具的增量（字段级增量或变更列表）

@@ -391,7 +391,6 @@ void GameManager::UpdateItemLastSync(ItemRuntime& runtime) {
   runtime.last_sync_y = runtime.y;
   runtime.last_sync_is_picked = runtime.is_picked;
   runtime.last_sync_type_id = runtime.type_id;
-  runtime.last_sync_effect_type = runtime.effect_type;
 }
 
 void GameManager::MarkPlayerDirty(Scene& scene, uint32_t player_id,
@@ -476,7 +475,6 @@ void GameManager::BuildSyncPayloadsLocked(
       out->set_item_id(item.item_id);
       out->set_type_id(item.type_id);
       out->set_is_picked(item.is_picked);
-      out->set_effect_type(item.effect_type);
       out->mutable_position()->set_x(item.x);
       out->mutable_position()->set_y(item.y);
       UpdateItemLastSync(item);
@@ -656,7 +654,6 @@ void GameManager::BuildSyncPayloadsLocked(
         changed_mask |= lawnmower::ITEM_DELTA_POSITION;
         changed_mask |= lawnmower::ITEM_DELTA_IS_PICKED;
         changed_mask |= lawnmower::ITEM_DELTA_TYPE;
-        changed_mask |= lawnmower::ITEM_DELTA_EFFECT;
       } else {
         if (PositionChanged(item.x, item.y, item.last_sync_x,
                             item.last_sync_y)) {
@@ -667,9 +664,6 @@ void GameManager::BuildSyncPayloadsLocked(
         }
         if (item.type_id != item.last_sync_type_id) {
           changed_mask |= lawnmower::ITEM_DELTA_TYPE;
-        }
-        if (item.effect_type != item.last_sync_effect_type) {
-          changed_mask |= lawnmower::ITEM_DELTA_EFFECT;
         }
       }
       if (changed_mask == 0) {
@@ -693,9 +687,6 @@ void GameManager::BuildSyncPayloadsLocked(
       }
       if ((changed_mask & lawnmower::ITEM_DELTA_TYPE) != 0) {
         out->set_type_id(item.type_id);
-      }
-      if ((changed_mask & lawnmower::ITEM_DELTA_EFFECT) != 0) {
-        out->set_effect_type(item.effect_type);
       }
       *built_delta = true;
       UpdateItemLastSync(item);
@@ -1445,7 +1436,6 @@ bool GameManager::BuildFullState(uint32_t room_id,
     item_state->set_item_id(item.item_id);
     item_state->set_type_id(item.type_id);
     item_state->set_is_picked(item.is_picked);
-    item_state->set_effect_type(item.effect_type);
     item_state->mutable_position()->set_x(item.x);
     item_state->mutable_position()->set_y(item.y);
   }

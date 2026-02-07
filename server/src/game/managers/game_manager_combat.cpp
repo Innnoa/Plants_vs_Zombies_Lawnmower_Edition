@@ -457,7 +457,6 @@ void GameManager::ProcessCombatAndProjectiles(
     dropped.set_item_id(runtime.item_id);
     dropped.set_type_id(runtime.type_id);
     dropped.set_is_picked(false);
-    dropped.set_effect_type(runtime.effect_type);
     dropped.mutable_position()->set_x(runtime.x);
     dropped.mutable_position()->set_y(runtime.y);
     *has_dirty = true;
