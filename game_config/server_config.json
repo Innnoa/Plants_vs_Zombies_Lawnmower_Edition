@@ -28,7 +28,7 @@
     "__comment_prediction_history_seconds": "预测历史窗口（秒）",
     "prediction_history_seconds": 2.0,
     "__comment_reconnect_grace_seconds": "断线重连宽限期（秒）",
-    "reconnect_grace_seconds": 15.0,
+    "reconnect_grace_seconds": 60.0,
     "__comment_wave_interval_seconds": "波次增长间隔（秒）",
     "wave_interval_seconds": 20.0,
     "__comment_enemy_spawn_base_per_second": "基础刷怪速率（只要有人存活）",
