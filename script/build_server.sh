@@ -7,9 +7,9 @@
 #   This script pins CCACHE_DIR/CCACHE_TEMPDIR/TMPDIR to a writable home cache directory.
 #
 # Usage:
-#   script/build_server.sh [--debug|--release] [-B <build-dir>] [-j <jobs>]
+#   script/build_server.sh [--debug|--gcc|--clang] [-B <build-dir>] [-j <jobs>]
 #   script/build_server.sh --build-only [-B <build-dir>] [-j <jobs>]
-#   script/build_server.sh --configure-only [--debug|--release] [-B <build-dir>]
+#   script/build_server.sh --configure-only [--debug|--gcc|--clang] [-B <build-dir>]
 
 set -euo pipefail
 
@@ -19,9 +19,10 @@ usage() {
   script/build_server.sh [选项]
 
 选项:
-  --debug              Debug 构建 (默认)
-  --release            Release 构建
-  -B, --build-dir DIR  指定构建目录 (默认: server/build-debug 或 server/build-release)
+  --debug              使用默认工具链，构建到 server/build-debug (默认)
+  --gcc                使用 gcc/g++，构建到 server/build-gcc
+  --clang              使用 clang/clang++，构建到 server/build-clang
+  -B, --build-dir DIR  指定构建目录（可覆盖上述默认目录）
   -j, --jobs N         并行编译数量 (默认: nproc)
   --configure-only     只执行 cmake 配置，不编译
   --build-only         只编译，不重新配置
@@ -45,19 +46,48 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 server_dir="$repo_root/server"
 
 build_type="Debug"
+build_profile="debug"
 build_dir=""
 jobs=""
 do_configure=1
 do_build=1
+c_compiler=""
+cxx_compiler=""
+profile_explicit=0
 
 while (($#)); do
   case "$1" in
     --debug)
-      build_type="Debug"
+      if (( profile_explicit == 1 )) && [[ "$build_profile" != "debug" ]]; then
+        echo "构建档位参数冲突：--debug/--gcc/--clang 只能选择一个" >&2
+        exit 1
+      fi
+      build_profile="debug"
+      c_compiler=""
+      cxx_compiler=""
+      profile_explicit=1
       shift
       ;;
-    --release)
-      build_type="Release"
+    --gcc)
+      if (( profile_explicit == 1 )) && [[ "$build_profile" != "gcc" ]]; then
+        echo "构建档位参数冲突：--debug/--gcc/--clang 只能选择一个" >&2
+        exit 1
+      fi
+      build_profile="gcc"
+      c_compiler="gcc"
+      cxx_compiler="g++"
+      profile_explicit=1
+      shift
+      ;;
+    --clang)
+      if (( profile_explicit == 1 )) && [[ "$build_profile" != "clang" ]]; then
+        echo "构建档位参数冲突：--debug/--gcc/--clang 只能选择一个" >&2
+        exit 1
+      fi
+      build_profile="clang"
+      c_compiler="clang"
+      cxx_compiler="clang++"
+      profile_explicit=1
       shift
       ;;
     -B|--build-dir)
@@ -89,11 +119,15 @@ while (($#)); do
 done
 
 if [[ -z "$build_dir" ]]; then
-  if [[ "$build_type" == "Release" ]]; then
-    build_dir="$server_dir/build-release"
-  else
-    build_dir="$server_dir/build-debug"
-  fi
+  case "$build_profile" in
+    debug) build_dir="$server_dir/build-debug" ;;
+    gcc) build_dir="$server_dir/build-gcc" ;;
+    clang) build_dir="$server_dir/build-clang" ;;
+    *)
+      echo "未知构建档位: $build_profile" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 cache_dir="${CCACHE_DIR:-$HOME/.cache/ccache}"
@@ -111,6 +145,18 @@ export TMPDIR="$cache_tmp"
 
 if (( do_configure )); then
   cmake_args=("-DCMAKE_BUILD_TYPE=$build_type")
+  if [[ -n "$c_compiler" && -n "$cxx_compiler" ]]; then
+    if ! command -v "$c_compiler" >/dev/null 2>&1; then
+      echo "未找到编译器: $c_compiler" >&2
+      exit 1
+    fi
+    if ! command -v "$cxx_compiler" >/dev/null 2>&1; then
+      echo "未找到编译器: $cxx_compiler" >&2
+      exit 1
+    fi
+    cmake_args+=("-DCMAKE_C_COMPILER=$c_compiler")
+    cmake_args+=("-DCMAKE_CXX_COMPILER=$cxx_compiler")
+  fi
   if command -v ccache >/dev/null 2>&1; then
     cmake_args+=("-DCMAKE_C_COMPILER_LAUNCHER=ccache")
     cmake_args+=("-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
@@ -131,6 +177,7 @@ if (( do_build )); then
 fi
 
 echo "Build done:"
+echo "  profile=$build_profile"
 echo "  build_dir=$build_dir"
 echo "  CCACHE_DIR=$CCACHE_DIR"
 echo "  CCACHE_TEMPDIR=$CCACHE_TEMPDIR"

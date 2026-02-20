@@ -53,7 +53,9 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
                    const std::pair<int, int>& goal,
                    std::vector<std::pair<int, int>>* out_path,
                    std::vector<int>& came_from, std::vector<float>& g_score,
-                   std::vector<uint8_t>& closed) {
+                   std::vector<uint32_t>& visit_epoch,
+                   std::vector<uint32_t>& closed_epoch,
+                   uint32_t* epoch_counter) {
   if (out_path == nullptr) {
     return false;
   }
@@ -66,11 +68,29 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
   if (total <= 0) {
     return false;
   }
-
-  came_from.assign(static_cast<std::size_t>(total), -1);
-  g_score.assign(static_cast<std::size_t>(total),
-                 std::numeric_limits<float>::infinity());
-  closed.assign(static_cast<std::size_t>(total), 0);
+  if (epoch_counter == nullptr) {
+    return false;
+  }
+  const std::size_t total_size = static_cast<std::size_t>(total);
+  if (came_from.size() != total_size) {
+    came_from.assign(total_size, -1);
+  }
+  if (g_score.size() != total_size) {
+    g_score.assign(total_size, std::numeric_limits<float>::infinity());
+  }
+  if (visit_epoch.size() != total_size) {
+    visit_epoch.assign(total_size, 0);
+  }
+  if (closed_epoch.size() != total_size) {
+    closed_epoch.assign(total_size, 0);
+  }
+  uint32_t epoch = ++(*epoch_counter);
+  if (epoch == 0) {
+    std::fill(visit_epoch.begin(), visit_epoch.end(), 0u);
+    std::fill(closed_epoch.begin(), closed_epoch.end(), 0u);
+    *epoch_counter = 1;
+    epoch = 1;
+  }
 
   const int start_idx = ToIndex(grid, start.first, start.second);
   const int goal_idx = ToIndex(grid, goal.first, goal.second);
@@ -87,6 +107,8 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
   auto cmp = [](const OpenNode& a, const OpenNode& b) { return a.f > b.f; };
   std::priority_queue<OpenNode, std::vector<OpenNode>, decltype(cmp)> open(cmp);
 
+  visit_epoch[static_cast<std::size_t>(start_idx)] = epoch;
+  came_from[static_cast<std::size_t>(start_idx)] = -1;
   g_score[static_cast<std::size_t>(start_idx)] = 0.0f;
   open.push(OpenNode{start_idx, Heuristic(start, goal), 0.0f});
 
@@ -109,10 +131,16 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
       found = true;
       break;
     }
-    if (closed[static_cast<std::size_t>(cur.idx)] != 0) {
+    if (closed_epoch[static_cast<std::size_t>(cur.idx)] == epoch) {
       continue;
     }
-    closed[static_cast<std::size_t>(cur.idx)] = 1;
+    if (visit_epoch[static_cast<std::size_t>(cur.idx)] != epoch) {
+      continue;
+    }
+    if (cur.g > g_score[static_cast<std::size_t>(cur.idx)]) {
+      continue;
+    }
+    closed_epoch[static_cast<std::size_t>(cur.idx)] = epoch;
 
     const int cx = cur.idx % grid.cells_x;
     const int cy = cur.idx / grid.cells_x;
@@ -124,7 +152,7 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
         continue;
       }
       const int nidx = ToIndex(grid, nx, ny);
-      if (closed[static_cast<std::size_t>(nidx)] != 0) {
+      if (closed_epoch[static_cast<std::size_t>(nidx)] == epoch) {
         continue;
       }
 
@@ -132,7 +160,11 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
           (dx == 0 || dy == 0) ? 1.0f : std::numbers::sqrt2_v<float>;
       const float tentative_g =
           g_score[static_cast<std::size_t>(cur.idx)] + step_cost;
-      if (tentative_g < g_score[static_cast<std::size_t>(nidx)]) {
+      const bool visited = visit_epoch[static_cast<std::size_t>(nidx)] == epoch;
+      const float current_g = visited ? g_score[static_cast<std::size_t>(nidx)]
+                                      : std::numeric_limits<float>::infinity();
+      if (!visited || tentative_g < current_g) {
+        visit_epoch[static_cast<std::size_t>(nidx)] = epoch;
         came_from[static_cast<std::size_t>(nidx)] = cur.idx;
         g_score[static_cast<std::size_t>(nidx)] = tentative_g;
         const std::pair<int, int> ncell{nx, ny};
@@ -150,7 +182,8 @@ bool FindPathAstar(const NavGrid& grid, const std::pair<int, int>& start,
   std::vector<int> rev;
   rev.reserve(32);
   int cur = goal_idx;
-  while (cur >= 0 && cur < total) {
+  while (cur >= 0 && cur < total &&
+         visit_epoch[static_cast<std::size_t>(cur)] == epoch) {
     rev.push_back(cur);
     if (cur == start_idx) {
       break;
@@ -250,7 +283,7 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
       enemy.dead_elapsed_seconds += dt_seconds;
       if (enemy.force_sync_left == 0 &&
           enemy.dead_elapsed_seconds >= kEnemyDespawnDelaySeconds) {
-        scene.dirty_enemy_ids.erase(enemy.state.enemy_id());
+        enemy.dirty_queued = false;
         scene.enemy_pool.push_back(std::move(enemy));
         it = scene.enemies.erase(it);
         continue;
@@ -455,7 +488,8 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
         } else if (!same_cells || path_exhausted) {
           if (FindPathAstar(nav, start_cell, goal_cell, &enemy.path,
                             scene.nav_came_from, scene.nav_g_score,
-                            scene.nav_closed) &&
+                            scene.nav_visit_epoch, scene.nav_closed_epoch,
+                            &scene.nav_epoch) &&
               enemy.path.size() > 1) {
             enemy.path_index = 1;  // 跳过起点格
             enemy.has_cached_path = true;

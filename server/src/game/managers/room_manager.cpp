@@ -6,6 +6,16 @@
 
 #include "network/tcp/tcp_session.hpp"
 
+namespace {
+std::string ResolvePlayerName(uint32_t player_id,
+                              const std::string& player_name) {
+  if (!player_name.empty()) {
+    return player_name;
+  }
+  return "玩家" + std::to_string(player_id);
+}
+}  // namespace
+
 RoomManager& RoomManager::Instance() {  // 单例房间管理器
   static RoomManager instance;
   return instance;
@@ -52,13 +62,12 @@ lawnmower::S2C_CreateRoomResult RoomManager::CreateRoom(  // 创建房间
     // 玩家玩家基本信息
     RoomPlayer host;
     host.player_id = player_id;
-    host.player_name = player_name.empty()
-                           ? ("玩家" + std::to_string(player_id))
-                           : player_name;
+    host.player_name = ResolvePlayerName(player_id, player_name);
     host.is_ready = false;
     host.is_host = true;
     host.session = std::move(session);
     room.players.push_back(host);  // players容器
+    room.player_index_by_id.emplace(host.player_id, room.players.size() - 1);
 
     // 插入房间id-房间信息结构
     auto [iter, inserted] = rooms_.emplace(room.room_id, std::move(room));
@@ -126,15 +135,14 @@ lawnmower::S2C_JoinRoomResult RoomManager::JoinRoom(  // 加入房间
     // 加入玩家基本信息
     RoomPlayer player;
     player.player_id = player_id;
-    player.player_name = player_name.empty()
-                             ? ("玩家" + std::to_string(player_id))
-                             : player_name;
+    player.player_name = ResolvePlayerName(player_id, player_name);
     player.is_ready = false;
     player.is_host = false;
     player.session = std::move(session);
 
     // 添加/补充对应结构
     room.players.push_back(std::move(player));
+    room.player_index_by_id.emplace(player_id, room.players.size() - 1);
     player_room_[player_id] = room.room_id;
 
     result.set_success(true);
@@ -226,11 +234,8 @@ lawnmower::S2C_SetReadyResult RoomManager::SetReady(
     }
 
     Room& room = room_it->second;
-    auto player_it = std::find_if(room.players.begin(), room.players.end(),
-                                  [player_id](const RoomPlayer& player) {
-                                    return player.player_id == player_id;
-                                  });
-    if (player_it == room.players.end()) {
+    RoomPlayer* player = FindRoomPlayerLocked(room, player_id);
+    if (player == nullptr) {
       player_room_.erase(mapping);
       result.set_success(false);
       result.set_message_ready("玩家未在房间");
@@ -240,16 +245,16 @@ lawnmower::S2C_SetReadyResult RoomManager::SetReady(
     if (room.is_playing) {
       result.set_success(false);
       result.set_room_id(room.room_id);
-      result.set_is_ready(player_it->is_ready);
+      result.set_is_ready(player->is_ready);
       result.set_message_ready("游戏中无法切换准备状态");
       return result;
     }
 
-    player_it->is_ready = request.is_ready();
+    player->is_ready = request.is_ready();
     result.set_success(true);
     result.set_room_id(room.room_id);
-    result.set_is_ready(player_it->is_ready);
-    result.set_message_ready(player_it->is_ready ? "已准备" : "已取消准备");
+    result.set_is_ready(player->is_ready);
+    result.set_message_ready(player->is_ready ? "已准备" : "已取消准备");
 
     update = BuildRoomUpdateLocked(room);  // 房间信息变化
     need_broadcast = true;                 // 需要广播
@@ -309,19 +314,15 @@ std::optional<RoomManager::RoomSnapshot> RoomManager::TryStartGame(
   Room& room = room_it->second;
   result->set_room_id(room.room_id);
 
-  const auto requester_it =
-      std::find_if(room.players.begin(), room.players.end(),
-                   [player_id](const RoomPlayer& player) {
-                     return player.player_id == player_id;
-                   });
-  if (requester_it == room.players.end()) {
+  const RoomPlayer* requester = FindRoomPlayerLocked(room, player_id);
+  if (requester == nullptr) {
     player_room_.erase(mapping);
     result->set_success(false);
     result->set_message_start("玩家未在房间中");
     return std::nullopt;
   }
 
-  if (!requester_it->is_host) {
+  if (!requester->is_host) {
     result->set_success(false);
     result->set_message_start("只有房主可以开始游戏");
     return std::nullopt;
@@ -425,22 +426,30 @@ std::optional<uint32_t> RoomManager::GetPlayerRoom(uint32_t player_id) const {
 
 RoomManager::RoomPlayer* RoomManager::FindRoomPlayerLocked(Room& room,
                                                            uint32_t player_id) {
-  for (auto& player : room.players) {
-    if (player.player_id == player_id) {
-      return &player;
-    }
+  const auto it = room.player_index_by_id.find(player_id);
+  if (it == room.player_index_by_id.end()) {
+    return nullptr;
   }
-  return nullptr;
+  const std::size_t index = it->second;
+  if (index >= room.players.size()) {
+    return nullptr;
+  }
+  RoomPlayer& player = room.players[index];
+  return player.player_id == player_id ? &player : nullptr;
 }
 
 const RoomManager::RoomPlayer* RoomManager::FindRoomPlayerLocked(
     const Room& room, uint32_t player_id) const {
-  for (const auto& player : room.players) {
-    if (player.player_id == player_id) {
-      return &player;
-    }
+  const auto it = room.player_index_by_id.find(player_id);
+  if (it == room.player_index_by_id.end()) {
+    return nullptr;
   }
-  return nullptr;
+  const std::size_t index = it->second;
+  if (index >= room.players.size()) {
+    return nullptr;
+  }
+  const RoomPlayer& player = room.players[index];
+  return player.player_id == player_id ? &player : nullptr;
 }
 
 bool RoomManager::MarkPlayerDisconnected(uint32_t player_id) {
@@ -542,16 +551,21 @@ bool RoomManager::DetachPlayerLocked(uint32_t player_id, RoomUpdate* update) {
 
   Room& room = room_it->second;               // 房间基本信息
   const auto old_size = room.players.size();  // 旧大小
-  // 删除该房间内的玩家并调整players容器大小
-  room.players.erase(std::remove_if(room.players.begin(), room.players.end(),
-                                    [player_id](const RoomPlayer& p) {
-                                      return p.player_id == player_id;
-                                    }),
-                     room.players.end());
-  // 判断是否有玩家被删除，房间大小是否变化
-  const bool removed = old_size != room.players.size();
-  if (!removed) {
+  auto index_it = room.player_index_by_id.find(player_id);
+  if (index_it == room.player_index_by_id.end()) {
     return false;  // 没有被删除，不发生变化，返回false
+  }
+  std::size_t remove_index = index_it->second;
+  if (remove_index >= room.players.size() ||
+      room.players[remove_index].player_id != player_id) {
+    return false;
+  }
+
+  room.players.erase(room.players.begin() +
+                     static_cast<std::ptrdiff_t>(remove_index));
+  room.player_index_by_id.erase(index_it);
+  for (std::size_t index = remove_index; index < room.players.size(); ++index) {
+    room.player_index_by_id[room.players[index].player_id] = index;
   }
 
   // 如果发生变化，则移除该玩家对应房间的索引，说明该玩家已被移除

@@ -9,7 +9,6 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -104,34 +103,6 @@ class GameManager {
 
   // 玩家运行时状态
   struct PlayerRuntime {
-    lawnmower::PlayerState state;  // 玩家状态
-    std::string player_name;       // 玩家名
-    uint32_t last_input_seq = 0;   // 已处理的最新输入序号
-    // last
-    lawnmower::Vector2 last_sync_position;  // delta 同步基线位置
-    float last_sync_rotation = 0.0f;        // delta 同步基线朝向
-    bool last_sync_is_alive = true;         // delta 同步基线存活状态
-    uint32_t last_sync_input_seq = 0;       // delta 同步基线输入序号
-
-    std::deque<lawnmower::C2S_PlayerInput> pending_inputs;  // 待处理输入队列
-    bool wants_attacking = false;                           // 攻击意图
-    double attack_cooldown_seconds = 0.0;                   // 攻击冷却剩余
-    uint32_t locked_target_enemy_id = 0;                    // 锁定目标
-    double target_refresh_elapsed = 0.0;                    // 目标刷新计时
-    bool has_attack_dir = false;                            // 是否有攻击方向
-    float last_attack_dir_x = 1.0f;                         // 最近攻击方向x向量
-    float last_attack_dir_y = 0.0f;                         // 最近攻击方向y向量
-    float last_attack_rotation = 0.0f;                      // 最近攻击朝向角
-    uint64_t last_attack_dir_log_tick = 0;        // 最近记录攻击方向的tick
-    uint64_t last_projectile_spawn_log_tick = 0;  // 最近记录射弹生成信息的tick
-    int32_t kill_count = 0;                       // 击杀数
-    int32_t damage_dealt = 0;                     // 伤害总量
-    uint32_t pending_upgrade_count = 0;           // 待处理升级次数
-    uint32_t refresh_remaining = 0;               // 剩余刷新次数
-    bool is_connected = true;                     // 是否在线
-    std::chrono::steady_clock::time_point disconnected_at;  // 断线时间
-    bool low_freq_dirty = false;  // 低频/全量同步字段变化标记
-    bool dirty = false;           // 高频同步字段变化标记
     struct HistoryEntry {
       uint64_t tick = 0;                      // 逻辑帧编号
       lawnmower::Vector2 position;            // 位置
@@ -140,7 +111,36 @@ class GameManager {
       bool is_alive = true;                   // 是否存活
       uint32_t last_processed_input_seq = 0;  // 已处理输入序号
     };
-    std::deque<HistoryEntry> history;  // 历史缓冲（用于预测校验）
+
+    // 对齐优化：按位宽从大到小聚合，减少 padding。
+    double attack_cooldown_seconds = 0.0;         // 攻击冷却剩余
+    double target_refresh_elapsed = 0.0;          // 目标刷新计时
+    uint64_t last_attack_dir_log_tick = 0;        // 最近记录攻击方向的tick
+    uint64_t last_projectile_spawn_log_tick = 0;  // 最近记录射弹生成信息的tick
+    std::chrono::steady_clock::time_point disconnected_at;  // 断线时间
+    std::string player_name;                                // 玩家名
+    lawnmower::Vector2 last_sync_position;  // delta 同步基线位置
+    std::deque<lawnmower::C2S_PlayerInput> pending_inputs;  // 待处理输入队列
+    std::deque<HistoryEntry> history;     // 历史缓冲（用于预测校验）
+    lawnmower::PlayerState state;         // 玩家状态
+    uint32_t last_input_seq = 0;          // 已处理的最新输入序号
+    float last_sync_rotation = 0.0f;      // delta 同步基线朝向
+    uint32_t last_sync_input_seq = 0;     // delta 同步基线输入序号
+    uint32_t locked_target_enemy_id = 0;  // 锁定目标
+    float last_attack_dir_x = 1.0f;       // 最近攻击方向x向量
+    float last_attack_dir_y = 0.0f;       // 最近攻击方向y向量
+    float last_attack_rotation = 0.0f;    // 最近攻击朝向角
+    int32_t kill_count = 0;               // 击杀数
+    int32_t damage_dealt = 0;             // 伤害总量
+    uint32_t pending_upgrade_count = 0;   // 待处理升级次数
+    uint32_t refresh_remaining = 0;       // 剩余刷新次数
+    bool last_sync_is_alive = true;       // delta 同步基线存活状态
+    bool wants_attacking = false;         // 攻击意图
+    bool has_attack_dir = false;          // 是否有攻击方向
+    bool is_connected = true;             // 是否在线
+    bool low_freq_dirty = false;          // 低频/全量同步字段变化标记
+    bool dirty = false;                   // 高频同步字段变化标记
+    bool dirty_queued = false;            // 是否已进入脏队列（去重）
   };
 
   // 敌人运行时状态
@@ -164,7 +164,8 @@ class GameManager {
     bool last_sync_is_alive = true;         // delta 同步基线存活状态
     uint32_t force_sync_left =
         0;  // 强制同步计数(即使没dirty也要同步几次，确保新生成/死亡被客户端看到)
-    bool dirty = false;  // 是否有状态变动
+    bool dirty = false;         // 是否有状态变动
+    bool dirty_queued = false;  // 是否已进入脏队列（去重）
   };
 
   struct ProjectileRuntime {
@@ -197,6 +198,7 @@ class GameManager {
     uint32_t last_sync_type_id = 0;    // delta 同步基线类型
     uint32_t force_sync_left = 0;      // 强制同步次数（用于新生成道具首包）
     bool dirty = false;                // 是否需要同步
+    bool dirty_queued = false;         // 是否已进入脏队列（去重）
   };
 
   // 单帧性能采样
@@ -241,28 +243,31 @@ class GameManager {
     std::unordered_map<uint32_t, ProjectileRuntime>
         projectiles;                                  // 射弹运行时状态表
     std::unordered_map<uint32_t, ItemRuntime> items;  // 道具运行时状态表
-    std::unordered_set<uint32_t> dirty_player_ids;    // 脏玩家ID缓存
-    std::unordered_set<uint32_t> dirty_enemy_ids;     // 脏敌人ID缓存
-    std::unordered_set<uint32_t> dirty_item_ids;      // 脏道具ID缓存
-    std::vector<EnemyRuntime> enemy_pool;             // 敌人复用池
-    std::vector<ProjectileRuntime> projectile_pool;   // 射弹复用池
-    std::vector<ItemRuntime> item_pool;               // 道具复用池
-    uint32_t next_enemy_id = 1;                       // 下一个生成敌人的自增id
-    uint32_t next_projectile_id = 1;  // 下一个生成的射弹的自增id
-    uint32_t next_item_id = 1;        // 下一个生成的道具自增id
-    uint32_t wave_id = 0;             // 当前波次编号
-    double elapsed = 0.0;             // 场景累计运行时间
-    double spawn_elapsed = 0.0;       // 距上次刷怪的累计时间
-    uint32_t rng_state = 1;           // 伪随机种子
-    bool game_over = false;           // 是否已结束
-    bool is_paused = false;           // 是否暂停（升级流程）
-    int nav_cells_x = 0;              // 寻路网格的行数
-    int nav_cells_y = 0;              // 寻路网格的列数
+    // 脏ID向量配合运行时 dirty_queued 去重，降低哈希开销。
+    std::vector<uint32_t> dirty_player_ids;          // 脏玩家ID缓存
+    std::vector<uint32_t> dirty_enemy_ids;           // 脏敌人ID缓存
+    std::vector<uint32_t> dirty_item_ids;            // 脏道具ID缓存
+    std::vector<EnemyRuntime> enemy_pool;            // 敌人复用池
+    std::vector<ProjectileRuntime> projectile_pool;  // 射弹复用池
+    std::vector<ItemRuntime> item_pool;              // 道具复用池
+    uint32_t next_enemy_id = 1;                      // 下一个生成敌人的自增id
+    uint32_t next_projectile_id = 1;                 // 下一个生成的射弹的自增id
+    uint32_t next_item_id = 1;                       // 下一个生成的道具自增id
+    uint32_t wave_id = 0;                            // 当前波次编号
+    double elapsed = 0.0;                            // 场景累计运行时间
+    double spawn_elapsed = 0.0;                      // 距上次刷怪的累计时间
+    uint32_t rng_state = 1;                          // 伪随机种子
+    bool game_over = false;                          // 是否已结束
+    bool is_paused = false;                          // 是否暂停（升级流程）
+    int nav_cells_x = 0;                             // 寻路网格的行数
+    int nav_cells_y = 0;                             // 寻路网格的列数
 
-    // A*寻路的缓存数组,减少每次分配
+    // A*寻路缓存：使用代际标记避免每次全量清空数组
     std::vector<int> nav_came_from;
     std::vector<float> nav_g_score;
-    std::vector<uint8_t> nav_closed;
+    std::vector<uint32_t> nav_visit_epoch;
+    std::vector<uint32_t> nav_closed_epoch;
+    uint32_t nav_epoch = 0;
 
     uint64_t tick = 0;               // 逻辑帧计数
     double sync_accumulator = 0.0;   // 同步计时器累积,到达间隔则发送同步
@@ -300,7 +305,210 @@ class GameManager {
   [[nodiscard]] uint32_t PickSpawnEnemyTypeId(uint32_t* rng_state) const;
   void ProcessEnemies(Scene& scene, double dt_seconds, bool* has_dirty);
   void ProcessItems(Scene& scene, bool* has_dirty);
+  void ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
+                                     PlayerRuntime* runtime,
+                                     double tick_interval_seconds, bool* moved,
+                                     bool* consumed_input) const;
+  void ProcessPlayerInputsLocked(Scene& scene, double tick_interval_seconds,
+                                 double dt_seconds, bool* has_dirty);
+  void ReserveTickEventBuffersLocked(
+      const Scene& scene, std::vector<lawnmower::S2C_PlayerHurt>* player_hurts,
+      std::vector<lawnmower::S2C_EnemyDied>* enemy_dieds,
+      std::vector<lawnmower::EnemyAttackStateDelta>* enemy_attack_states,
+      std::vector<lawnmower::S2C_PlayerLevelUp>* level_ups,
+      std::vector<lawnmower::ProjectileState>* projectile_spawns,
+      std::vector<lawnmower::ProjectileDespawn>* projectile_despawns,
+      std::vector<lawnmower::ItemState>* dropped_items) const;
+  bool TryBeginPendingUpgradeLocked(
+      uint32_t room_id, Scene& scene,
+      std::optional<lawnmower::S2C_UpgradeRequest>* upgrade_request);
+  void CaptureGameOverPerfLocked(
+      Scene& scene, const std::optional<lawnmower::S2C_GameOver>& game_over,
+      std::optional<PerfStats>* perf_to_save, uint32_t* perf_tick_rate,
+      uint32_t* perf_sync_rate, double* perf_elapsed_seconds);
+  double ComputeTickDeltaSecondsLocked(Scene& scene,
+                                       double tick_interval_seconds) const;
+  struct TickFrameContext {
+    uint32_t room_id = 0;
+    double tick_interval_seconds = 0.0;
+    double dt_seconds = 0.0;
+    std::chrono::steady_clock::time_point perf_start;
+  };
+  struct TickDirtyState {
+    bool has_dirty_players = false;
+    bool has_dirty_enemies = false;
+    bool has_dirty_items = false;
+  };
+  struct TickOutputs {
+    lawnmower::S2C_GameStateSync sync;
+    lawnmower::S2C_GameStateDeltaSync delta;
+    bool force_full_sync = false;
+    bool should_sync = false;
+    bool built_sync = false;
+    bool built_delta = false;
+    std::vector<lawnmower::S2C_PlayerHurt> player_hurts;
+    std::vector<lawnmower::S2C_EnemyDied> enemy_dieds;
+    std::vector<lawnmower::EnemyAttackStateDelta> enemy_attack_states;
+    std::vector<lawnmower::S2C_PlayerLevelUp> level_ups;
+    std::optional<lawnmower::S2C_GameOver> game_over;
+    std::optional<lawnmower::S2C_UpgradeRequest> upgrade_request;
+    std::vector<lawnmower::ProjectileState> projectile_spawns;
+    std::vector<lawnmower::ProjectileDespawn> projectile_despawns;
+    std::vector<lawnmower::ItemState> dropped_items;
+    std::vector<uint32_t> expired_players;
+    bool paused_only = false;
+    std::optional<PerfStats> perf_to_save;
+    uint32_t perf_tick_rate = 0;
+    uint32_t perf_sync_rate = 0;
+    double perf_elapsed_seconds = 0.0;
+    uint32_t perf_delta_items_size = 0;
+    uint32_t perf_sync_items_size = 0;
+    uint64_t event_tick = 0;
+    uint32_t event_wave_id = 0;
+  };
+  void SimulateSceneFrameLocked(Scene& scene, const TickFrameContext& frame,
+                                TickOutputs* outputs,
+                                TickDirtyState* dirty_state);
+  void BuildSceneSyncAndPerfLocked(Scene& scene, const TickFrameContext& frame,
+                                   const TickDirtyState& dirty_state,
+                                   TickOutputs* outputs);
+  void ProcessActiveSceneTickLocked(Scene& scene, const TickFrameContext& frame,
+                                    TickOutputs* outputs);
+  void FinalizeSceneTick(
+      uint32_t room_id, const std::vector<uint32_t>& expired_players,
+      bool paused_only,
+      std::vector<lawnmower::ProjectileState>* projectile_spawns,
+      std::vector<lawnmower::ProjectileDespawn>* projectile_despawns,
+      const std::vector<lawnmower::ItemState>& dropped_items,
+      const std::vector<lawnmower::EnemyAttackStateDelta>& enemy_attack_states,
+      const std::vector<lawnmower::S2C_PlayerHurt>& player_hurts,
+      const std::vector<lawnmower::S2C_EnemyDied>& enemy_dieds,
+      const std::vector<lawnmower::S2C_PlayerLevelUp>& level_ups,
+      const std::optional<lawnmower::S2C_GameOver>& game_over,
+      const std::optional<lawnmower::S2C_UpgradeRequest>& upgrade_request,
+      std::optional<PerfStats>* perf_to_save, uint32_t perf_tick_rate,
+      uint32_t perf_sync_rate, double perf_elapsed_seconds, uint64_t event_tick,
+      uint32_t event_wave_id, bool force_full_sync, bool built_sync,
+      bool built_delta, const lawnmower::S2C_GameStateSync& sync,
+      const lawnmower::S2C_GameStateDeltaSync& delta);
   void ProcessSceneTick(uint32_t room_id, double tick_interval_seconds);
+  struct CombatTickParams {
+    float projectile_speed = 0.0f;
+    float projectile_radius = 0.0f;
+    double projectile_ttl_seconds = 0.0;
+    uint32_t projectile_ttl_ms = 0;
+    uint32_t max_shots_per_tick = 1;
+    double attack_min_interval = 0.05;
+    double attack_max_interval = 2.0;
+    bool allow_catchup = false;
+  };
+  CombatTickParams BuildCombatTickParams(const Scene& scene,
+                                         double dt_seconds) const;
+  void MarkPlayerLowFreqDirtyForCombat(Scene& scene, PlayerRuntime& runtime);
+  void GrantExpForCombat(Scene& scene, PlayerRuntime& player,
+                         uint32_t exp_reward,
+                         std::vector<lawnmower::S2C_PlayerLevelUp>* level_ups);
+  static std::pair<float, float> RotationDir(float rotation_deg);
+  static float RotationFromDir(float dir_x, float dir_y);
+  static std::pair<float, float> ComputeProjectileOrigin(
+      const PlayerRuntime& player, float facing_dir_x);
+  uint32_t FindNearestEnemyIdForPlayerFire(const Scene& scene,
+                                           const PlayerRuntime& player) const;
+  const EnemyRuntime* ResolveLockedTargetForPlayerFire(Scene& scene,
+                                                       PlayerRuntime& player,
+                                                       double dt_seconds) const;
+  void MaybeLogAttackDirFallback(const Scene& scene, PlayerRuntime& player,
+                                 uint32_t target_id, const char* reason) const;
+  void MaybeLogProjectileSpawn(const Scene& scene, PlayerRuntime& player,
+                               uint32_t projectile_id,
+                               const EnemyRuntime& target, float origin_x,
+                               float origin_y, float dir_x, float dir_y,
+                               float rotation) const;
+  bool ResolveProjectileDirectionForPlayerFire(
+      const Scene& scene, PlayerRuntime& player, const EnemyRuntime& target,
+      float* out_dir_x, float* out_dir_y, float* out_rotation) const;
+  int32_t ComputeProjectileDamageForPlayerFire(
+      Scene& scene, const PlayerRuntime& player) const;
+  void SpawnProjectileForPlayerFire(
+      Scene& scene, const CombatTickParams& params, uint32_t owner_player_id,
+      PlayerRuntime& player, const EnemyRuntime& target, int32_t damage,
+      float dir_x, float dir_y, float rotation,
+      std::vector<lawnmower::ProjectileState>* projectile_spawns);
+  void ProcessPlayerFireStage(
+      Scene& scene, double dt_seconds, const CombatTickParams& params,
+      std::vector<lawnmower::ProjectileState>* projectile_spawns);
+  struct EnemyHitGrid {
+    int cells_x = 0;
+    int cells_y = 0;
+    float cell_size = 0.0f;
+    bool enabled = false;
+    std::vector<std::vector<EnemyRuntime*>> cells;
+  };
+  void BuildEnemyHitGridForProjectileStage(Scene& scene,
+                                           EnemyHitGrid* out_grid) const;
+  bool FindProjectileHitEnemyForStage(
+      Scene& scene, const CombatTickParams& params, const EnemyHitGrid& grid,
+      float prev_x, float prev_y, float next_x, float next_y,
+      EnemyRuntime** hit_enemy, uint32_t* hit_enemy_id, float* out_hit_t) const;
+  void ApplyProjectileHitForStage(
+      Scene& scene, ProjectileRuntime& proj, EnemyRuntime& hit_enemy,
+      std::vector<lawnmower::S2C_EnemyDied>* enemy_dieds,
+      std::vector<lawnmower::EnemyAttackStateDelta>* enemy_attack_states,
+      std::vector<lawnmower::S2C_PlayerLevelUp>* level_ups,
+      std::vector<uint32_t>* killed_enemy_ids, bool* has_dirty);
+  static bool IsProjectileOutOfBoundsForStage(const ProjectileRuntime& proj,
+                                              float map_w, float map_h);
+  static void PushProjectileDespawnForStage(
+      const ProjectileRuntime& proj, lawnmower::ProjectileDespawnReason reason,
+      uint32_t hit_enemy_id,
+      std::vector<lawnmower::ProjectileDespawn>* projectile_despawns);
+  void ProcessProjectileHitStage(
+      Scene& scene, double dt_seconds, const CombatTickParams& params,
+      std::vector<lawnmower::S2C_EnemyDied>* enemy_dieds,
+      std::vector<lawnmower::EnemyAttackStateDelta>* enemy_attack_states,
+      std::vector<lawnmower::S2C_PlayerLevelUp>* level_ups,
+      std::vector<lawnmower::ProjectileDespawn>* projectile_despawns,
+      std::vector<uint32_t>* killed_enemy_ids, bool* has_dirty);
+  void BuildDropCandidatesForStage(
+      std::vector<std::pair<uint32_t, uint32_t>>* drop_candidates,
+      uint32_t* drop_weight_total) const;
+  uint32_t PickDropTypeIdForStage(
+      Scene& scene,
+      const std::vector<std::pair<uint32_t, uint32_t>>& drop_candidates,
+      uint32_t drop_weight_total) const;
+  void SpawnDropItemForStage(Scene& scene, uint32_t type_id, float x, float y,
+                             uint32_t max_items_alive,
+                             std::vector<lawnmower::ItemState>* dropped_items,
+                             bool* has_dirty);
+  void ProcessEnemyDropStage(Scene& scene,
+                             const std::vector<uint32_t>& killed_enemy_ids,
+                             std::vector<lawnmower::ItemState>* dropped_items,
+                             bool* has_dirty);
+  void ResolveEnemyAttackRadiiForStage(const EnemyTypeConfig& type,
+                                       float* enter_radius,
+                                       float* exit_radius) const;
+  uint32_t SelectEnemyMeleeTargetForStage(const Scene& scene,
+                                          const EnemyRuntime& enemy, float ex,
+                                          float ey, float enter_sq,
+                                          float exit_sq) const;
+  void PushEnemyAttackStateForStage(
+      uint32_t enemy_id, EnemyRuntime& enemy, bool attacking,
+      uint32_t target_id,
+      std::vector<lawnmower::EnemyAttackStateDelta>* enemy_attack_states) const;
+  void TryApplyEnemyMeleeDamageForStage(
+      Scene& scene, uint32_t enemy_id, EnemyRuntime& enemy,
+      uint32_t target_player_id, const EnemyTypeConfig& type,
+      std::vector<lawnmower::S2C_PlayerHurt>* player_hurts, bool* has_dirty);
+  void ProcessEnemyMeleeStage(
+      Scene& scene, double dt_seconds,
+      std::vector<lawnmower::S2C_PlayerHurt>* player_hurts,
+      std::vector<lawnmower::EnemyAttackStateDelta>* enemy_attack_states,
+      bool* has_dirty);
+  static std::size_t CountAlivePlayersAfterCombatForStage(const Scene& scene);
+  void BuildGameOverMessageForStage(const Scene& scene,
+                                    lawnmower::S2C_GameOver* out) const;
+  void UpdateGameOverForCombatStage(
+      Scene& scene, std::optional<lawnmower::S2C_GameOver>* game_over) const;
   void ProcessCombatAndProjectiles(
       Scene& scene, double dt_seconds,
       std::vector<lawnmower::S2C_PlayerHurt>* player_hurts,
@@ -335,20 +543,40 @@ class GameManager {
   static void UpdatePlayerLastSync(PlayerRuntime& runtime);
   static void UpdateEnemyLastSync(EnemyRuntime& runtime);
   static void UpdateItemLastSync(ItemRuntime& runtime);
-  void BuildSyncPayloadsLocked(
-      uint32_t room_id, Scene& scene, bool force_full_sync,
-      const std::unordered_set<uint32_t>& dirty_player_ids,
-      const std::unordered_set<uint32_t>& dirty_enemy_ids,
-      const std::unordered_set<uint32_t>& dirty_item_ids,
-      lawnmower::S2C_GameStateSync* sync,
-      lawnmower::S2C_GameStateDeltaSync* delta, bool* built_sync,
-      bool* built_delta, uint32_t* perf_delta_items_size,
-      uint32_t* perf_sync_items_size);
+  void BuildSyncPayloadsLocked(uint32_t room_id, Scene& scene,
+                               bool force_full_sync,
+                               const std::vector<uint32_t>& dirty_player_ids,
+                               const std::vector<uint32_t>& dirty_enemy_ids,
+                               const std::vector<uint32_t>& dirty_item_ids,
+                               lawnmower::S2C_GameStateSync* sync,
+                               lawnmower::S2C_GameStateDeltaSync* delta,
+                               bool* built_sync, bool* built_delta,
+                               uint32_t* perf_delta_items_size,
+                               uint32_t* perf_sync_items_size);
   void CollectExpiredPlayersLocked(const Scene& scene, double grace_seconds,
                                    std::vector<uint32_t>* out) const;
   bool HandlePausedTickLocked(
       Scene& scene, double dt_seconds,
       const std::chrono::steady_clock::time_point& perf_start);
+  static bool HasPriorityEventsInTick(
+      const std::vector<lawnmower::ProjectileState>& projectile_spawns,
+      const std::vector<lawnmower::ProjectileDespawn>& projectile_despawns,
+      const std::vector<lawnmower::ItemState>& dropped_items,
+      const std::vector<lawnmower::S2C_PlayerHurt>& player_hurts,
+      const std::vector<lawnmower::EnemyAttackStateDelta>& enemy_attack_states,
+      const std::vector<lawnmower::S2C_EnemyDied>& enemy_dieds,
+      const std::vector<lawnmower::S2C_PlayerLevelUp>& level_ups,
+      const std::optional<lawnmower::S2C_GameOver>& game_over,
+      const std::optional<lawnmower::S2C_UpgradeRequest>& upgrade_request);
+  void UpdateSyncSchedulingLocked(
+      Scene& scene, double dt_seconds, double tick_interval_seconds,
+      bool has_priority_events, bool has_dirty_players, bool has_dirty_enemies,
+      bool has_dirty_items, bool* should_sync, bool* force_full_sync) const;
+  void MaybeLogItemSyncSnapshotLocked(uint32_t room_id, Scene& scene,
+                                      std::size_t dropped_events,
+                                      bool built_sync, bool built_delta,
+                                      uint32_t perf_delta_items_size,
+                                      uint32_t perf_sync_items_size);
   void CleanupExpiredPlayers(const std::vector<uint32_t>& expired_players);
   void ResetPerfStats(Scene& scene);
   void RecordPerfSampleLocked(Scene& scene, double elapsed_ms,
