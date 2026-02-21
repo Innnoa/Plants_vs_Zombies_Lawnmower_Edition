@@ -2,8 +2,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <fstream>
-#include <regex>
+#include <google/protobuf/struct.pb.h>
+#include <google/protobuf/util/json_util.h>
+#include <limits>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 
@@ -55,48 +59,95 @@ PlayerRolesConfig BuildDefaultPlayerRolesConfig() {
   return cfg;
 }
 
+const google::protobuf::Value* FindField(const google::protobuf::Struct& root,
+                                         std::string_view key) {
+  const auto it = root.fields().find(std::string(key));
+  if (it == root.fields().end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+bool TryGetNumber(const google::protobuf::Struct& root, std::string_view key,
+                  double* out) {
+  if (out == nullptr) {
+    return false;
+  }
+  const google::protobuf::Value* field = FindField(root, key);
+  if (field == nullptr) {
+    return false;
+  }
+  if (field->kind_case() != google::protobuf::Value::kNumberValue) {
+    spdlog::warn("配置项 {} 类型错误，期望 number，保持默认值", key);
+    return false;
+  }
+  *out = field->number_value();
+  return true;
+}
+
 template <typename T>
-void ExtractUint(const std::string& content, std::string_view key, T* out) {
+void ExtractUint(const google::protobuf::Struct& root, std::string_view key,
+                 T* out) {
   if (out == nullptr) {
     return;
   }
-  std::regex re(std::string("\"") + std::string(key) + "\"\\s*:\\s*(\\d+)");
-  std::smatch match;
-  if (std::regex_search(content, match, re) && match.size() > 1) {
-    try {
-      *out = static_cast<T>(std::stoull(match[1].str()));
-    } catch (...) {
-    }
+  double value = 0.0;
+  if (!TryGetNumber(root, key, &value)) {
+    return;
   }
+  if (!std::isfinite(value)) {
+    spdlog::warn("配置项 {} 非有限数值，保持默认值", key);
+    return;
+  }
+  const double integral = std::floor(value);
+  if (std::fabs(value - integral) > 1e-6) {
+    spdlog::warn("配置项 {} 需要整数，当前值={}，保持默认值", key, value);
+    return;
+  }
+  if (integral < 0.0 ||
+      integral > static_cast<double>(std::numeric_limits<T>::max())) {
+    spdlog::warn("配置项 {} 超出范围，当前值={}，保持默认值", key, value);
+    return;
+  }
+  *out = static_cast<T>(integral);
 }
 
-void ExtractFloat(const std::string& content, std::string_view key,
+void ExtractFloat(const google::protobuf::Struct& root, std::string_view key,
                   float* out) {
   if (out == nullptr) {
     return;
   }
-  std::regex re(std::string("\"") + std::string(key) +
-                "\"\\s*:\\s*(\\d+\\.?\\d*)");
-  std::smatch match;
-  if (std::regex_search(content, match, re) && match.size() > 1) {
-    try {
-      *out = std::stof(match[1].str());
-    } catch (...) {
-    }
+  double value = 0.0;
+  if (!TryGetNumber(root, key, &value)) {
+    return;
   }
+  if (!std::isfinite(value)) {
+    spdlog::warn("配置项 {} 非有限数值，保持默认值", key);
+    return;
+  }
+  if (value > static_cast<double>(std::numeric_limits<float>::max()) ||
+      value < static_cast<double>(std::numeric_limits<float>::lowest())) {
+    spdlog::warn("配置项 {} 超出 float 范围，当前值={}，保持默认值", key,
+                 value);
+    return;
+  }
+  *out = static_cast<float>(value);
 }
 
-void ExtractString(const std::string& content, std::string_view key,
+void ExtractString(const google::protobuf::Struct& root, std::string_view key,
                    std::string* out) {
   if (out == nullptr) {
     return;
   }
-  std::regex re(std::string("\"") + std::string(key) +
-                "\"\\s*:\\s*\"([^\"]*)\"");
-  std::smatch match;
-  if (std::regex_search(content, match, re) && match.size() > 1) {
-    *out = match[1].str();
+  const google::protobuf::Value* field = FindField(root, key);
+  if (field == nullptr) {
+    return;
   }
+  if (field->kind_case() != google::protobuf::Value::kStringValue) {
+    spdlog::warn("配置项 {} 类型错误，期望 string，保持默认值", key);
+    return;
+  }
+  *out = field->string_value();
 }
 
 uint32_t ClampUInt32(uint32_t v, uint32_t lo, uint32_t hi) {
@@ -127,53 +178,71 @@ bool LoadPlayerRolesConfig(PlayerRolesConfig* out) {
   const std::string content((std::istreambuf_iterator<char>(file)),
                             std::istreambuf_iterator<char>());
 
+  google::protobuf::Struct root;
+  const auto status =
+      google::protobuf::util::JsonStringToMessage(content, &root);
+  if (!status.ok()) {
+    spdlog::warn("player_roles.json 解析失败：{}，使用默认配置",
+                 status.ToString());
+    *out = fallback;
+    return false;
+  }
+
   PlayerRolesConfig cfg;
   cfg.default_role_id = fallback.default_role_id;
   cfg.roles.clear();
 
-  ExtractUint(content, "default_role_id", &cfg.default_role_id);
+  ExtractUint(root, "default_role_id", &cfg.default_role_id);
 
-  // 粗解析：匹配包含 role_id 的对象（本项目不引入完整 JSON
-  // 依赖，避免额外构建成本）
-  std::regex role_obj_re(
-      "\\{[^\\{\\}]*\"role_id\"\\s*:\\s*(\\d+)[^\\{\\}]*\\}");
+  const google::protobuf::Value* roles_field = FindField(root, "roles");
+  if (roles_field != nullptr &&
+      roles_field->kind_case() != google::protobuf::Value::kListValue) {
+    spdlog::warn("配置项 roles 类型错误，期望 array，使用默认配置");
+    *out = fallback;
+    return false;
+  }
+
   std::size_t parsed = 0;
-  for (std::sregex_iterator it(content.begin(), content.end(), role_obj_re),
-       end;
-       it != end; ++it) {
-    const std::string obj = it->str();
+  if (roles_field != nullptr) {
+    for (const auto& value : roles_field->list_value().values()) {
+      if (value.kind_case() != google::protobuf::Value::kStructValue) {
+        spdlog::warn("roles 数组存在非 object 元素，已忽略");
+        continue;
+      }
 
-    PlayerRoleConfig role;
-    ExtractUint(obj, "role_id", &role.role_id);
-    ExtractString(obj, "name", &role.name);
+      const auto& obj = value.struct_value();
+      PlayerRoleConfig role;
+      ExtractUint(obj, "role_id", &role.role_id);
+      ExtractString(obj, "name", &role.name);
 
-    uint32_t max_health_u =
-        static_cast<uint32_t>(std::max<int32_t>(1, role.max_health));
-    ExtractUint(obj, "max_health", &max_health_u);
-    role.max_health =
-        static_cast<int32_t>(ClampUInt32(max_health_u, 1u, 100000u));
+      uint32_t max_health_u =
+          static_cast<uint32_t>(std::max<int32_t>(1, role.max_health));
+      ExtractUint(obj, "max_health", &max_health_u);
+      role.max_health =
+          static_cast<int32_t>(ClampUInt32(max_health_u, 1u, 100000u));
 
-    ExtractUint(obj, "attack", &role.attack);
-    role.attack = ClampUInt32(role.attack, 0u, 100000u);
+      ExtractUint(obj, "attack", &role.attack);
+      role.attack = ClampUInt32(role.attack, 0u, 100000u);
 
-    ExtractUint(obj, "attack_speed", &role.attack_speed);
-    role.attack_speed = ClampUInt32(role.attack_speed, 1u, 1000u);
+      ExtractUint(obj, "attack_speed", &role.attack_speed);
+      role.attack_speed = ClampUInt32(role.attack_speed, 1u, 1000u);
 
-    ExtractFloat(obj, "move_speed", &role.move_speed);
-    role.move_speed = std::clamp(role.move_speed, 0.0f, 5000.0f);
+      ExtractFloat(obj, "move_speed", &role.move_speed);
+      role.move_speed = std::clamp(role.move_speed, 0.0f, 5000.0f);
 
-    ExtractUint(obj, "critical_hit_rate", &role.critical_hit_rate);
-    role.critical_hit_rate = ClampUInt32(role.critical_hit_rate, 0u, 1000u);
+      ExtractUint(obj, "critical_hit_rate", &role.critical_hit_rate);
+      role.critical_hit_rate = ClampUInt32(role.critical_hit_rate, 0u, 1000u);
 
-    if (role.role_id == 0) {
-      continue;
+      if (role.role_id == 0) {
+        continue;
+      }
+      if (role.name.empty()) {
+        role.name = "职业" + std::to_string(role.role_id);
+      }
+
+      cfg.roles[role.role_id] = std::move(role);
+      parsed += 1;
     }
-    if (role.name.empty()) {
-      role.name = "职业" + std::to_string(role.role_id);
-    }
-
-    cfg.roles[role.role_id] = std::move(role);
-    parsed += 1;
   }
 
   if (parsed == 0) {

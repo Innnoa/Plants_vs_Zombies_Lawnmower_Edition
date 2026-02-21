@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -92,6 +93,7 @@ class RoomManager {
     uint32_t max_players = 0;
     bool is_playing = false;
     std::vector<RoomPlayer> players;
+    std::unordered_map<uint32_t, std::size_t> player_index_by_id;
   };
 
   RoomPlayer* FindRoomPlayerLocked(Room& room, uint32_t player_id);

@@ -3,6 +3,7 @@
 #include <array>
 #include <asio.hpp>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <google/protobuf/message.h>
@@ -64,6 +65,12 @@ class TcpSession : public std::enable_shared_from_this<TcpSession> {
   void HandleUpgradeOptionsAck(const std::string& payload);
   void HandleUpgradeSelect(const std::string& payload);
   void HandleUpgradeRefreshRequest(const std::string& payload);
+  // 统一“解析 + 登录校验 + 处理”的请求流程模板
+  template <typename Request, typename Handler>
+  void HandleLoggedInRequest(const std::string& payload,
+                             const char* parse_warn_message,
+                             const char* login_warn_message, Handler&& handler);
+  bool EnsureLoggedInOrWarn(const char* warn_message) const;
   bool SendFullSyncToRoom(
       uint32_t room_id, const std::vector<std::weak_ptr<TcpSession>>& sessions,
       uint32_t state_sync_rate);
@@ -71,8 +78,9 @@ class TcpSession : public std::enable_shared_from_this<TcpSession> {
 
   tcp::socket socket_;
   std::array<char, sizeof(uint32_t)> length_buffer_{};
-  std::vector<char> read_buffer_;  // 读缓冲区
-  std::deque<std::string> write_queue_;
+  std::vector<char> read_buffer_;      // 读缓冲区
+  std::size_t max_read_body_len_ = 0;  // 历史最大包体长度（用于reserve策略）
+  std::deque<std::shared_ptr<const std::string>> write_queue_;
   bool closed_ = false;
   uint32_t player_id_ = 0;
   std::string player_name_;
