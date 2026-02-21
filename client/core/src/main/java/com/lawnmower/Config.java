@@ -8,7 +8,7 @@ import java.util.Arrays;
 public final class Config {
 
     // =============== 网络配置 ===============
-    public static final String SERVER_HOST = "192.168.1.12";
+    public static final String SERVER_HOST = "192.168.1.3";
 
     /** 服务器端口 */
     public static final int SERVER_PORT = 7777;
