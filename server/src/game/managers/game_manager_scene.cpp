@@ -28,7 +28,7 @@ lawnmower::Vector2 GameManager::ClampToMap(const SceneConfig& cfg, float x,
 }
 
 // 放置玩家
-void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
+void GameManager::PlacePlayers(const SceneCreateSnapshot& snapshot,
                                Scene* scene) {
   if (scene == nullptr) {
     return;
@@ -140,7 +140,7 @@ void GameManager::PlacePlayers(const RoomManager::RoomSnapshot& snapshot,
 
 // 创建场景
 lawnmower::SceneInfo GameManager::CreateScene(
-    const RoomManager::RoomSnapshot& snapshot) {
+    const SceneCreateSnapshot& snapshot) {
   StopGameLoop(snapshot.room_id);            // 清理旧的同步定时器
   std::lock_guard<std::mutex> lock(mutex_);  // 互斥锁
 

@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include "game/managers/game_manager.hpp"
+#include "game/managers/room_manager.hpp"
 #include "network/tcp/tcp_session.hpp"
 
 namespace {
