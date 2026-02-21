@@ -39,8 +39,21 @@ void TcpSession::HandleStartGame(const std::string& payload) {
     return;
   }
 
+  GameManager::SceneCreateSnapshot scene_seed;
+  scene_seed.room_id = snapshot->room_id;
+  scene_seed.is_playing = snapshot->is_playing;
+  scene_seed.players.reserve(snapshot->players.size());
+  for (const auto& player : snapshot->players) {
+    GameManager::SceneCreatePlayer seed_player;
+    seed_player.player_id = player.player_id;
+    seed_player.player_name = player.player_name;
+    seed_player.is_host = player.is_host;
+    seed_player.session = player.session;
+    scene_seed.players.push_back(std::move(seed_player));
+  }
+
   const lawnmower::SceneInfo scene_info =
-      GameManager::Instance().CreateScene(*snapshot);
+      GameManager::Instance().CreateScene(scene_seed);
 
   // mutable_scene() 返回 SceneInfo*（指向 result
   // 内部的子消息），解引用后整体赋值。

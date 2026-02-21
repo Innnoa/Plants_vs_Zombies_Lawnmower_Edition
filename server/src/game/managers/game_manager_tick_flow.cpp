@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include "game/managers/game_manager.hpp"
+#include "game/managers/room_manager.hpp"
 #include "internal/game_manager_event_dispatch.hpp"
 #include "internal/game_manager_misc_utils.hpp"
 #include "internal/game_manager_sync_dispatch.hpp"

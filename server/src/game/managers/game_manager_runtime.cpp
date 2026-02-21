@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include "game/managers/game_manager.hpp"
+#include "game/managers/room_manager.hpp"
 #include "network/tcp/tcp_session.hpp"
 
 // 简单的伪随机数生成器, state 是随机数种子指针
