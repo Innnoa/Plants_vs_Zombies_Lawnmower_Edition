@@ -56,6 +56,8 @@ add_executable(server
   src/config/item_types_config.cpp
   src/config/upgrade_config.cpp
   src/game/managers/room_manager.cpp
+  src/game/managers/room_manager_session.cpp
+  src/game/managers/room_manager_gameplay.cpp
   src/game/managers/game_manager.cpp
   src/game/managers/game_manager_loop.cpp
   src/game/managers/game_manager_metrics.cpp
@@ -72,6 +74,10 @@ add_executable(server
   src/game/managers/game_manager_session.cpp
   src/game/managers/game_manager_enemy.cpp
   src/game/managers/game_manager_combat.cpp
+  src/game/managers/game_manager_combat_projectile.cpp
+  src/game/managers/game_manager_combat_drop.cpp
+  src/game/managers/game_manager_combat_melee.cpp
+  src/game/managers/game_manager_combat_gameover.cpp
 )
 target_include_directories(server PRIVATE include)
 target_compile_definitions(server PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
@@ -134,8 +140,12 @@ target_link_libraries(server
 
 enable_testing()
 
+set(TESTS_ROOT tests)
+set(TESTS_UNIT_DIR ${TESTS_ROOT}/unit)
+set(TESTS_INTEGRATION_DIR ${TESTS_ROOT}/integration)
+
 add_executable(server_smoke_test
-  tests/server_smoke_test.cpp
+  ${TESTS_INTEGRATION_DIR}/server_smoke_test.cpp
 )
 target_link_libraries(server_smoke_test
   PRIVATE
@@ -150,7 +160,7 @@ add_test(
 set_tests_properties(server_smoke PROPERTIES TIMEOUT 45)
 
 add_executable(udp_sync_smoke_test
-  tests/udp_sync_smoke_test.cpp
+  ${TESTS_INTEGRATION_DIR}/udp_sync_smoke_test.cpp
 )
 target_link_libraries(udp_sync_smoke_test
   PRIVATE
@@ -165,7 +175,7 @@ add_test(
 set_tests_properties(udp_sync_smoke PROPERTIES TIMEOUT 60)
 
 add_executable(config_loader_smoke_test
-  tests/config_loader_smoke_test.cpp
+  ${TESTS_UNIT_DIR}/config_loader_smoke_test.cpp
   src/config/server_config.cpp
   src/config/player_roles_config.cpp
   src/config/enemy_types_config.cpp
