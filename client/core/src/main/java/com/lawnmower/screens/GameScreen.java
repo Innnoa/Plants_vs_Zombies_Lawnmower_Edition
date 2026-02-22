@@ -1,4 +1,4 @@
-﻿package com.lawnmower.screens;
+package com.lawnmower.screens;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;

@@ -1,4 +1,4 @@
-﻿package com.lawnmower;
+package com.lawnmower;
 
 import com.badlogic.gdx.Game;
 import com.badlogic.gdx.Gdx;
@@ -26,20 +26,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class Main extends Game {
     private static final Logger log = LoggerFactory.getLogger(Main.class);
     private static final int LOGIN_RESULT_SESSION_TOKEN_FIELD_NUMBER = 4;
-    // 瀹㈡埛绔瀯寤烘爣璇嗭紝鐢ㄤ簬纭鐗堟湰
+    // 客户端构建标识，用于确认版本
     private static final String CLIENT_BUILD_VERSION = "2026-01-24-rot-log";
     private static final long RECONNECT_GRACE_MS = 15_000L;
     private static final long RECONNECT_RETRY_INTERVAL_MS = 1000L;
+
     private enum ReconnectState {
         IDLE,
         RECONNECTING,
         AWAITING_SNAPSHOT
     }
+
     private Skin skin;
     private TcpClient tcpClient;
     private UdpClient udpClient;
     private String playerName = "Player";
-    private int playerId = -1; // 鏈櫥褰曟椂涓?-1
+    private int playerId = -1; // 未登录时为 -1
     private String sessionToken = "";
     private long lastSocketWaitLogMs = 0L;
     private long lastUdpSyncTick = -1L;
@@ -61,11 +63,11 @@ public class Main extends Game {
 
     @Override
     public void create() {
-        Gdx.app.log("ClientVersion", "瀹㈡埛绔増鏈? " + CLIENT_BUILD_VERSION);
-        //浣跨敤鑷畾涔?PVZ 椋庢牸鐨偆
+        Gdx.app.log("ClientVersion", "客户端版本: " + CLIENT_BUILD_VERSION);
+        // 使用自定义 PVZ 风格皮肤
         skin = PvzSkin.create();
-        
-        // 鍒濆鍖?TCP 瀹㈡埛绔紙杩炴帴鏈湴鏈嶅姟鍣級
+
+        // 初始化 TCP 客户端（连接本地服务器）
         try {
             tcpClient = new TcpClient();
             tcpClient.connect(Config.SERVER_HOST, Config.SERVER_PORT);
@@ -87,18 +89,17 @@ public class Main extends Game {
         networkThread = new Thread(() -> {
             while (networkRunning.get() && !Thread.currentThread().isInterrupted()) {
                 try {
-                    // 闃诲绛夊緟鏈嶅姟鍣ㄦ秷鎭?
+                    // 阻塞等待服务器消息
                     long beforeRead = System.currentTimeMillis();
                     Message.Packet packet = tcpClient.receivePacket();
                     long afterRead = System.currentTimeMillis();
-                    if (packet == null) break; // 杩炴帴鍏抽棴
+                    if (packet == null) break; // 连接关闭
 
-                    // 瑙ｆ瀽娑堟伅绫诲瀷骞跺垎鍙?
+                    // 解析消息类型并分发
                     Message.MessageType type = packet.getMsgType();
                     Object payload = null;
 
-
-                    Gdx.app.log("褰撳墠鎺ュ彈",type.name());
+                    Gdx.app.log("当前接受",type.name());
                     switch (type) {
                         case MSG_S2C_LOGIN_RESULT:
                             payload = Message.S2C_LoginResult.parseFrom(packet.getPayload());
@@ -139,28 +140,28 @@ public class Main extends Game {
                         case MSG_S2C_PROJECTILE_SPAWN:
                             payload = Message.S2C_ProjectileSpawn.parseFrom(packet.getPayload());
                             break;
-        case MSG_S2C_PROJECTILE_DESPAWN:
-            payload = Message.S2C_ProjectileDespawn.parseFrom(packet.getPayload());
-            break;
-        case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
-            payload = Message.S2C_EnemyAttackStateSync.parseFrom(packet.getPayload());
-            break;
-        case MSG_S2C_UPGRADE_REQUEST:
-            payload = Message.S2C_UpgradeRequest.parseFrom(packet.getPayload());
-            break;
-        case MSG_S2C_UPGRADE_OPTIONS:
-            payload = Message.S2C_UpgradeOptions.parseFrom(packet.getPayload());
-            break;
-        case MSG_S2C_UPGRADE_SELECT_ACK:
-            payload = Message.S2C_UpgradeSelectAck.parseFrom(packet.getPayload());
-            break;
-                        // 鍏朵粬鏈潵娑堟伅鍙户缁坊鍔?
+                        case MSG_S2C_PROJECTILE_DESPAWN:
+                            payload = Message.S2C_ProjectileDespawn.parseFrom(packet.getPayload());
+                            break;
+                        case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
+                            payload = Message.S2C_EnemyAttackStateSync.parseFrom(packet.getPayload());
+                            break;
+                        case MSG_S2C_UPGRADE_REQUEST:
+                            payload = Message.S2C_UpgradeRequest.parseFrom(packet.getPayload());
+                            break;
+                        case MSG_S2C_UPGRADE_OPTIONS:
+                            payload = Message.S2C_UpgradeOptions.parseFrom(packet.getPayload());
+                            break;
+                        case MSG_S2C_UPGRADE_SELECT_ACK:
+                            payload = Message.S2C_UpgradeSelectAck.parseFrom(packet.getPayload());
+                            break;
+                        // 其他未来消息可继续添加
                         default:
                             Gdx.app.log("NET", "Unknown message type: " + type);
                             continue;
                     }
 
-                    // 閫氱煡涓荤嚎绋嬪鐞嗭紙UI 鎿嶄綔蹇呴』鍦ㄦ覆鏌撶嚎绋嬶級
+                    // 通知主线程处理（UI 操作必须在渲染线程）
                     handleNetworkMessage(type, payload);
                 } catch (SocketTimeoutException e) {
                     long now = System.currentTimeMillis();
@@ -179,17 +180,17 @@ public class Main extends Game {
                 }
             }
 
-            // 绾跨▼閫€鍑?
+            // 线程退出
             networkRunning.set(false);
             stopUdpClient();
             handleConnectionClosed();
         }, "NetworkThread");
 
-        networkThread.setDaemon(true); // 闅忎富绾跨▼閫€鍑鸿€岀粓姝?
+        networkThread.setDaemon(true); // 随主线程退出而终止
         networkThread.start();
     }
 
-    // 鈥斺€斺€斺€斺€斺€斺€斺€?鍏叡璁块棶鏂规硶 鈥斺€斺€斺€斺€斺€斺€斺€?
+    // ———————— 公共访问方法 ————————
 
     private void processUdpPacket(Message.Packet packet) {
         if (packet == null) {
@@ -262,19 +263,19 @@ public class Main extends Game {
                 return Message.S2C_SetReadyResult.parseFrom(packet.getPayload());
             case MSG_S2C_PROJECTILE_SPAWN:
                 return Message.S2C_ProjectileSpawn.parseFrom(packet.getPayload());
-        case MSG_S2C_PROJECTILE_DESPAWN:
-            return Message.S2C_ProjectileDespawn.parseFrom(packet.getPayload());
-        case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
-            return Message.S2C_EnemyAttackStateSync.parseFrom(packet.getPayload());
-        case MSG_S2C_UPGRADE_REQUEST:
-            return Message.S2C_UpgradeRequest.parseFrom(packet.getPayload());
-        case MSG_S2C_UPGRADE_OPTIONS:
-            return Message.S2C_UpgradeOptions.parseFrom(packet.getPayload());
-        case MSG_S2C_UPGRADE_SELECT_ACK:
-            return Message.S2C_UpgradeSelectAck.parseFrom(packet.getPayload());
-        default:
-            Gdx.app.log("NET", "Unknown message type: " + type);
-            return null;
+            case MSG_S2C_PROJECTILE_DESPAWN:
+                return Message.S2C_ProjectileDespawn.parseFrom(packet.getPayload());
+            case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
+                return Message.S2C_EnemyAttackStateSync.parseFrom(packet.getPayload());
+            case MSG_S2C_UPGRADE_REQUEST:
+                return Message.S2C_UpgradeRequest.parseFrom(packet.getPayload());
+            case MSG_S2C_UPGRADE_OPTIONS:
+                return Message.S2C_UpgradeOptions.parseFrom(packet.getPayload());
+            case MSG_S2C_UPGRADE_SELECT_ACK:
+                return Message.S2C_UpgradeSelectAck.parseFrom(packet.getPayload());
+            default:
+                Gdx.app.log("NET", "Unknown message type: " + type);
+                return null;
         }
     }
 
@@ -513,7 +514,7 @@ public class Main extends Game {
     }
 
     /*
-    灏嗚緭鍏ュ彂閫佺粰鏈嶅姟绔?
+    将输入发送给服务端
      */
     public boolean trySendPlayerInput(Message.C2S_PlayerInput input) {
         if (input == null) {
@@ -544,7 +545,7 @@ public class Main extends Game {
     }
 
     /**
-     * 璇锋眰鍏ㄩ噺鍚屾
+     * 请求全量同步
      * @param reason
      */
     public void requestFullGameStateSync(String reason) {
@@ -695,7 +696,7 @@ public class Main extends Game {
     }
 
     private static Message.C2S_PlayerInput attachSessionToken(Message.C2S_PlayerInput input,
-                                                             String token) {
+                                                              String token) {
         if (input == null) {
             return null;
         }
@@ -737,7 +738,7 @@ public class Main extends Game {
         currentRoomId = roomId;
     }
 
-    // 鈥斺€斺€斺€斺€斺€斺€斺€?缃戠粶娑堟伅澶勭悊鍏ュ彛锛堢敱缃戠粶绾跨▼璋冪敤锛?鈥斺€斺€斺€斺€斺€斺€斺€?
+    // ———————— 网络消息处理入口（由网络线程调用） ————————
 
     public void handleNetworkMessage(Message.MessageType type, Object message) {
         Gdx.app.postRunnable(() -> {
@@ -752,17 +753,17 @@ public class Main extends Game {
                         } else {
                             log.debug("Received session_token (length={})", sessionToken.length());
                         }
-                        // 鐧诲綍鎴愬姛锛岃烦杞埌鎴块棿鍒楄〃
+                        // 登录成功，跳转到房间列表
                         setScreen(new RoomListScreen(Main.this, skin));
                     } else {
                         setPlayerId(-1);
                         setSessionToken("");
-                        // 鐧诲綍澶辫触锛氳繑鍥炰富鑿滃崟骞舵彁绀?
+                        // 登录失败：返回主菜单并提示
                         if (getScreen() instanceof MainMenuScreen mainMenu) {
-                            mainMenu.showError("鐧诲綍澶辫触: " + result.getMessageLogin());
+                            mainMenu.showError("登录失败: " + result.getMessageLogin());
                         } else {
                             setScreen(new MainMenuScreen(Main.this, skin));
-                            ((MainMenuScreen) getScreen()).showError("鐧诲綍澶辫触: " + result.getMessageLogin());
+                            ((MainMenuScreen) getScreen()).showError("登录失败: " + result.getMessageLogin());
                         }
                     }
                     break;
@@ -806,7 +807,7 @@ public class Main extends Game {
                     prepareUdpClientForMatch();
                     boolean createdGameScreen = false;
                     if (getScreen() instanceof GameRoomScreen) {
-                        // 閸掑洦宕查崚鐗堢埗閹村繐婧€閺?
+                        // 切换到游戏界面
                         setScreen(new GameScreen(Main.this));
                         createdGameScreen = true;
                     }
@@ -819,7 +820,7 @@ public class Main extends Game {
                     }
                     break;
                 case MSG_S2C_GAME_STATE_SYNC:
-                    // 灏嗗悓姝ユ暟鎹浆鍙戠粰 GameScreen锛堝鏋滃綋鍓嶆槸娓告垙鐣岄潰锛?
+                    // 将同步数据转发给 GameScreen（如果当前是游戏界面）
                     if (getScreen() instanceof GameScreen gameScreen) {
                         Message.S2C_GameStateSync sync = (Message.S2C_GameStateSync) message;
                         gameScreen.onGameStateReceived(sync);
@@ -849,33 +850,33 @@ public class Main extends Game {
                 case MSG_S2C_GAME_OVER:
                 case MSG_S2C_PROJECTILE_SPAWN:
                 case MSG_S2C_PROJECTILE_DESPAWN:
-        case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
-            // 鏆傛椂鍙墦鏃ュ織锛屽悗缁敱 GameScreen 澶勭悊
-            Gdx.app.log("GAME_EVENT", "Received game event: " + type);
-            if (getScreen() instanceof GameScreen gameScreen) {
-                gameScreen.onGameEvent(type, message);
+                case MSG_S2C_ENEMY_ATTACK_STATE_SYNC:
+                    // 暂时只打日志，后续由 GameScreen 处理
+                    Gdx.app.log("GAME_EVENT", "Received game event: " + type);
+                    if (getScreen() instanceof GameScreen gameScreen) {
+                        gameScreen.onGameEvent(type, message);
+                    }
+                    break;
+                case MSG_S2C_UPGRADE_REQUEST:
+                    if (getScreen() instanceof GameScreen requestScreen) {
+                        requestScreen.onUpgradeRequest((Message.S2C_UpgradeRequest) message);
+                    }
+                    break;
+                case MSG_S2C_UPGRADE_OPTIONS:
+                    if (getScreen() instanceof GameScreen optionsScreen) {
+                        optionsScreen.onUpgradeOptions((Message.S2C_UpgradeOptions) message);
+                    }
+                    break;
+                case MSG_S2C_UPGRADE_SELECT_ACK:
+                    if (getScreen() instanceof GameScreen ackScreen) {
+                        ackScreen.onUpgradeSelectAck((Message.S2C_UpgradeSelectAck) message);
+                    }
+                    break;
+                default:
+                    Gdx.app.log("NET", "Unhandled message type: " + type);
             }
-            break;
-        case MSG_S2C_UPGRADE_REQUEST:
-            if (getScreen() instanceof GameScreen requestScreen) {
-                requestScreen.onUpgradeRequest((Message.S2C_UpgradeRequest) message);
-            }
-            break;
-        case MSG_S2C_UPGRADE_OPTIONS:
-            if (getScreen() instanceof GameScreen optionsScreen) {
-                optionsScreen.onUpgradeOptions((Message.S2C_UpgradeOptions) message);
-            }
-            break;
-        case MSG_S2C_UPGRADE_SELECT_ACK:
-            if (getScreen() instanceof GameScreen ackScreen) {
-                ackScreen.onUpgradeSelectAck((Message.S2C_UpgradeSelectAck) message);
-            }
-            break;
-        default:
-            Gdx.app.log("NET", "Unhandled message type: " + type);
-        }
-    });
-}
+        });
+    }
 
     private void deliverRoomUpdate(Message.S2C_RoomUpdate update) {
         if (update == null) {
@@ -969,6 +970,3 @@ public class Main extends Game {
         }
     }
 }
-
-
-
