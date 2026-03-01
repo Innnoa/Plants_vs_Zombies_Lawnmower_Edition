@@ -56,6 +56,7 @@ add_executable(server
   src/config/item_types_config.cpp
   src/config/upgrade_config.cpp
   src/game/managers/room_manager.cpp
+  src/game/managers/room_manager_lifecycle.cpp
   src/game/managers/room_manager_session.cpp
   src/game/managers/room_manager_gameplay.cpp
   src/game/managers/game_manager.cpp
