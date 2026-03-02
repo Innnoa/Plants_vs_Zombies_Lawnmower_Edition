@@ -311,27 +311,49 @@ function Ensure-VcpkgPackage([string]$VcpkgExe, [string]$PackageName, [string]$T
         return
     }
 
-    Write-Info "执行: $VcpkgExe install $spec --recurse"
-    & $VcpkgExe install $spec --recurse
-    if ($LASTEXITCODE -ne 0) {
-        Write-WarnLine "安装 vcpkg 包失败: $spec"
-        $script:MissingItems.Add("vcpkg package $spec")
+    Write-Info "执行: $VcpkgExe install $spec --recurse --clean-after-build"
+    & $VcpkgExe install $spec --recurse --clean-after-build
+    if ($LASTEXITCODE -eq 0 -and (Test-VcpkgPackageInstalled $VcpkgExe $PackageName $TripletName)) {
+        $script:Actions.Add("安装 vcpkg 包 $spec")
+        Write-Ok "安装完成: $spec"
         return
     }
 
-    if (Test-VcpkgPackageInstalled $VcpkgExe $PackageName $TripletName) {
-        $script:Actions.Add("安装 vcpkg 包 $spec")
+    Write-WarnLine "首次安装失败，尝试清理后重试: $spec"
+    & $VcpkgExe remove --recurse $spec 2>$null | Out-Null
+    $vcpkgRootPath = Split-Path -Parent $VcpkgExe
+    $buildtreeDir = Join-Path $vcpkgRootPath "buildtrees\$PackageName"
+    $packageDir = Join-Path $vcpkgRootPath "packages\$($PackageName)_$TripletName"
+    Remove-Item -Path $buildtreeDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $packageDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    Write-Info "执行: $VcpkgExe install $spec --recurse --clean-after-build --debug"
+    & $VcpkgExe install $spec --recurse --clean-after-build --debug
+    if ($LASTEXITCODE -eq 0 -and (Test-VcpkgPackageInstalled $VcpkgExe $PackageName $TripletName)) {
+        $script:Actions.Add("安装 vcpkg 包 $spec（重试成功）")
         Write-Ok "安装完成: $spec"
-    } else {
-        $script:MissingItems.Add("vcpkg package $spec")
+        return
     }
+
+    Write-WarnLine "安装 vcpkg 包失败: $spec"
+    $dbgOut = Join-Path $buildtreeDir "install-$TripletName-dbg-out.log"
+    $dbgErr = Join-Path $buildtreeDir "install-$TripletName-dbg-err.log"
+    $relOut = Join-Path $buildtreeDir "install-$TripletName-rel-out.log"
+    $relErr = Join-Path $buildtreeDir "install-$TripletName-rel-err.log"
+    Write-Host "  日志定位建议："
+    foreach ($logPath in @($dbgOut, $dbgErr, $relOut, $relErr)) {
+        if (Test-Path $logPath) {
+            Write-Host "    - $logPath"
+        }
+    }
+    $script:MissingItems.Add("vcpkg package $spec")
 }
 
 function Print-BuildHints([string]$RepoRoot, [string]$ResolvedVcpkgRoot, [string]$TripletName) {
     $serverDir = Join-Path $RepoRoot "server"
     $buildDir = Join-Path $serverDir "build-win-debug"
     $toolchain = Join-Path $ResolvedVcpkgRoot "scripts/buildsystems/vcpkg.cmake"
-    $useNinja = Test-CommandExists "ninja"
+    $useNinja = (Test-CommandExists "ninja") -and (Test-CommandExists "cl.exe")
     $generator = if ($useNinja) { "Ninja" } else { "Visual Studio 17 2022" }
 
     Write-Section "Windows 构建命令（建议）"
@@ -342,7 +364,11 @@ function Print-BuildHints([string]$RepoRoot, [string]$ResolvedVcpkgRoot, [string
     if ($useNinja) {
         Write-Info "使用 Ninja + MSVC 时，请优先在 “x64 Native Tools Command Prompt for VS 2022” 内执行。"
     } else {
-        Write-Info "未检测到 Ninja，已给出 Visual Studio 生成器方案。"
+        if ((Test-CommandExists "ninja") -and -not (Test-CommandExists "cl.exe")) {
+            Write-Info "检测到 Ninja 但当前会话没有 cl.exe，已回退到 Visual Studio 生成器。"
+        } else {
+            Write-Info "未检测到 Ninja，已给出 Visual Studio 生成器方案。"
+        }
     }
 }
 
@@ -356,7 +382,7 @@ function Run-BuildCheck([string]$RepoRoot, [string]$ResolvedVcpkgRoot, [string]$
     $serverDir = Join-Path $RepoRoot "server"
     $buildDir = Join-Path $serverDir "build-win-check"
     $toolchain = Join-Path $ResolvedVcpkgRoot "scripts/buildsystems/vcpkg.cmake"
-    $generator = if (Test-CommandExists "ninja") { "Ninja" } else { "Visual Studio 17 2022" }
+    $generator = if ((Test-CommandExists "ninja") -and (Test-CommandExists "cl.exe")) { "Ninja" } else { "Visual Studio 17 2022" }
 
     & cmake -S $serverDir -B $buildDir -G $generator `
         -DCMAKE_BUILD_TYPE=Debug `
@@ -407,6 +433,10 @@ Ensure-Tool -DisplayName "Git" -CommandName "git" -WingetId "Git.Git"
 Ensure-Tool -DisplayName "CMake" -CommandName "cmake" -WingetId "Kitware.CMake"
 Ensure-Tool -DisplayName "Ninja" -CommandName "ninja" -WingetId "Ninja-build.Ninja"
 Ensure-MsvcToolchain
+if ((Test-MsvcInstalled) -and -not (Test-CommandExists "cl.exe")) {
+    $script:Warnings.Add("检测到 VS Build Tools，但当前 PowerShell 未加载 cl.exe 环境。")
+    Write-WarnLine "检测到 VS Build Tools，但当前会话未加载 cl.exe。建议使用 'x64 Native Tools Command Prompt for VS 2022'。"
+}
 
 if (-not $SkipVcpkg) {
     Write-Section "vcpkg 依赖检查"
@@ -414,7 +444,17 @@ if (-not $SkipVcpkg) {
     if ($hasVcpkgRoot) {
         $vcpkgExe = Ensure-VcpkgExe -ResolvedVcpkgRoot $VcpkgRoot
         if ($null -ne $vcpkgExe) {
+            if (Test-CommandExists "git") {
+                Write-Info "执行: git -C $VcpkgRoot pull --ff-only"
+                & git -C $VcpkgRoot pull --ff-only 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    $script:Actions.Add("更新 vcpkg ports (git pull --ff-only)")
+                } else {
+                    Write-WarnLine "vcpkg git pull 失败（可忽略，继续使用当前 ports）"
+                }
+            }
             Ensure-VcpkgPackage -VcpkgExe $vcpkgExe -PackageName "protobuf" -TripletName $Triplet
+            Ensure-VcpkgPackage -VcpkgExe $vcpkgExe -PackageName "fmt" -TripletName $Triplet
             Ensure-VcpkgPackage -VcpkgExe $vcpkgExe -PackageName "spdlog" -TripletName $Triplet
         }
     }
