@@ -8,6 +8,12 @@ allprojects {
         slf4jVersion = '2.0.9'
         logbackVersion = '1.4.11'
         jvmVersion = '17'
+        forwardedRuntimeProperties = [
+                "lawnmower.server.host",
+                "lawnmower.server.tcpPort",
+                "lawnmower.server.udpPort",
+                "lawnmower.connectivity.timeoutMs"
+        ]
     }
 
     buildscript {
@@ -57,6 +63,30 @@ project(":core") {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    tasks.withType(JavaExec).configureEach {
+        forwardedRuntimeProperties.each { propertyName ->
+            def propertyValue = System.getProperty(propertyName)
+            if (propertyValue != null && !propertyValue.isBlank()) {
+                systemProperty propertyName, propertyValue
+            }
+        }
+    }
+
+    task runConnectivityCheck(type: JavaExec) {
+        group = "verification"
+        description = "Run the client-side TCP/UDP connectivity diagnostic"
+        classpath = sourceSets.main.runtimeClasspath
+        mainClass = "com.lawnmower.network.ConnectivityCheck"
+    }
+
+    task printConnectivityCheckClasspath {
+        group = "help"
+        description = "Print the runtime classpath for the connectivity diagnostic"
+        doLast {
+            println sourceSets.main.runtimeClasspath.asPath
+        }
+    }
 }
 
 // ==================== desktop 模块 ====================
@@ -98,6 +128,15 @@ project(":desktop") {
     java {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    tasks.withType(JavaExec).configureEach {
+        forwardedRuntimeProperties.each { propertyName ->
+            def propertyValue = System.getProperty(propertyName)
+            if (propertyValue != null && !propertyValue.isBlank()) {
+                systemProperty propertyName, propertyValue
+            }
+        }
     }
 
     // 打包 def_in
@@ -151,6 +190,13 @@ project(":desktop") {
         doLast {
             logger.lifecycle("PeaShooter atlas packed.")
         }
+    }
+
+    task runConnectivityCheck(type: JavaExec) {
+        group = "verification"
+        description = "Run the client-side TCP/UDP connectivity diagnostic"
+        classpath = project(":core").sourceSets.main.runtimeClasspath
+        mainClass = "com.lawnmower.network.ConnectivityCheck"
     }
 
 }
