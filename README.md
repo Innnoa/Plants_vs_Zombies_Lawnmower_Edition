@@ -119,10 +119,10 @@ make -j$(nproc)
 cd ../client
 
 # 构建
-./gradlew desktop:dist
+bash ./gradlew desktop:dist
 
 # 运行
-./gradlew desktop:run
+bash ./gradlew desktop:run
 ```
 
 ## 网络架构
@@ -226,15 +226,22 @@ message C2S_UseSkill {
 
 ### 测试网络通信
 
-使用 `tools/` 目录中提供的测试工具：
+优先使用仓库内实际存在的脚本和测试入口：
 
 ```bash
-# 服务端数据包嗅探器
-./tools/packet_sniffer --port 7777
+# 一键执行服务端 smoke tests + 本地服务端实例 + 客户端 TCP/UDP 联通诊断
+script/check_connectivity.sh
 
-# 用于负载测试的客户端模拟器
-./tools/client_simulator --count 10
+# 仅做基础延迟/丢包检查（不能替代应用协议联通验证）
+script/network_latency_check.sh 127.0.0.1
 ```
+
+`script/check_connectivity.sh` 默认会：
+
+1. 构建 `server/build-debug`
+2. 运行 `server_smoke` 与 `udp_sync_smoke`
+3. 启动一份本地服务端实例（未显式指定时自动选择空闲 TCP/UDP 端口）
+4. 运行客户端真实 TCP 登录 / 开局 / UDP 同步诊断
 
 ## 配置
 
@@ -256,18 +263,27 @@ message C2S_UseSkill {
 
 ### 客户端配置
 
-编辑 `client_config.json`：
+当前客户端不再依赖仓库中不存在的 `client_config.json`。网络目标可通过环境变量或 JVM 参数覆盖：
 
-```json
-{
-    "server_host": "127.0.0.1",
-    "server_tcp_port": 7777,
-    "server_udp_port": 7778,
-    "username": "Player",
-    "music_volume": 0.7,
-    "sfx_volume": 0.8
-}
+```bash
+# 环境变量方式
+export LAWNMOWER_SERVER_HOST=127.0.0.1
+export LAWNMOWER_SERVER_TCP_PORT=7777
+export LAWNMOWER_SERVER_UDP_PORT=7778
+
+# 或 JVM 参数方式
+bash ./gradlew \
+  -Dlawnmower.server.host=127.0.0.1 \
+  -Dlawnmower.server.tcpPort=7777 \
+  -Dlawnmower.server.udpPort=7778 \
+  desktop:run
 ```
+
+默认值仍与客户端源码保持一致：
+
+- `server_host = 192.168.1.13`
+- `server_tcp_port = 7777`
+- `server_udp_port = 7778`
 
 ## 性能优化
 
@@ -334,7 +350,7 @@ ctest --test-dir server/build-debug --output-on-failure
 
 # 客户端测试
 cd client
-./gradlew test
+bash ./gradlew test
 ```
 
 ### 集成测试
