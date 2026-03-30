@@ -41,15 +41,17 @@
 ```
 LawnMower/
 ├── proto/                      # 共享的 Protocol Buffers 定义
-│   └── messages.proto
+│   └── message.proto
+├── game_config/                # 服务端运行时 JSON 配置
 │
 ├── server/                     # C++ 服务端
 │   ├── include/
-│   │   ├── network/           # TCP/UDP 服务器实现
-│   │   ├── game/              # 游戏逻辑（世界、战斗、敌人）
-│   │   └── utils/             # 工具类和辅助函数
-│   ├── src/
-│   ├── generated/             # 生成的 protobuf 代码
+│   │   ├── config/            # 配置结构与加载接口
+│   │   ├── network/           # TCP/UDP 接口
+│   │   └── game/              # RoomManager / GameManager 接口
+│   ├── src/                   # 服务端实现
+│   ├── tests/                 # unit / integration smoke tests
+│   ├── docs/                  # 服务端文档
 │   └── CMakeLists.txt
 │
 └── client/                     # Java 客户端
@@ -57,10 +59,11 @@ LawnMower/
     │   └── src/
     │       └── com/lawnmower/
     │           ├── network/   # 网络客户端
-    │           ├── screens/   # 游戏界面（菜单、游戏等）
-    │           ├── entities/  # 游戏实体（玩家、敌人、道具）
-    │           └── systems/   # 游戏系统（渲染、输入）
-    ├── assets/                # 游戏资源（纹理、音效）
+    │           ├── screens/   # 游戏界面
+    │           ├── ui/        # UI 与 HUD
+    │           └── enemies/   # 敌人与展示定义
+    ├── assets/                # 游戏资源
+    ├── desktop/               # 桌面端启动器
     └── build.gradle
 ```
 
@@ -197,7 +200,7 @@ message Packet {
 
 ### 添加新消息类型
 
-1. 在 `proto/messages.proto` 中定义消息
+1. 在 `proto/message.proto` 中定义消息
 2. 分配唯一的消息类型 ID
 3. 为服务端和客户端重新生成代码
 4. 在两端实现处理程序
@@ -205,7 +208,7 @@ message Packet {
 示例：
 
 ```protobuf
-// 在 messages.proto 中
+// 在 message.proto 中
 message C2S_UseSkill {
     uint32 skill_id = 1;
 }
@@ -326,8 +329,8 @@ message C2S_UseSkill {
 
 ```bash
 # 服务端测试
-cd server/build
-ctest --verbose
+script/build_server.sh --debug
+ctest --test-dir server/build-debug --output-on-failure
 
 # 客户端测试
 cd client
@@ -342,6 +345,7 @@ cd client
 
 更多文档可在 `docs/` 目录中找到：
 
+- `server/docs/server_structure_audit.md`：当前服务端结构审计快照
 - [架构概览](docs/ARCHITECTURE.md)
 - [网络协议规范](docs/PROTOCOL.md)
 - [游戏设计文档](docs/DESIGN.md)

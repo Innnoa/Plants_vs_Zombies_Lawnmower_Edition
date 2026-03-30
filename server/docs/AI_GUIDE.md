@@ -70,12 +70,12 @@
 
 ### 2.3 测试与文档
 
-1. `server/tests/server_smoke_test.cpp`：TCP 主流程 smoke（登录、房间、重连等）。
-2. `server/tests/udp_sync_smoke_test.cpp`：UDP 同步与收敛相关 smoke。
-3. `server/tests/config_loader_smoke_test.cpp`：配置加载容错与边界测试。
+1. `server/tests/integration/server_smoke_test.cpp`：TCP 主流程 smoke（登录、房间、重连等）。
+2. `server/tests/integration/udp_sync_smoke_test.cpp`：UDP 同步与收敛相关 smoke。
+3. `server/tests/unit/config_loader_smoke_test.cpp`：配置加载容错与边界测试。
 4. `server/docs/`：服务器侧文档。
 
-说明：`server/tests/integration` 与 `server/tests/unit` 目录目前预留，尚未放置用例。
+说明：当前 smoke test 已分别放置在 `server/tests/integration` 与 `server/tests/unit` 下。
 
 ## 3. 运行时行为模式（端到端）
 
@@ -252,5 +252,5 @@ ctest --test-dir build-debug --output-on-failure
 
 1. `S2C_GameStateSync` 不是“每帧全量”，全量语义依赖 `is_full_snapshot` 标记。
 2. 道具、敌人、玩家的同步一致性依赖 delta 与低频同步共同收敛，客户端需按“状态合并”处理。
-3. `server/include/game/entities/enemy_types.hpp` 当前为历史静态定义，运行时配置以 `game_config/enemy_types.json` 为准。
-4. manager 私有头已规范到 `server/src/game/managers/internal/`，不建议暴露到 `include/`。
+3. 运行时敌人配置以 `game_config/enemy_types.json` 为准，不应再参考旧的静态敌人定义说明。
+4. manager 私有拆分头当前位于 `server/include/game/managers/internal/`，通过 `game_manager.hpp` 内部 `#include` 组合，不建议在外部模块直接依赖这些私有细节。
