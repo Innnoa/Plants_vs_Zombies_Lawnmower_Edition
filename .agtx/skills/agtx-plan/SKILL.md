@@ -7,6 +7,12 @@ description: Plan a task implementation. Analyze the codebase, create a detailed
 
 You are in the **planning phase** of an agtx-managed task.
 
+Treat this task as `AGTX_CONTEXT=true`:
+- `.agtx/*` files are the primary task state
+- If the project also has `AI_GUIDE.md`, `CURRENT_TASK.md`, or `DECISIONS.md`, read only the minimum long-term context that is directly relevant
+- Keep the plan grounded in code, configuration, command output, and documented constraints
+- Do not expand into recursive multi-agent delegation unless the user explicitly asks for it
+
 ## Input
 
 - **Task description** — provided inline with this command (when entering directly from Backlog)
@@ -18,7 +24,9 @@ You are in the **planning phase** of an agtx-managed task.
 2. Read and understand the task description
 3. Explore the codebase to understand relevant files, patterns, and architecture
 4. Identify all files that need to be created or modified
-5. Create a detailed implementation plan
+5. Define how the work should be validated
+6. Create a detailed implementation plan
+7. If critical facts are still missing, record them as open questions instead of guessing
 
 ## Output
 
@@ -30,8 +38,14 @@ What you found in the codebase — relevant files, patterns, dependencies.
 ## Plan
 Step-by-step implementation plan — files to modify, approach, order of changes.
 
+## Verification
+How implementation should be validated — tests, builds, checks, or manual verification.
+
 ## Risks
 What could go wrong — edge cases, breaking changes, areas needing extra care.
+
+## Open Questions
+Only unresolved items that materially block or change implementation.
 
 ## CRITICAL: Stop After Writing
 
