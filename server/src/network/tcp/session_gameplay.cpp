@@ -4,6 +4,7 @@
 
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
+#include "game/managers/internal/game_manager_sync_dispatch.hpp"
 #include "network/tcp/tcp_session.hpp"
 #include "network/tcp/tcp_session_internal.hpp"
 #include "network/udp/udp_server.hpp"
@@ -161,15 +162,8 @@ bool TcpSession::SendFullSyncToRoom(
     return false;
   }
 
-  bool sent_udp = false;
-  if (auto udp = GameManager::Instance().GetUdpServer()) {
-    sent_udp = udp->BroadcastState(room_id, sync) > 0;
-  }
-  if (!sent_udp) {
-    // 尚未收到客户端 UDP，首帧用 TCP 兜底
-    tcp_session_internal::BroadcastToRoom(
-        sessions, lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
-  }
+  // 全量快照统一走 TCP，避免大包在 UDP 上分片丢失并保持覆盖式语义稳定。
+  game_manager_sync_dispatch::SendFullSnapshotToSessions(sessions, sync);
 
   const uint32_t sync_rate = std::max<uint32_t>(1, state_sync_rate);
   if (auto io = GameManager::Instance().GetIoContext()) {
@@ -183,23 +177,14 @@ bool TcpSession::SendFullSyncToRoom(
       }
       lawnmower::S2C_GameStateSync retry_sync;
       if (GameManager::Instance().BuildFullState(room_id, &retry_sync)) {
-        bool sent_retry_udp = false;
-        if (auto udp = GameManager::Instance().GetUdpServer()) {
-          sent_retry_udp = udp->BroadcastState(room_id, retry_sync) > 0;
-        }
-        if (!sent_retry_udp) {
-          const auto retry_sessions =
-              RoomManager::Instance().GetRoomSessions(room_id);
-          tcp_session_internal::BroadcastToRoom(
-              retry_sessions, lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC,
-              retry_sync);
-        }
+        const auto retry_sessions = RoomManager::Instance().GetRoomSessions(room_id);
+        game_manager_sync_dispatch::SendFullSnapshotToSessions(retry_sessions,
+                                                               retry_sync);
       }
     });
   }
 
-  spdlog::debug("全量同步发送 room_id={} target=room udp={}", room_id,
-                sent_udp ? "true" : "false");
+  spdlog::debug("全量同步发送 room_id={} target=room udp=false", room_id);
   return true;
 }
 
@@ -208,6 +193,6 @@ void TcpSession::SendFullSyncToSession(uint32_t room_id) {
   if (!GameManager::Instance().BuildFullState(room_id, &sync)) {
     return;
   }
-  SendProto(lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
+  game_manager_sync_dispatch::SendFullSnapshotToSession(shared_from_this(), sync);
   spdlog::debug("全量同步发送 room_id={} target=session", room_id);
 }

@@ -3,6 +3,13 @@ struct SceneConfig {  // 默认场景配置
   uint32_t height = 2000;
   uint32_t tick_rate = 60;
   uint32_t state_sync_rate = 30;
+  float sync_enemy_near_distance = 500.0f;
+  float sync_enemy_far_distance = 1200.0f;
+  uint32_t sync_enemy_medium_stride = 2;
+  uint32_t sync_enemy_far_stride = 4;
+  uint32_t room_sync_object_budget_per_tick = 128;
+  uint32_t room_event_entry_budget_per_tick = 128;
+  uint32_t room_packet_budget_per_tick = 6;
   float move_speed = 200.0f;
 };
 
@@ -28,7 +35,9 @@ struct PlayerRuntime {
   std::deque<lawnmower::C2S_PlayerInput> pending_inputs;  // 待处理输入队列
   std::deque<HistoryEntry> history;     // 历史缓冲（用于预测校验）
   lawnmower::PlayerState state;         // 玩家状态
+  uint32_t authoritative_tick = 0;     // 玩家对象最后一次权威状态变更 tick
   uint32_t last_input_seq = 0;          // 已处理的最新输入序号
+  uint32_t force_sync_left = 0;         // 关键低频状态的强制续发次数
   float last_sync_rotation = 0.0f;      // delta 同步基线朝向
   uint32_t last_sync_input_seq = 0;     // delta 同步基线输入序号
   uint32_t locked_target_enemy_id = 0;  // 锁定目标
@@ -67,6 +76,7 @@ struct EnemyRuntime {
   lawnmower::Vector2 last_sync_position;  // delta 同步基线位置
   int32_t last_sync_health = 0;           // delta 同步基线血量
   bool last_sync_is_alive = true;         // delta 同步基线存活状态
+  uint32_t authoritative_tick = 0;        // 敌人对象最后一次权威状态变更 tick
   uint32_t force_sync_left =
       0;  // 强制同步计数(即使没dirty也要同步几次，确保新生成/死亡被客户端看到)
   bool dirty = false;         // 是否有状态变动
@@ -101,6 +111,7 @@ struct ItemRuntime {
   float last_sync_y = 0.0f;          // delta 同步基线y
   bool last_sync_is_picked = false;  // delta 同步基线拾取状态
   uint32_t last_sync_type_id = 0;    // delta 同步基线类型
+  uint32_t authoritative_tick = 0;   // 道具对象最后一次权威状态变更 tick
   uint32_t force_sync_left = 0;      // 强制同步次数（用于新生成道具首包）
   bool dirty = false;                // 是否需要同步
   bool dirty_queued = false;         // 是否已进入脏队列（去重）
@@ -175,6 +186,7 @@ struct Scene {
   uint32_t nav_epoch = 0;
 
   uint64_t tick = 0;               // 逻辑帧计数
+  game_manager_tick_dispatch_gate::RoomTickDispatchGate tick_dispatch_gate;
   double sync_accumulator = 0.0;   // 同步计时器累积,到达间隔则发送同步
   double sync_idle_elapsed = 0.0;  // 低活跃累计时间
   double full_sync_elapsed = 0.0;  // 距离上次全量同步的累计时间

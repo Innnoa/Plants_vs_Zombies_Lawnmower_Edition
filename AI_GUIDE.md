@@ -28,6 +28,7 @@
 - 已完成“检查当前服务器与客户端联通程度”的执行阶段实现。
 - 已为客户端补齐可配置服务器目标、独立联通诊断入口和一键检查脚本，并同步修正文档与 Gradle 入口。
 - 已验证 `bash -n script/check_connectivity.sh` 通过，且在可用本地 socket 的环境中执行 `./script/check_connectivity.sh` 全链路通过，覆盖 TCP 登录/建房/开局与 UDP 状态同步。
+- 已调整项目内 `.agtx/skills` 的 `research / plan / execute / review` 模板，使其更符合全局 `AGENTS.md` 中关于 `AGTX_CONTEXT`、证据优先、验证输出和非递归委派的约束。
 <!-- AI_GUIDE:SUMMARY:END -->
 
 ## 4. 执行记录
@@ -79,8 +80,31 @@
   - `java -cp <runtime classpath> com.lawnmower.network.ConnectivityCheck`：在临时服务端环境下单独验证通过。
 - 结论：
   - 当前仓库已具备真实客户端到本地服务端的端到端联通检查能力。
-  - 沙箱环境若限制本地 socket 建立，则执行最终联通脚本时仍需在允许本地网络绑定的环境中运行。
+- 沙箱环境若限制本地 socket 建立，则执行最终联通脚本时仍需在允许本地网络绑定的环境中运行。
 <!-- AI_GUIDE:ENTRY:END ts=2026-03-30 17:11:23 CST id=session-20260330-171123-connectivity-execute -->
+
+<!-- AI_GUIDE:ENTRY:BEGIN ts=2026-04-03 10:24:59 CST id=session-20260403-102459-agtx-skill-tuning -->
+- 时间：`2026-04-03 10:24:59 CST`
+- 类型：流程模板调整
+- 目标：让当前项目的 `agtx` 阶段技能模板更符合全局 `AGENTS.md` 的 `AGTX_CONTEXT`、状态源、验证和委派边界要求。
+- 关键读取：
+  - `/home/zazaki/.codex/AGENTS.md`
+  - `/home/zazaki/.codex/RUNBOOK_FULL.md`
+  - `.agtx/skills/agtx-research/SKILL.md`
+  - `.agtx/skills/agtx-plan/SKILL.md`
+  - `.agtx/skills/agtx-execute/SKILL.md`
+  - `.agtx/skills/agtx-review/SKILL.md`
+- 关键修改：
+  - 为 `research / plan / execute / review` 四个阶段模板补充 `AGTX_CONTEXT=true` 约束说明。
+  - 明确 `.agtx/*` 是任务主状态源，`AI_GUIDE.md / DECISIONS.md` 仅作最小长期上下文补读。
+  - 在模板中加入“证据优先、不得猜测、默认不递归使用 subagent、输出需包含验证与剩余风险”等要求。
+  - 调整 `review` 阶段输出结构，使其以 findings 为先，更贴近全局 review 规则。
+- 验证：
+  - 已逐文件复核四个模板，确认保留原有 phase 语义与 `stop and wait` 行为。
+  - 本轮未运行业务构建或测试；变更仅影响后续 `agtx` 任务的提示词与阶段输出结构。
+- 结论：
+  - 当前项目内后续由这些模板生成的 `agtx` 阶段会话，将更稳定地遵循全局规则，而不是只依赖会话侧隐式指令。
+<!-- AI_GUIDE:ENTRY:END ts=2026-04-03 10:24:59 CST id=session-20260403-102459-agtx-skill-tuning -->
 
 ## 5. 修改标记 / 审计轨迹
 
@@ -138,6 +162,36 @@
 - 原因：按 `agtx-execute` 技能要求输出实现总结，供用户审批与后续审阅
 <!-- AI_GUIDE:TRACE:END ts=2026-03-30 17:11:23 CST id=trace-20260330-171123-execute-summary -->
 
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-research-skill -->
+- 文件：`.agtx/skills/agtx-research/SKILL.md`
+- 动作：增强研究阶段模板，补充 `AGTX_CONTEXT`、证据要求与非递归委派边界
+- 原因：让 research 阶段优先基于 `.agtx/*` 与代码证据产出结论，而不是依赖猜测或隐式上下文
+<!-- AI_GUIDE:TRACE:END ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-research-skill -->
+
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-plan-skill -->
+- 文件：`.agtx/skills/agtx-plan/SKILL.md`
+- 动作：增强计划阶段模板，加入验证设计、开放问题和 `AGTX_CONTEXT` 约束
+- 原因：让 planning 阶段的计划输出更贴近全局规则中的验证与风险表达要求
+<!-- AI_GUIDE:TRACE:END ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-plan-skill -->
+
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-execute-skill -->
+- 文件：`.agtx/skills/agtx-execute/SKILL.md`
+- 动作：增强执行阶段模板，明确以 `.agtx/plan.md` 为批准范围，并输出偏差与剩余风险
+- 原因：降低执行阶段脱离已批准计划或遗漏验证/风险信息的概率
+<!-- AI_GUIDE:TRACE:END ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-execute-skill -->
+
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-review-skill -->
+- 文件：`.agtx/skills/agtx-review/SKILL.md`
+- 动作：增强 review 阶段模板，要求 findings 优先输出，并补充修复与残余风险结构
+- 原因：让 review 阶段更贴近全局规则中“review 以问题为主”的交付风格
+<!-- AI_GUIDE:TRACE:END ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-review-skill -->
+
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-ai-guide -->
+- 文件：`AI_GUIDE.md`
+- 动作：追加本轮 `agtx` 技能模板调整的审计记录与读取锚点
+- 原因：为后续会话保留“为什么该项目的 agtx 模板行为发生变化”的可追溯上下文
+<!-- AI_GUIDE:TRACE:END ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-ai-guide -->
+
 ## 6. 待办与后续动作
 
 - 当前计划范围内事项已完成。
@@ -146,3 +200,4 @@
 <!-- AI_GUIDE:READ_ANCHOR ts=2026-03-30 00:00:00 CST id=session-20260330-000000-init -->
 <!-- AI_GUIDE:READ_ANCHOR ts=2026-03-30 15:26:27 CST id=session-20260330-152627-connectivity-plan -->
 <!-- AI_GUIDE:READ_ANCHOR ts=2026-03-30 17:11:23 CST id=session-20260330-171123-connectivity-execute -->
+<!-- AI_GUIDE:READ_ANCHOR ts=2026-04-03 10:24:59 CST id=session-20260403-102459-agtx-skill-tuning -->

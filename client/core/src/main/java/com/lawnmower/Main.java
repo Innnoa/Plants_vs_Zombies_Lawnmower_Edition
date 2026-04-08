@@ -295,10 +295,12 @@ public class Main extends Game {
 
     private boolean shouldDropUdpState(long tick, long serverTimeMs) {
         if (tick >= 0) {
-            if (lastUdpSyncTick >= 0 && Long.compareUnsigned(tick, lastUdpSyncTick) <= 0) {
+            if (lastUdpSyncTick >= 0 && Long.compareUnsigned(tick, lastUdpSyncTick) < 0) {
                 return true;
             }
-            lastUdpSyncTick = tick;
+            if (lastUdpSyncTick < 0 || Long.compareUnsigned(tick, lastUdpSyncTick) > 0) {
+                lastUdpSyncTick = tick;
+            }
             if (serverTimeMs > lastUdpServerTimeMs) {
                 lastUdpServerTimeMs = serverTimeMs;
             }

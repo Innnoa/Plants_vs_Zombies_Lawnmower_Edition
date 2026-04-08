@@ -1,13 +1,16 @@
 #include <algorithm>
+#include <asio/post.hpp>
 #include <chrono>
 #include <cmath>
 #include <spdlog/spdlog.h>
 
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
+#include "network/tcp/tcp_session.hpp"
 #include "internal/game_manager_event_dispatch.hpp"
 #include "internal/game_manager_misc_utils.hpp"
 #include "internal/game_manager_sync_dispatch.hpp"
+#include "game/managers/internal/tick_dispatch_gate.hpp"
 
 namespace {
 constexpr float kDirectionEpsilonSq =
@@ -15,9 +18,11 @@ constexpr float kDirectionEpsilonSq =
 constexpr float kMaxDirectionLengthSq = 1.21f;  // 方向向量长度平方的上限
 constexpr double kMaxTickDeltaSeconds = 0.1;    // clamp 极端卡顿
 constexpr double kMaxInputDeltaSeconds = 0.1;
+
 }  // namespace
 
 void GameManager::ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
+                                                uint64_t scene_tick,
                                                 PlayerRuntime* runtime,
                                                 double tick_interval_seconds,
                                                 bool* moved,
@@ -65,10 +70,12 @@ void GameManager::ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
         *moved = true;
       }
 
-      position->set_x(new_x);
-      position->set_y(new_y);
-      runtime->state.set_rotation(
-          game_manager_misc_utils::DegreesFromDirection(dx, dy));
+      lawnmower::Vector2 next_pos;
+      next_pos.set_x(new_x);
+      next_pos.set_y(new_y);
+      SetPlayerPositionAndRotation(
+          *runtime, next_pos,
+          game_manager_misc_utils::DegreesFromDirection(dx, dy), scene_tick);
       processed_seconds += input_dt;
       *consumed_input = true;
     } else {
@@ -80,6 +87,7 @@ void GameManager::ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
     // 更新序号（即便被拆分）
     if (input.input_seq() > runtime->last_input_seq) {
       runtime->last_input_seq = input.input_seq();
+      TouchPlayerAuthoritativeTick(*runtime, scene_tick);
     }
 
     const double remaining_dt = reported_dt - input_dt;
@@ -113,8 +121,9 @@ void GameManager::ProcessPlayerInputsLocked(Scene& scene,
     }
     bool moved = false;
     bool consumed_input = false;
-    ConsumePlayerInputQueueLocked(scene.config, &runtime, tick_interval_seconds,
-                                  &moved, &consumed_input);
+    ConsumePlayerInputQueueLocked(scene.config, scene.tick, &runtime,
+                                  tick_interval_seconds, &moved,
+                                  &consumed_input);
 
     if (moved || consumed_input || runtime.low_freq_dirty) {
       MarkPlayerDirty(scene, runtime.state.player_id(), runtime, false);
@@ -337,13 +346,37 @@ void GameManager::FinalizeSceneTick(
     return;
   }
 
-  game_manager_misc_utils::DedupProjectileSpawns(projectile_spawns);
-  game_manager_misc_utils::DedupProjectileDespawns(projectile_despawns);
+  const uint32_t reserved_state_packets = std::min<uint32_t>(
+      config_.room_packet_budget_per_tick,
+      game_manager_sync_dispatch::QueuedStatePacketCount(room_id) +
+          game_manager_sync_dispatch::EstimateStatePacketCount(
+              force_full_sync, built_sync, built_delta, sync, delta));
+  const uint32_t critical_event_entries =
+      static_cast<uint32_t>(player_hurts.size() + enemy_dieds.size() +
+                            level_ups.size() + (game_over.has_value() ? 1 : 0) +
+                            (upgrade_request.has_value() ? 1 : 0));
+  const uint32_t critical_event_messages =
+      (player_hurts.empty() ? 0u : 1u) + (enemy_dieds.empty() ? 0u : 1u) +
+      (level_ups.empty() ? 0u : 1u) + (game_over.has_value() ? 1u : 0u) +
+      (upgrade_request.has_value() ? 1u : 0u);
+  const uint32_t noncritical_event_entries_budget =
+      config_.room_event_entry_budget_per_tick > critical_event_entries
+          ? (config_.room_event_entry_budget_per_tick - critical_event_entries)
+          : 0u;
+  const uint32_t noncritical_event_messages_budget =
+      config_.room_packet_budget_per_tick > reserved_state_packets +
+                                                critical_event_messages
+          ? (config_.room_packet_budget_per_tick - reserved_state_packets -
+             critical_event_messages)
+          : 0u;
 
-  game_manager_event_dispatch::DispatchTickEvents(
+  const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
+
+  const uint32_t event_packets_sent = game_manager_event_dispatch::DispatchTickEvents(
       room_id, event_tick, event_wave_id, *projectile_spawns,
       *projectile_despawns, dropped_items, enemy_attack_states, player_hurts,
-      enemy_dieds, level_ups, game_over, upgrade_request);
+      enemy_dieds, level_ups, game_over, sessions, upgrade_request,
+      noncritical_event_entries_budget, noncritical_event_messages_budget);
 
   if (game_over.has_value()) {
     // 等 GameOver 消息发送完再重置房间状态，避免客户端被 ROOM_UPDATE 提前切屏。
@@ -357,20 +390,72 @@ void GameManager::FinalizeSceneTick(
                         perf_elapsed_seconds);
   }
 
+  const uint32_t remaining_state_packet_budget =
+      config_.room_packet_budget_per_tick > event_packets_sent
+          ? (config_.room_packet_budget_per_tick - event_packets_sent)
+          : 0u;
   game_manager_sync_dispatch::DispatchStateSyncPayloads(
-      room_id, udp_server_, force_full_sync, built_sync, built_delta, sync,
-      delta);
+      room_id, event_tick, udp_server_, sessions, force_full_sync, built_sync,
+      built_delta, sync, delta, remaining_state_packet_budget);
 }
 
-// 进程场景计时器
+void GameManager::DispatchSceneTickAsync(uint32_t room_id, TickOutputs outputs) {
+  auto dispatch = [this, room_id, outputs = std::move(outputs)]() mutable {
+    FinalizeSceneTick(
+        room_id, outputs.expired_players, outputs.paused_only,
+        &outputs.projectile_spawns, &outputs.projectile_despawns,
+        outputs.dropped_items, outputs.enemy_attack_states,
+        outputs.player_hurts, outputs.enemy_dieds, outputs.level_ups,
+        outputs.game_over, outputs.upgrade_request, &outputs.perf_to_save,
+        outputs.perf_tick_rate, outputs.perf_sync_rate,
+        outputs.perf_elapsed_seconds, outputs.event_tick, outputs.event_wave_id,
+        outputs.force_full_sync, outputs.built_sync, outputs.built_delta,
+        outputs.sync, outputs.delta);
+  };
+
+  if (dispatch_strand_ == nullptr) {
+    dispatch();
+    return;
+  }
+  asio::post(*dispatch_strand_, std::move(dispatch));
+}
+
+void GameManager::QueueSceneTick(uint32_t room_id,
+                                 double tick_interval_seconds) {
+  auto run_logic = [this, room_id, tick_interval_seconds]() {
+    ProcessSceneTickOnLogicThread(room_id, tick_interval_seconds);
+  };
+
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto scene_it = scenes_.find(room_id);
+    if (scene_it == scenes_.end() || scene_it->second.game_over) {
+      return;
+    }
+    if (!game_manager_tick_dispatch_gate::TryBeginDispatch(
+            &scene_it->second.tick_dispatch_gate, tick_interval_seconds)) {
+      return;
+    }
+  }
+
+  if (logic_thread_pool_ == nullptr) {
+    run_logic();
+    return;
+  }
+  asio::post(*logic_thread_pool_, std::move(run_logic));
+}
+
 void GameManager::ProcessSceneTick(uint32_t room_id,
                                    double tick_interval_seconds) {
+  QueueSceneTick(room_id, tick_interval_seconds);
+}
+
+void GameManager::ProcessSceneTickOnLogicThread(
+    uint32_t room_id, double tick_interval_seconds) {
   TickFrameContext frame;
   frame.room_id = room_id;
   frame.tick_interval_seconds = tick_interval_seconds;
   TickOutputs outputs;
-  std::vector<uint32_t> expired_players;
-  bool paused_only = false;
 
   {
     std::lock_guard<std::mutex> lock(mutex_);  // 互斥锁
@@ -389,7 +474,7 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
         &outputs.projectile_spawns, &outputs.projectile_despawns,
         &outputs.dropped_items);
     if (!scene.players.empty()) {
-      expired_players.reserve(scene.players.size());
+      outputs.expired_players.reserve(scene.players.size());
     }
     frame.perf_start = std::chrono::steady_clock::now();
     frame.dt_seconds =
@@ -397,22 +482,38 @@ void GameManager::ProcessSceneTick(uint32_t room_id,
 
     const double grace_seconds =
         std::max(0.0, static_cast<double>(config_.reconnect_grace_seconds));
-    CollectExpiredPlayersLocked(scene, grace_seconds, &expired_players);
+    CollectExpiredPlayersLocked(scene, grace_seconds, &outputs.expired_players);
 
     if (HandlePausedTickLocked(scene, frame.dt_seconds, frame.perf_start)) {
-      paused_only = true;
+      outputs.paused_only = true;
     } else {
       ProcessActiveSceneTickLocked(scene, frame, &outputs);
     }
   }
 
-  FinalizeSceneTick(
-      room_id, expired_players, paused_only, &outputs.projectile_spawns,
-      &outputs.projectile_despawns, outputs.dropped_items,
-      outputs.enemy_attack_states, outputs.player_hurts, outputs.enemy_dieds,
-      outputs.level_ups, outputs.game_over, outputs.upgrade_request,
-      &outputs.perf_to_save, outputs.perf_tick_rate, outputs.perf_sync_rate,
-      outputs.perf_elapsed_seconds, outputs.event_tick, outputs.event_wave_id,
-      outputs.force_full_sync, outputs.built_sync, outputs.built_delta,
-      outputs.sync, outputs.delta);
+  DispatchSceneTickAsync(room_id, std::move(outputs));
+
+  std::optional<double> pending_tick_interval_seconds;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto scene_it = scenes_.find(room_id);
+    if (scene_it == scenes_.end() || scene_it->second.game_over) {
+      return;
+    }
+    pending_tick_interval_seconds =
+        game_manager_tick_dispatch_gate::FinishDispatchAndTakePending(
+            &scene_it->second.tick_dispatch_gate);
+  }
+
+  if (pending_tick_interval_seconds.has_value()) {
+    auto run_logic = [this, room_id,
+                      tick_interval_seconds = *pending_tick_interval_seconds]() {
+      ProcessSceneTickOnLogicThread(room_id, tick_interval_seconds);
+    };
+    if (logic_thread_pool_ == nullptr) {
+      run_logic();
+    } else {
+      asio::post(*logic_thread_pool_, std::move(run_logic));
+    }
+  }
 }

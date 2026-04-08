@@ -94,9 +94,11 @@ class RoomManager {
     bool is_playing = false;
     std::vector<RoomPlayer> players;
     std::unordered_map<uint32_t, std::size_t> player_index_by_id;
+    std::vector<std::weak_ptr<TcpSession>> cached_sessions;
   };
 
   RoomPlayer* FindRoomPlayerLocked(Room& room, uint32_t player_id);
+  void RebuildRoomSessionsLocked(Room* room);
   const RoomPlayer* FindRoomPlayerLocked(const Room& room,
                                          uint32_t player_id) const;
 

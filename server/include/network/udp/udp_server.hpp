@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "message.pb.h"
@@ -43,6 +44,7 @@ class UdpServer {
   void SendPacket(const std::shared_ptr<const std::string>& data,
                   const udp::endpoint& to);
   std::vector<udp::endpoint> EndpointsForRoom(uint32_t room_id);
+  void RemovePlayerEndpointLocked(uint32_t player_id);
 
   asio::io_context& io_context_;
   udp::socket socket_;
@@ -51,4 +53,5 @@ class UdpServer {
 
   mutable std::mutex mutex_;
   std::unordered_map<uint32_t, EndpointInfo> player_endpoints_;
+  std::unordered_map<uint32_t, std::unordered_set<uint32_t>> room_players_;
 };

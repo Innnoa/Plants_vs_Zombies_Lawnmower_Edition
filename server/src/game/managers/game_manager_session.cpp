@@ -88,6 +88,7 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
     runtime.last_input_seq =
         std::max(runtime.last_input_seq, input.input_seq());
     if (runtime.last_input_seq != prev_seq) {
+      TouchPlayerAuthoritativeTick(runtime, scene.tick);
       MarkPlayerDirty(scene, player_id, runtime, false);
     }
     runtime.wants_attacking = false;
@@ -109,6 +110,7 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
         std::max(runtime.last_input_seq, input.input_seq());
     if (runtime.last_input_seq != prev_seq) {
       // 需要尽快把输入确认序号同步回客户端，避免客户端预测队列长期堆积。
+      TouchPlayerAuthoritativeTick(runtime, scene.tick);
       MarkPlayerDirty(scene, player_id, runtime, false);
     }
     return true;

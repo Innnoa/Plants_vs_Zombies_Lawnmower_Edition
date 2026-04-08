@@ -1,6 +1,6 @@
 # LawnMower Server AI Guide（当前版本）
 
-更新日期：2026-02-20  
+更新日期：2026-04-07  
 执行者：Codex
 
 本指南面向需要理解、排障与扩展当前服务器的开发者/AI。  
@@ -72,8 +72,10 @@
 
 1. `server/tests/integration/server_smoke_test.cpp`：TCP 主流程 smoke（登录、房间、重连等）。
 2. `server/tests/integration/udp_sync_smoke_test.cpp`：UDP 同步与收敛相关 smoke。
-3. `server/tests/unit/config_loader_smoke_test.cpp`：配置加载容错与边界测试。
-4. `server/docs/`：服务器侧文档。
+3. `server/tests/integration/udp_chunking_smoke_test.cpp`：高负载 UDP delta 分块与敌人 authoritative tick smoke。
+4. `server/tests/integration/full_snapshot_chunking_smoke_test.cpp`：全量快照分片与对象 authoritative tick smoke。
+5. `server/tests/unit/config_loader_smoke_test.cpp`：配置加载容错与边界测试。
+6. `server/docs/`：服务器侧文档。
 
 说明：当前 smoke test 已分别放置在 `server/tests/integration` 与 `server/tests/unit` 下。
 
@@ -115,6 +117,12 @@
 5. 升级流程触发与暂停态处理。
 6. 同步包构建（全量/增量）与事件分发。
 7. 性能采样与可选落盘。
+
+说明：当前 tick 执行已经拆成三段：
+
+1. `asio::steady_timer` 仅负责按房间投递 tick 请求。
+2. 逻辑构建阶段在 `logic_thread_pool` 中执行，且同一房间通过 room gate 防重入，只允许一个 in-flight tick。
+3. 网络发送/收尾阶段在独立的 `dispatch_thread_pool` 中执行，避免把重逻辑继续压回主网络回调线程。
 
 ### 3.6 升级流程（暂停态）
 
@@ -162,6 +170,24 @@
 1. 优先 UDP 广播。
 2. UDP 不可用或目标缺失时走 TCP 兜底。
 3. 为降低丢包影响，关键场景会使用强制同步窗口（如新生成对象的多次续发）。
+
+### 4.4 Tick 语义
+
+当前服务器侧已经把“包级 tick”与“对象级权威 tick”拆开：
+
+1. `sync_time.tick`
+   - 表示该同步包或事件包是在第几个逻辑帧发出的。
+   - 同一对象因为分片、续发、背压重放而跨多个包发送时，包 tick 可以继续前进。
+
+2. `authoritative_tick`
+   - 现在 `PlayerState` / `EnemyState` / `ItemState` 以及对应 delta 都带该字段。
+   - 表示该对象最后一次真实逻辑状态变化发生在哪个逻辑帧。
+   - 如果只是把同一对象状态续发到后续包，`authoritative_tick` 应保持不变。
+
+3. 服务器约定
+   - 对象 `authoritative_tick` 不应大于承载该对象的包 `sync_time.tick`。
+   - 服务端构包时会按该约定输出对象 tick；相关 smoke 已覆盖 item/player/enemy 的对象 tick 递增与稳定性。
+   - 这一语义是后续客户端实现“同一对象只接受更高 tick 覆盖”的基础。
 
 ## 5. 构建体系
 
@@ -254,3 +280,30 @@ ctest --test-dir build-debug --output-on-failure
 2. 道具、敌人、玩家的同步一致性依赖 delta 与低频同步共同收敛，客户端需按“状态合并”处理。
 3. 运行时敌人配置以 `game_config/enemy_types.json` 为准，不应再参考旧的静态敌人定义说明。
 4. manager 私有拆分头当前位于 `server/include/game/managers/internal/`，通过 `game_manager.hpp` 内部 `#include` 组合，不建议在外部模块直接依赖这些私有细节。
+
+## 10. 2026-04-03 增量记录
+
+1. 已增加最小版远距敌人同步降频配置：`sync_enemy_near_distance`、`sync_enemy_far_distance`、`sync_enemy_medium_stride`、`sync_enemy_far_stride`。
+2. 当前策略只节流“纯位置类的远距敌人 delta”；`health`、`is_alive` 和 `force_sync_left` 覆盖的关键状态仍立即发送，不参与降频。
+3. Tick 主循环现在显式拆成“timer 投递 -> logic_thread_pool 构建 TickOutputs -> dispatch_thread_pool 发送/收尾”三段；同房间 tick 通过 room gate 合并 pending 请求，避免重逻辑重入。
+4. 新增集成测试 `enemy_sync_throttle_smoke_test`，用于验证远距敌人在首段强制续发窗口后会出现可观测的同步间隔。
+5. 已增加 P1-3 服务器预算参数：`room_sync_object_budget_per_tick`、`room_event_entry_budget_per_tick`、`room_packet_budget_per_tick`。
+6. 当前同步对象预算只延后“非关键敌人/道具对象”；玩家状态、`health/is_alive` 变化和 `force_sync_left` 覆盖的关键同步不受该预算限制。
+7. 当前 `room_packet_budget_per_tick` 已升级为“单房间单 tick 最大实际状态/事件包数”预算。
+8. 事件分发层会优先发送关键事件，状态同步层会把超预算的 full snapshot / delta 分片放入 room backlog，并在后续 tick 续发。
+9. 单会话的重连全量补包现在也接入同一 room packet budget；若房间 backlog 已满，补包分片会按 room backlog 续发，但只投递给该重连会话。
+10. 状态 backlog 续发时会刷新包级 `sync_time.tick`，但对象级 `authoritative_tick` 保持不变，因此客户端后续只需按对象级 tick 去旧。
+11. 非关键事件 backlog 仍保留原始 `sync_time.tick` 后移，不会重写为当前 tick。
+12. 新增集成测试 `state_packet_budget_smoke_test` 与 `delta_packet_budget_smoke_test`，分别验证“全量快照分片”和“UDP delta 分片”会受 room packet budget 约束并跨 tick 续发。
+13. 新增集成测试 `room_sync_budget_smoke_test`，用于验证高敌人数量下单 tick 敌人 delta 样本会被同步对象预算限制并分散到后续 tick。
+14. 非关键事件（射弹生成/消失、掉落、敌人攻击状态）现在改为“消息级 backlog 续发”，超预算部分会保留原始 `sync_time.tick` 后移，而不是直接按当前 tick 重建或裁剪丢弃。
+15. `S2C_GameStateSync` 已增加 `snapshot_id/chunk_index/chunk_count`，服务端会按 `room_sync_object_budget_per_tick` 对 TCP 全量快照分片；客户端需要缓冲完整快照后再原子覆盖应用。
+16. 已新增 `event_backpressure_smoke_test` 与 `full_snapshot_chunking_smoke_test`，分别验证“同一原始 tick 的事件 backlog 续发”和“重连场景下的全量快照分片”。
+17. TCP `SendProto`、同步分发 `BuildFramedPacket`、UDP `BuildUdpPacketData` 已改为直接写入目标缓冲，去掉主要的 `SerializeAsString -> std::string -> framed std::string` 中间链。
+18. 事件广播已改为“每条消息先 framed 一次，再对房间 session 扇出”，多人房间下不再按 session 重复序列化同一事件。
+19. 非关键事件 backlog 已进一步改为“预切片、预 framed 包缓存”；续发 tick 只做预算选择与扇出，不再重复做 protobuf 切片与序列化。
+20. UDP `GameStateSync/GameStateDeltaSync` 分块预算已改为按 payload 增量估算，减少热路径中对整包 `ByteSizeLong()` 的重复调用。
+21. 旧的 `Scene.pending_*` 非关键事件临时向量和对应空实现已删除，当前唯一权威来源是事件分发层的 backlog 缓存。
+22. 已新增共享 `shared_ptr<string>` 缓冲池并接入 TCP/UDP/事件/同步分发热路径，减少重复的字符串堆分配。
+23. `FinalizeSceneTick` 现在同 tick 只抓取一次房间会话列表，事件分发与状态同步兜底共用，减少重复的 `GetRoomSessions()` 向量构造。
+24. 已删除废弃的 `TcpSession::send_packet(Packet)` 路径，当前 TCP 发送统一收口到 framed buffer 队列。

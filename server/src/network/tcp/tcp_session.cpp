@@ -1,15 +1,18 @@
 #include "network/tcp/tcp_session.hpp"
 
+#include <asio/post.hpp>
 #include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <google/protobuf/message.h>
 #include <spdlog/spdlog.h>
 #include <utility>
 
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
 #include "network/tcp/tcp_session_internal.hpp"
+#include "network/shared/shared_string_pool.hpp"
 
 // 用于给 player 赋 id，next_player_id_ 是静态的
 std::atomic<uint32_t> TcpSession::next_player_id_{1};
@@ -26,6 +29,44 @@ std::atomic<uint64_t> TcpSession::packet_debug_log_counter_{0};
 // 构造
 TcpSession::TcpSession(tcp::socket socket) : socket_(std::move(socket)) {}
 
+namespace {
+
+std::shared_ptr<const std::string> BuildFramedPacketBuffer(
+    lawnmower::MessageType type, const google::protobuf::Message& message,
+    std::size_t* payload_len, std::size_t* body_len) {
+  lawnmower::Packet packet;
+  packet.set_msg_type(type);
+
+  const auto message_size = static_cast<std::size_t>(message.ByteSizeLong());
+  auto* payload = packet.mutable_payload();
+  payload->resize(message_size);
+  if (message_size > 0 &&
+      !message.SerializeToArray(payload->data(), static_cast<int>(message_size))) {
+    return nullptr;
+  }
+
+  const auto packet_size = static_cast<std::size_t>(packet.ByteSizeLong());
+  const uint32_t net_len = htonl(static_cast<uint32_t>(packet_size));
+  auto framed = network_shared::AcquireSharedString(sizeof(net_len) + packet_size);
+  framed->resize(sizeof(net_len) + packet_size);
+  std::memcpy(framed->data(), &net_len, sizeof(net_len));
+  if (packet_size > 0 &&
+      !packet.SerializeToArray(framed->data() + sizeof(net_len),
+                               static_cast<int>(packet_size))) {
+    return nullptr;
+  }
+
+  if (payload_len != nullptr) {
+    *payload_len = message_size;
+  }
+  if (body_len != nullptr) {
+    *body_len = packet_size;
+  }
+  return framed;
+}
+
+}  // namespace
+
 // 服务器入口函数
 void TcpSession::start() {
   // fetch_add 原子加，memory_order_relaxed 宽松操作
@@ -36,17 +77,34 @@ void TcpSession::start() {
 // 专门用于填充 Packet 包，设置 Message_type 类型 + payload 内容
 void TcpSession::SendProto(lawnmower::MessageType type,
                            const google::protobuf::Message& message) {
-  if (closed_) {
+  std::size_t payload_len = 0;
+  std::size_t body_len = 0;
+  const auto framed =
+      BuildFramedPacketBuffer(type, message, &payload_len, &body_len);
+  if (framed == nullptr) {
+    spdlog::warn("构造 TCP 包失败: {}",
+                 tcp_session_internal::MessageTypeToString(type));
     return;
   }
-  lawnmower::Packet packet;
-  packet.set_msg_type(type);  // 设置包类型
-  packet.set_payload(
-      message.SerializeAsString());  // message 序列化为字符串并存至packet
-  send_packet(packet);               // 发包
+  SendFramedPacket(framed, type, payload_len, body_len);
 }
 
 void TcpSession::SendFramedPacket(
+    const std::shared_ptr<const std::string>& framed,
+    lawnmower::MessageType type, std::size_t payload_len,
+    std::size_t body_len) {
+  if (framed == nullptr) {
+    return;
+  }
+
+  auto self = shared_from_this();
+  asio::post(socket_.get_executor(),
+             [this, self, framed, type, payload_len, body_len]() {
+               EnqueueFramedPacket(framed, type, payload_len, body_len);
+             });
+}
+
+void TcpSession::EnqueueFramedPacket(
     const std::shared_ptr<const std::string>& framed,
     lawnmower::MessageType type, std::size_t payload_len,
     std::size_t body_len) {
@@ -276,43 +334,4 @@ void TcpSession::handle_packet(const lawnmower::Packet& packet) {
   }
   spdlog::debug("完成处理消息 {}",
                 tcp_session_internal::MessageTypeToString(packet.msg_type()));
-}
-
-// 发包
-void TcpSession::send_packet(const lawnmower::Packet& packet) {
-  const std::string data = packet.SerializeAsString();
-  const uint32_t net_len = htonl(static_cast<uint32_t>(data.size()));
-
-  if (spdlog::should_log(spdlog::level::debug)) {
-    const auto payload_len = packet.payload().size();
-    const auto body_len = data.size();
-    // 打印分层长度：payload（业务消息）/ Packet 序列化后（含 msg_type 等）/ 加
-    // 4 字节帧头后的总大小。
-    spdlog::debug(
-        "TCP发送包 {}，payload长度 {} bytes，序列化后长度 {} "
-        "bytes（含4字节包长总计 {} "
-        "bytes）",
-        tcp_session_internal::MessageTypeToString(packet.msg_type()),
-        payload_len, body_len, body_len + sizeof(net_len));
-  }
-
-  // 写内容
-  auto framed = std::make_shared<std::string>();
-  framed->resize(sizeof(net_len) + data.size());
-  std::memcpy(framed->data(), &net_len, sizeof(net_len));
-  std::memcpy(framed->data() + sizeof(net_len), data.data(), data.size());
-
-  // 记录当前写队列状态，若为空，则之后做写操作
-  const bool write_in_progress = !write_queue_.empty();
-  if (write_queue_.size() >= tcp_session_internal::kMaxWriteQueueSize) {
-    spdlog::warn("发送队列过长({})，断开玩家 {}", write_queue_.size(),
-                 player_id_);
-    handle_disconnect();
-    return;
-  }
-  // 尾压入写队列
-  write_queue_.push_back(std::move(framed));
-  if (!write_in_progress) {
-    do_write();
-  }
 }

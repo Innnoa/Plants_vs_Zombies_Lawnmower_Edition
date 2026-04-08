@@ -1,14 +1,17 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
 #include "message.pb.h"
 
+class TcpSession;
+
 namespace game_manager_event_dispatch {
 
-void DispatchTickEvents(
+uint32_t DispatchTickEvents(
     uint32_t room_id, uint64_t event_tick, uint32_t event_wave_id,
     const std::vector<lawnmower::ProjectileState>& projectile_spawns,
     const std::vector<lawnmower::ProjectileDespawn>& projectile_despawns,
@@ -18,6 +21,9 @@ void DispatchTickEvents(
     const std::vector<lawnmower::S2C_EnemyDied>& enemy_dieds,
     const std::vector<lawnmower::S2C_PlayerLevelUp>& level_ups,
     const std::optional<lawnmower::S2C_GameOver>& game_over,
-    const std::optional<lawnmower::S2C_UpgradeRequest>& upgrade_request);
+    const std::vector<std::weak_ptr<TcpSession>>& sessions,
+    const std::optional<lawnmower::S2C_UpgradeRequest>& upgrade_request,
+    uint32_t noncritical_event_entries_budget,
+    uint32_t noncritical_event_messages_budget);
 
 }  // namespace game_manager_event_dispatch

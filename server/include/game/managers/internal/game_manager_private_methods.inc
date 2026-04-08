@@ -7,6 +7,10 @@ static uint32_t NextRng(uint32_t* state);
 static float NextRngUnitFloat(uint32_t* state);
 
 SceneConfig BuildDefaultConfig() const;
+void QueueSceneTick(uint32_t room_id, double tick_interval_seconds);
+void ProcessSceneTickOnLogicThread(uint32_t room_id,
+                                   double tick_interval_seconds);
+void DispatchSceneTickAsync(uint32_t room_id, TickOutputs outputs);
 void PlacePlayers(const SceneCreateSnapshot& snapshot, Scene* scene);
 [[nodiscard]] const EnemyTypeConfig& ResolveEnemyType(uint32_t type_id) const;
 [[nodiscard]] const ItemTypeConfig& ResolveItemType(uint32_t type_id) const;
@@ -14,7 +18,7 @@ void PlacePlayers(const SceneCreateSnapshot& snapshot, Scene* scene);
 void ProcessEnemies(Scene& scene, double dt_seconds, bool* has_dirty);
 void ProcessItems(Scene& scene, bool* has_dirty);
 void ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
-                                   PlayerRuntime* runtime,
+                                   uint64_t scene_tick, PlayerRuntime* runtime,
                                    double tick_interval_seconds, bool* moved,
                                    bool* consumed_input) const;
 void ProcessPlayerInputsLocked(Scene& scene, double tick_interval_seconds,
@@ -185,16 +189,56 @@ void MarkPlayerDirty(Scene& scene, uint32_t player_id, PlayerRuntime& runtime,
                      bool low_freq);
 void MarkEnemyDirty(Scene& scene, uint32_t enemy_id, EnemyRuntime& runtime);
 void MarkItemDirty(Scene& scene, uint32_t item_id, ItemRuntime& runtime);
+static void TouchPlayerAuthoritativeTick(PlayerRuntime& runtime, uint64_t tick);
+static void TouchEnemyAuthoritativeTick(EnemyRuntime& runtime, uint64_t tick);
+static void TouchItemAuthoritativeTick(ItemRuntime& runtime, uint64_t tick);
+static void SetPlayerPositionAndRotation(PlayerRuntime& runtime,
+                                         const lawnmower::Vector2& position,
+                                         float rotation, uint64_t tick);
+static void SetPlayerHealth(PlayerRuntime& runtime, int32_t health,
+                            uint64_t tick);
+static void SetPlayerAlive(PlayerRuntime& runtime, bool is_alive,
+                           uint64_t tick);
+static void SetPlayerExp(PlayerRuntime& runtime, uint32_t exp, uint64_t tick);
+static void SetPlayerLevel(PlayerRuntime& runtime, uint32_t level,
+                           uint64_t tick);
+static void SetPlayerExpToNext(PlayerRuntime& runtime, uint32_t exp_to_next,
+                               uint64_t tick);
+static void SetPlayerAttack(PlayerRuntime& runtime, uint32_t attack,
+                            uint64_t tick);
+static void SetPlayerAttackSpeed(PlayerRuntime& runtime, uint32_t attack_speed,
+                                 uint64_t tick);
+static void SetPlayerMaxHealth(PlayerRuntime& runtime, int32_t max_health,
+                               uint64_t tick);
+static void SetPlayerCriticalHitRate(PlayerRuntime& runtime,
+                                     uint32_t critical_hit_rate,
+                                     uint64_t tick);
+static void SetEnemyPosition(EnemyRuntime& runtime,
+                             const lawnmower::Vector2& position,
+                             uint64_t tick);
+static void SetEnemyHealth(EnemyRuntime& runtime, int32_t health,
+                           uint64_t tick);
+static void SetEnemyAlive(EnemyRuntime& runtime, bool is_alive,
+                          uint64_t tick);
+static void SetItemPicked(ItemRuntime& runtime, bool is_picked, uint64_t tick);
 std::size_t GetPredictionHistoryLimit(const Scene& scene) const;
 void RecordPlayerHistoryLocked(Scene& scene);
 static void FillPlayerHighFreq(const PlayerRuntime& runtime,
+                               uint64_t packet_tick,
                                lawnmower::PlayerState* out);
-static void FillPlayerForSync(PlayerRuntime& runtime,
+static void FillPlayerForSync(PlayerRuntime& runtime, uint64_t packet_tick,
                               lawnmower::PlayerState* out);
 static bool PositionChanged(const lawnmower::Vector2& current,
                             const lawnmower::Vector2& last);
 static bool PositionChanged(float current_x, float current_y, float last_x,
                             float last_y);
+static float DistanceSqToNearestAlivePlayer(const Scene& scene, float x,
+                                            float y);
+static uint32_t ResolveEnemySyncStride(const Scene& scene,
+                                       const EnemyRuntime& enemy);
+static bool ShouldEmitEnemyDeltaThisTick(const Scene& scene,
+                                         const EnemyRuntime& enemy,
+                                         uint32_t changed_mask);
 static void UpdatePlayerLastSync(PlayerRuntime& runtime);
 static void UpdateEnemyLastSync(EnemyRuntime& runtime);
 static void UpdateItemLastSync(ItemRuntime& runtime);

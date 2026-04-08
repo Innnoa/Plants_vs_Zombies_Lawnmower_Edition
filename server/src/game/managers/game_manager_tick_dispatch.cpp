@@ -5,7 +5,7 @@
 #include "game/managers/game_manager.hpp"
 
 namespace {
-constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
+constexpr uint32_t kFullSyncIntervalTicks = 60;   // 全量同步时间间隔
 constexpr uint64_t kItemLogIntervalSeconds = 2;   // 道具日志输出间隔
 }  // namespace
 

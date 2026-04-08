@@ -1,6 +1,9 @@
 #pragma once
 
+#include <asio/io_context.hpp>
+#include <asio/strand.hpp>
 #include <asio/steady_timer.hpp>
+#include <asio/thread_pool.hpp>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -17,6 +20,7 @@
 #include "config/player_roles_config.hpp"
 #include "config/server_config.hpp"
 #include "config/upgrade_config.hpp"
+#include "game/managers/internal/tick_dispatch_gate.hpp"
 #include "message.pb.h"
 
 // 游戏管理器：负责场景初始化、玩家状态更新与同步
@@ -57,6 +61,7 @@ class GameManager {
   void SetUdpServer(UdpServer* udp);
   [[nodiscard]] UdpServer* GetUdpServer() const { return udp_server_; }
   [[nodiscard]] asio::io_context* GetIoContext() const { return io_context_; }
+  [[nodiscard]] const ServerConfig& GetConfig() const { return config_; }
   void SetConfig(const ServerConfig& cfg) { config_ = cfg; }
   void SetPlayerRolesConfig(const PlayerRolesConfig& cfg) {
     player_roles_config_ = cfg;

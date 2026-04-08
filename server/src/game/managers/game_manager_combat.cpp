@@ -125,19 +125,20 @@ void GameManager::GrantExpForCombat(
   if (exp_reward == 0 || level_ups == nullptr) {
     return;
   }
-  player.state.set_exp(player.state.exp() + exp_reward);
+  SetPlayerExp(player, player.state.exp() + exp_reward, scene.tick);
   MarkPlayerLowFreqDirtyForCombat(scene, player);
 
   // 升级：允许单次击杀连升多级
   while (player.state.exp_to_next() > 0 &&
          player.state.exp() >= player.state.exp_to_next()) {
-    player.state.set_exp(player.state.exp() - player.state.exp_to_next());
-    player.state.set_level(player.state.level() + 1);
+    SetPlayerExp(player, player.state.exp() - player.state.exp_to_next(),
+                 scene.tick);
+    SetPlayerLevel(player, player.state.level() + 1, scene.tick);
 
     const uint32_t next_exp =
         static_cast<uint32_t>(std::llround(player.state.exp_to_next() * 1.25)) +
         25u;
-    player.state.set_exp_to_next(std::max<uint32_t>(1, next_exp));
+    SetPlayerExpToNext(player, std::max<uint32_t>(1, next_exp), scene.tick);
     player.pending_upgrade_count += 1;
 
     lawnmower::S2C_PlayerLevelUp evt;

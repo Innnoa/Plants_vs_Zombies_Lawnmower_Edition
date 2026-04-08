@@ -16,6 +16,14 @@ struct ServerConfig {
   float sync_scale_light = 1.5f;         // 轻度放大倍数
   float sync_scale_medium = 2.0f;        // 中度放大倍数
   float sync_scale_idle = 4.0f;          // 长时间空闲放大倍数
+  // 最小版同步裁剪参数（按敌人与最近存活玩家的距离降频）
+  float sync_enemy_near_distance = 500.0f;  // 近距离：维持原同步频率
+  float sync_enemy_far_distance = 1200.0f;  // 超过该距离进入远距降频
+  uint32_t sync_enemy_medium_stride = 2;    // 中距离敌人每 N 次同步发送一次
+  uint32_t sync_enemy_far_stride = 4;       // 远距离敌人每 N 次同步发送一次
+  uint32_t room_sync_object_budget_per_tick = 128;   // 单房间单 tick 最大同步对象数（非关键对象）
+  uint32_t room_event_entry_budget_per_tick = 128;   // 单房间单 tick 最大事件条数
+  uint32_t room_packet_budget_per_tick = 6;          // 单房间单 tick 最大实际状态/事件包数
   uint32_t map_width = 2000;
   uint32_t map_height = 2000;
   float move_speed = 200.0f;

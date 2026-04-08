@@ -37,12 +37,14 @@ class TcpSession : public std::enable_shared_from_this<TcpSession> {
   static std::string GenerateToken();
   static void RegisterToken(uint32_t player_id, std::string token);
   static bool ShouldLogPacketDebug();
+  void EnqueueFramedPacket(const std::shared_ptr<const std::string>& framed,
+                           lawnmower::MessageType type,
+                           std::size_t payload_len, std::size_t body_len);
 
   void read_header();
   void read_body(std::size_t length);
   void do_write();
   void handle_packet(const lawnmower::Packet& packet);
-  void send_packet(const lawnmower::Packet& packet);
   void handle_disconnect();
   enum class SessionCloseReason {
     kNetworkError = 0,

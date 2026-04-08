@@ -5,6 +5,10 @@
 #include "game/managers/game_manager.hpp"
 #include "internal/game_manager_misc_utils.hpp"
 
+namespace {
+constexpr uint32_t kItemSpawnForceSyncCount = 2;
+}
+
 void GameManager::BuildDropCandidatesForStage(
     std::vector<std::pair<uint32_t, uint32_t>>* drop_candidates,
     uint32_t* drop_weight_total) const {
@@ -75,7 +79,8 @@ void GameManager::SpawnDropItemForStage(
   runtime.x = clamped_pos.x();
   runtime.y = clamped_pos.y();
   runtime.is_picked = false;
-  runtime.force_sync_left = 1;
+  runtime.authoritative_tick = static_cast<uint32_t>(scene.tick);
+  runtime.force_sync_left = kItemSpawnForceSyncCount;
   runtime.dirty = false;
   auto [it, _] = scene.items.emplace(runtime.item_id, runtime);
   MarkItemDirty(scene, it->first, it->second);

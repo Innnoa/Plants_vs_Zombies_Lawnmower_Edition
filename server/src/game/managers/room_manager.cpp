@@ -7,18 +7,12 @@ RoomManager& RoomManager::Instance() {
 
 std::vector<std::weak_ptr<TcpSession>> RoomManager::GetRoomSessions(
     uint32_t room_id) const {
-  std::vector<std::weak_ptr<TcpSession>> sessions;
   std::lock_guard<std::mutex> lock(mutex_);
   const auto room_it = rooms_.find(room_id);
   if (room_it == rooms_.end()) {
-    return sessions;
+    return {};
   }
-
-  sessions.reserve(room_it->second.players.size());
-  for (const auto& player : room_it->second.players) {
-    sessions.push_back(player.session);
-  }
-  return sessions;
+  return room_it->second.cached_sessions;
 }
 
 std::optional<uint32_t> RoomManager::GetPlayerRoom(uint32_t player_id) const {

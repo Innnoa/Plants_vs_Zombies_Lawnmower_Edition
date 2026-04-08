@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include "game/managers/game_manager.hpp"
+#include "game/managers/internal/game_manager_sync_dispatch.hpp"
 #include "game/managers/room_manager.hpp"
 #include "network/tcp/tcp_session.hpp"
 
@@ -19,16 +20,6 @@ void BroadcastToRoom(uint32_t room_id, lawnmower::MessageType type,
   for (const auto& weak_session : sessions) {
     if (auto session = weak_session.lock()) {
       session->SendProto(type, message);
-    }
-  }
-}
-
-void SendFullSyncToRoom(uint32_t room_id,
-                        const lawnmower::S2C_GameStateSync& sync) {
-  const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
-  for (const auto& weak_session : sessions) {
-    if (auto session = weak_session.lock()) {
-      session->SendProto(lawnmower::MessageType::MSG_S2C_GAME_STATE_SYNC, sync);
     }
   }
 }
@@ -129,21 +120,24 @@ void GameManager::ApplyUpgradeEffect(PlayerRuntime& runtime,
     case lawnmower::UPGRADE_TYPE_ATTACK: {
       const int64_t next = std::clamp<int64_t>(
           static_cast<int64_t>(runtime.state.attack()) + delta, 0, 100000);
-      runtime.state.set_attack(static_cast<uint32_t>(next));
+      SetPlayerAttack(runtime, static_cast<uint32_t>(next), runtime.authoritative_tick);
       break;
     }
     case lawnmower::UPGRADE_TYPE_ATTACK_SPEED: {
       const int64_t next = std::clamp<int64_t>(
           static_cast<int64_t>(runtime.state.attack_speed()) + delta, 1, 1000);
-      runtime.state.set_attack_speed(static_cast<uint32_t>(next));
+      SetPlayerAttackSpeed(runtime, static_cast<uint32_t>(next),
+                           runtime.authoritative_tick);
       break;
     }
     case lawnmower::UPGRADE_TYPE_MAX_HEALTH: {
       const int64_t next = std::clamp<int64_t>(
           static_cast<int64_t>(runtime.state.max_health()) + delta, 1, 100000);
-      runtime.state.set_max_health(static_cast<int32_t>(next));
+      SetPlayerMaxHealth(runtime, static_cast<int32_t>(next),
+                         runtime.authoritative_tick);
       if (runtime.state.health() > next) {
-        runtime.state.set_health(static_cast<int32_t>(next));
+        SetPlayerHealth(runtime, static_cast<int32_t>(next),
+                        runtime.authoritative_tick);
       }
       break;
     }
@@ -151,7 +145,8 @@ void GameManager::ApplyUpgradeEffect(PlayerRuntime& runtime,
       const int64_t next = std::clamp<int64_t>(
           static_cast<int64_t>(runtime.state.critical_hit_rate()) + delta, 0,
           10000);
-      runtime.state.set_critical_hit_rate(static_cast<uint32_t>(next));
+      SetPlayerCriticalHitRate(runtime, static_cast<uint32_t>(next),
+                               runtime.authoritative_tick);
       break;
     }
     default:
@@ -291,6 +286,7 @@ bool GameManager::HandleUpgradeSelect(
     }
 
     ApplyUpgradeEffect(player_it->second, scene.upgrade_options[option_index]);
+    TouchPlayerAuthoritativeTick(player_it->second, scene.tick);
     MarkPlayerDirty(scene, player_id, player_it->second, true);
 
     if (player_it->second.pending_upgrade_count > 0) {
@@ -326,7 +322,9 @@ bool GameManager::HandleUpgradeSelect(
   if (should_resume) {
     lawnmower::S2C_GameStateSync full_sync;
     if (BuildFullState(room_id, &full_sync)) {
-      SendFullSyncToRoom(room_id, full_sync);
+      const auto sessions = RoomManager::Instance().GetRoomSessions(room_id);
+      game_manager_sync_dispatch::SendFullSnapshotToSessions(sessions,
+                                                             full_sync);
     }
   }
   return should_send_ack;

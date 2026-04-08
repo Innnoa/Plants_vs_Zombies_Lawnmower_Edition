@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <arpa/inet.h>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -66,7 +67,7 @@ uint16_t ReservePort(int socket_type) {
 
 fs::path CreateTempWorkspace() {
   std::string pattern =
-      (fs::temp_directory_path() / "udp-sync-smoke-XXXXXX").string();
+      (fs::temp_directory_path() / "udp-chunking-smoke-XXXXXX").string();
   std::vector<char> buf(pattern.begin(), pattern.end());
   buf.push_back('\0');
   char* created = ::mkdtemp(buf.data());
@@ -101,50 +102,50 @@ void WriteTestConfigs(const fs::path& workspace, uint16_t tcp_port,
                     "  \"udp_port\": " +
                     std::to_string(udp_port) +
                     ",\n"
-                    "  \"max_players_per_room\": 2,\n"
+                    "  \"max_players_per_room\": 1,\n"
                     "  \"tick_rate\": 30,\n"
                     "  \"state_sync_rate\": 20,\n"
-                    "  \"map_width\": 240,\n"
-                    "  \"map_height\": 240,\n"
-                    "  \"enemy_spawn_base_per_second\": 6,\n"
+                    "  \"map_width\": 2000,\n"
+                    "  \"map_height\": 2000,\n"
+                    "  \"enemy_spawn_base_per_second\": 240,\n"
                     "  \"enemy_spawn_per_player_per_second\": 0,\n"
                     "  \"enemy_spawn_wave_growth_per_second\": 0,\n"
-                    "  \"max_enemies_alive\": 8,\n"
-                    "  \"projectile_attack_min_interval_seconds\": 0.05,\n"
-                    "  \"projectile_attack_max_interval_seconds\": 0.2,\n"
+                    "  \"max_enemies_alive\": 192,\n"
+                    "  \"max_enemy_spawn_per_tick\": 48,\n"
+                    "  \"max_enemy_replan_per_tick\": 64,\n"
+                    "  \"projectile_attack_min_interval_seconds\": 0.5,\n"
+                    "  \"projectile_attack_max_interval_seconds\": 1.0,\n"
                     "  \"log_level\": \"warn\"\n"
                     "}\n");
 
-  // 提高输出，确保敌人快速被击杀并触发道具掉落。
   WriteTextFile(cfg_dir / "player_roles.json",
                 "{\n"
                 "  \"default_role_id\": 1,\n"
                 "  \"roles\": [\n"
                 "    {\n"
                 "      \"role_id\": 1,\n"
-                "      \"name\": \"UDP测试角色\",\n"
+                "      \"name\": \"UDP分块测试角色\",\n"
                 "      \"max_health\": 100,\n"
-                "      \"attack\": 300,\n"
-                "      \"attack_speed\": 20,\n"
+                "      \"attack\": 0,\n"
+                "      \"attack_speed\": 1,\n"
                 "      \"move_speed\": 200,\n"
                 "      \"critical_hit_rate\": 0\n"
                 "    }\n"
                 "  ]\n"
                 "}\n");
 
-  // 敌人 1 血且 100% 掉落，保证可稳定产生道具 delta。
   WriteTextFile(cfg_dir / "enemy_types.json",
                 "{\n"
                 "  \"default_type_id\": 1,\n"
                 "  \"enemies\": [\n"
                 "    {\n"
                 "      \"type_id\": 1,\n"
-                "      \"name\": \"UDP测试僵尸\",\n"
-                "      \"max_health\": 1,\n"
-                "      \"move_speed\": 0,\n"
+                "      \"name\": \"UDP分块测试僵尸\",\n"
+                "      \"max_health\": 100,\n"
+                "      \"move_speed\": 90,\n"
                 "      \"damage\": 0,\n"
                 "      \"exp_reward\": 0,\n"
-                "      \"drop_chance\": 100,\n"
+                "      \"drop_chance\": 0,\n"
                 "      \"attack_enter_radius\": 34,\n"
                 "      \"attack_exit_radius\": 40,\n"
                 "      \"attack_interval_seconds\": 1.0\n"
@@ -152,16 +153,15 @@ void WriteTestConfigs(const fs::path& workspace, uint16_t tcp_port,
                 "  ]\n"
                 "}\n");
 
-  // 拾取半径拉大，掉落后下一 tick 自动收敛到 picked=true。
   WriteTextFile(cfg_dir / "items_config.json",
                 "{\n"
                 "  \"default_type_id\": 1,\n"
-                "  \"max_items_alive\": 16,\n"
-                "  \"pick_radius\": 500,\n"
+                "  \"max_items_alive\": 8,\n"
+                "  \"pick_radius\": 24,\n"
                 "  \"items\": [\n"
                 "    {\n"
                 "      \"type_id\": 1,\n"
-                "      \"name\": \"回血道具\",\n"
+                "      \"name\": \"占位道具\",\n"
                 "      \"effect\": \"heal\",\n"
                 "      \"value\": 10,\n"
                 "      \"drop_weight\": 100\n"
@@ -477,25 +477,7 @@ void DrainTcpPackets(const TcpClient& client, int max_packets) {
   }
 }
 
-struct ItemObserveState {
-  bool has_seen = false;
-  bool has_type = false;
-  uint32_t type_id = 0;
-  bool has_picked_value = false;
-  bool picked = false;
-  bool has_authoritative_tick = false;
-  uint32_t authoritative_tick = 0;
-  bool has_picked_authoritative_tick = false;
-  uint32_t picked_authoritative_tick = 0;
-  uint32_t last_picked_packet_tick = 0;
-};
-
-struct PlayerObserveState {
-  bool has_authoritative_tick = false;
-  uint32_t authoritative_tick = 0;
-};
-
-void RunUdpSyncSmoke(const std::string& server_binary) {
+void RunUdpChunkingSmoke(const std::string& server_binary) {
   const uint16_t tcp_port = ReservePort(SOCK_STREAM);
   const uint16_t udp_port = ReservePort(SOCK_DGRAM);
   const fs::path workspace = CreateTempWorkspace();
@@ -506,29 +488,29 @@ void RunUdpSyncSmoke(const std::string& server_binary) {
 
   TcpClient host("127.0.0.1", tcp_port, 5000);
   lawnmower::C2S_Login login;
-  login.set_player_name("udp_smoke_host");
+  login.set_player_name("udp_chunk_host");
   host.Send(lawnmower::MSG_C2S_LOGIN, login);
   const auto login_packet =
       host.ReceiveUntil(lawnmower::MSG_S2C_LOGIN_RESULT, 3000);
   const auto login_result =
       ParsePayload<lawnmower::S2C_LoginResult>(login_packet);
-  Require(login_result.success(), "UDP smoke: 登录失败");
-  Require(login_result.player_id() > 0, "UDP smoke: player_id 非法");
+  Require(login_result.success(), "UDP chunking smoke: 登录失败");
+  Require(login_result.player_id() > 0,
+          "UDP chunking smoke: player_id 非法");
   Require(!login_result.session_token().empty(),
-          "UDP smoke: session_token 为空");
-  const uint32_t host_player_id = login_result.player_id();
+          "UDP chunking smoke: session_token 为空");
 
   lawnmower::C2S_CreateRoom create_room;
-  create_room.set_room_name("udp_smoke_room");
+  create_room.set_room_name("udp_chunk_room");
   create_room.set_max_players(1);
   host.Send(lawnmower::MSG_C2S_CREATE_ROOM, create_room);
   const auto create_packet =
       host.ReceiveUntil(lawnmower::MSG_S2C_CREATE_ROOM_RESULT, 3000);
   const auto create_result =
       ParsePayload<lawnmower::S2C_CreateRoomResult>(create_packet);
-  Require(create_result.success(), "UDP smoke: 建房失败");
+  Require(create_result.success(), "UDP chunking smoke: 建房失败");
   const uint32_t room_id = create_result.room_id();
-  Require(room_id > 0, "UDP smoke: room_id 非法");
+  Require(room_id > 0, "UDP chunking smoke: room_id 非法");
 
   lawnmower::C2S_StartGame start_game;
   host.Send(lawnmower::MSG_C2S_START_GAME, start_game);
@@ -536,38 +518,36 @@ void RunUdpSyncSmoke(const std::string& server_binary) {
       host.ReceiveUntil(lawnmower::MSG_S2C_GAME_START, 3000);
   const auto game_start =
       ParsePayload<lawnmower::S2C_GameStart>(game_start_packet);
-  Require(game_start.success(), "UDP smoke: 开局失败");
+  Require(game_start.success(), "UDP chunking smoke: 开局失败");
   Require(game_start.room_id() == room_id,
-          "UDP smoke: game_start room_id 不匹配");
+          "UDP chunking smoke: game_start room_id 不匹配");
 
   UdpClient udp("127.0.0.1", udp_port);
   uint32_t input_seq = 1;
-  auto send_udp_input = [&]() {
+  auto send_udp_hello = [&]() {
     lawnmower::C2S_PlayerInput input;
-    input.set_player_id(host_player_id);
-    input.set_is_attacking(true);
+    input.set_player_id(login_result.player_id());
+    input.set_is_attacking(false);
     input.set_input_seq(input_seq++);
-    input.set_delta_ms(50);
+    input.set_delta_ms(40);
     input.set_session_token(login_result.session_token());
     udp.Send(lawnmower::MSG_C2S_PLAYER_INPUT, input);
   };
 
-  std::unordered_map<uint32_t, ItemObserveState> item_states;
-  std::unordered_map<uint32_t, PlayerObserveState> player_states;
-  bool saw_item_delta = false;
-  bool saw_item_picked_true = false;
-  bool saw_item_picked_replay_with_stable_authoritative_tick = false;
-  bool saw_player_delta_with_authoritative_tick = false;
-  uint32_t delta_packet_count = 0;
-  uint32_t delta_tick_advances = 0;
+  std::unordered_map<uint32_t, uint32_t> delta_packets_per_tick;
+  bool saw_chunked_tick = false;
   bool has_last_tick = false;
   uint32_t last_tick = 0;
+  uint32_t total_delta_packets = 0;
+  uint32_t total_enemy_entries = 0;
+  std::unordered_map<uint32_t, uint32_t> enemy_authoritative_ticks;
+  bool saw_enemy_authoritative_tick = false;
 
   auto deadline = Clock::now() + std::chrono::seconds(15);
   auto next_send = Clock::now();
   while (Clock::now() < deadline) {
     if (Clock::now() >= next_send) {
-      send_udp_input();
+      send_udp_hello();
       next_send += std::chrono::milliseconds(40);
     }
 
@@ -582,100 +562,52 @@ void RunUdpSyncSmoke(const std::string& server_binary) {
     }
 
     const auto delta = ParsePayload<lawnmower::S2C_GameStateDeltaSync>(*packet);
-    Require(delta.room_id() == room_id, "UDP delta room_id 不匹配");
+    Require(delta.room_id() == room_id,
+            "UDP chunking smoke: delta room_id 不匹配");
 
     const uint32_t tick = delta.sync_time().tick();
     if (has_last_tick) {
-      Require(tick >= last_tick, "UDP delta tick 发生倒退");
-      if (tick > last_tick) {
-        delta_tick_advances += 1;
-      }
+      Require(tick >= last_tick, "UDP chunking smoke: delta tick 发生倒退");
     }
     has_last_tick = true;
     last_tick = tick;
-    delta_packet_count += 1;
-
-    for (const auto& player : delta.players()) {
-      saw_player_delta_with_authoritative_tick = true;
-      Require(player.has_authoritative_tick(),
-              "PlayerStateDelta authoritative_tick 缺失");
-      Require(player.authoritative_tick() <= tick,
-              "PlayerStateDelta authoritative_tick 不能大于包 tick");
-      auto& observed = player_states[player.player_id()];
-      if (observed.has_authoritative_tick) {
-        Require(player.authoritative_tick() >= observed.authoritative_tick,
-                "同一 player_id 的 authoritative_tick 发生倒退");
-      }
-      observed.has_authoritative_tick = true;
-      observed.authoritative_tick = player.authoritative_tick();
-    }
-
-    for (const auto& item : delta.items()) {
-      saw_item_delta = true;
-      Require(item.changed_mask() != 0, "ItemStateDelta changed_mask 不能为 0");
-      auto& observed = item_states[item.item_id()];
-      observed.has_seen = true;
-      Require(item.has_authoritative_tick(),
-              "ItemStateDelta authoritative_tick 缺失");
-      Require(item.authoritative_tick() <= tick,
-              "ItemStateDelta authoritative_tick 不能大于包 tick");
-      if (observed.has_authoritative_tick) {
-        Require(item.authoritative_tick() >= observed.authoritative_tick,
-                "同一 item_id 的 authoritative_tick 发生倒退");
-      }
-      observed.has_authoritative_tick = true;
-      observed.authoritative_tick = item.authoritative_tick();
-
-      if (item.has_type_id()) {
-        if (!observed.has_type) {
-          observed.has_type = true;
-          observed.type_id = item.type_id();
-        } else {
-          Require(observed.type_id == item.type_id(),
-                  "同一 item_id 的 type_id 在 delta 中发生变化");
-        }
-      }
-
-      if (item.has_is_picked()) {
-        if (observed.has_picked_value && observed.picked && !item.is_picked()) {
-          Fail("道具状态不收敛：is_picked 从 true 回退到 false");
-        }
-        observed.has_picked_value = true;
-        observed.picked = item.is_picked();
-        if (item.is_picked()) {
-          saw_item_picked_true = true;
-          if (!observed.has_picked_authoritative_tick) {
-            observed.has_picked_authoritative_tick = true;
-            observed.picked_authoritative_tick = item.authoritative_tick();
-            observed.last_picked_packet_tick = tick;
-          } else {
-            Require(item.authoritative_tick() ==
-                        observed.picked_authoritative_tick,
-                    "同一 item_id 的 picked 续发 authoritative_tick 发生变化");
-            if (tick > observed.last_picked_packet_tick) {
-              saw_item_picked_replay_with_stable_authoritative_tick = true;
-            }
-            observed.last_picked_packet_tick = tick;
-          }
-        }
+    total_delta_packets += 1;
+    total_enemy_entries += static_cast<uint32_t>(delta.enemies_size());
+    for (const auto& enemy : delta.enemies()) {
+      saw_enemy_authoritative_tick = true;
+      Require(enemy.has_authoritative_tick(),
+              "UDP chunking smoke: enemy authoritative_tick 缺失");
+      Require(enemy.authoritative_tick() <= tick,
+              "UDP chunking smoke: enemy authoritative_tick 大于包 tick");
+      auto [it, inserted] = enemy_authoritative_ticks.emplace(
+          enemy.enemy_id(), enemy.authoritative_tick());
+      if (!inserted) {
+        Require(enemy.authoritative_tick() >= it->second,
+                "UDP chunking smoke: 同一 enemy_id 的 authoritative_tick 发生倒退");
+        it->second = enemy.authoritative_tick();
       }
     }
 
-    if (delta_packet_count >= 8 && delta_tick_advances >= 5 && saw_item_delta &&
-        saw_item_picked_true && saw_player_delta_with_authoritative_tick &&
-        saw_item_picked_replay_with_stable_authoritative_tick) {
+    auto& per_tick = delta_packets_per_tick[tick];
+    per_tick += 1;
+    if (per_tick >= 2) {
+      saw_chunked_tick = true;
+    }
+
+    if (saw_chunked_tick && total_enemy_entries >= 64 &&
+        total_delta_packets >= 6) {
       break;
     }
   }
 
-  Require(delta_packet_count >= 5, "UDP delta 包数量过少");
-  Require(delta_tick_advances >= 3, "UDP delta tick 连续性不足");
-  Require(saw_player_delta_with_authoritative_tick,
-          "未观察到带 authoritative_tick 的 player delta");
-  Require(saw_item_delta, "未观察到任何道具 delta");
-  Require(saw_item_picked_true, "未观察到道具收敛到 is_picked=true");
-  Require(saw_item_picked_replay_with_stable_authoritative_tick,
-          "未观察到 picked 道具跨 tick 续发且 authoritative_tick 保持稳定");
+  Require(total_delta_packets >= 4,
+          "UDP chunking smoke: delta 包数量过少，未形成稳定同步");
+  Require(total_enemy_entries >= 32,
+          "UDP chunking smoke: enemy delta 样本不足，未形成高负载");
+  Require(saw_enemy_authoritative_tick,
+          "UDP chunking smoke: 未观察到带 authoritative_tick 的 enemy delta");
+  Require(saw_chunked_tick,
+          "UDP chunking smoke: 未观察到同一 tick 的多包 delta，分块可能未生效");
 
   server.Stop();
   std::error_code ec;
@@ -685,16 +617,16 @@ void RunUdpSyncSmoke(const std::string& server_binary) {
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::cerr << "用法: udp_sync_smoke_test <server_binary>\n";
+    std::cerr << "用法: udp_chunking_smoke_test <server_binary>\n";
     return 2;
   }
 
   try {
-    RunUdpSyncSmoke(argv[1]);
-    std::cout << "udp_sync_smoke_test: PASS\n";
+    RunUdpChunkingSmoke(argv[1]);
+    std::cout << "udp_chunking_smoke_test: PASS\n";
     return 0;
   } catch (const std::exception& ex) {
-    std::cerr << "udp_sync_smoke_test: FAIL: " << ex.what() << "\n";
+    std::cerr << "udp_chunking_smoke_test: FAIL: " << ex.what() << "\n";
     return 1;
   }
 }

@@ -79,6 +79,9 @@ enum MessageType{
   MSG_C2S_UPGRADE_REFRESH_REQUEST = 56; // 客户端->服务器：刷新升级选项请求
   MSG_C2S_RECONNECT_REQUEST = 57; // 客户端->服务器：重连请求
   MSG_S2C_RECONNECT_ACK = 58; // 服务器->客户端：重连确认
+  MSG_S2C_PLAYER_HURT_BATCH = 59; // 广播：同 tick 玩家受伤批量事件
+  MSG_S2C_ENEMY_DIED_BATCH = 60; // 广播：同 tick 敌人死亡批量事件
+  MSG_S2C_PLAYER_LEVEL_UP_BATCH = 61; // 广播：同 tick 玩家升级批量事件
 }   
 
 // =============================
@@ -257,6 +260,7 @@ message PlayerState {
     uint32 attack_speed = 16;       // 攻击速度（数值越大越快，或表示攻击间隔 ms）
     float move_speed = 17;          // 移动速度（像素/秒）
     int32 last_processed_input_seq = 18; // 玩家客户端最后一次输入码的序号
+    uint32 authoritative_tick = 19; // 此对象状态最后一次被服务端权威更新的 tick
 }
 
 // 升级原因
@@ -340,6 +344,7 @@ message EnemyState {
     bool is_alive = 6;             // 是否存活
     uint32 wave_id = 7;            // 所属波次
     bool is_friendly = 8;          // 是否为友方（通常为 false，除非有召唤机制）
+    uint32 authoritative_tick = 9; // 此对象状态最后一次被服务端权威更新的 tick
 }
 
 // 道具效果类型
@@ -356,6 +361,7 @@ message ItemState {
     uint32 type_id = 2;            // 道具类型ID
     Vector2 position = 3;          // 位置
     bool is_picked = 4;            // 是否已被拾取
+    uint32 authoritative_tick = 5; // 此对象状态最后一次被服务端权威更新的 tick
 }
 
 // 道具字段级增量掩码
@@ -400,6 +406,7 @@ message PlayerStateDelta {
   optional float rotation = 4;
   optional bool is_alive = 5;
   optional int32 last_processed_input_seq = 6;
+  optional uint32 authoritative_tick = 7;
 }
 
 // 高频敌人状态增量（主要用于 UDP 高频同步）
@@ -410,6 +417,7 @@ message EnemyStateDelta {
   Vector2 position = 3;
   optional int32 health = 4;
   optional bool is_alive = 5;
+  optional uint32 authoritative_tick = 6;
 }
 
 // 高频道具状态增量（主要用于 UDP 高频同步）
@@ -420,6 +428,7 @@ message ItemStateDelta {
   Vector2 position = 3;
   optional bool is_picked = 4;
   optional uint32 type_id = 5;
+  optional uint32 authoritative_tick = 6;
 }
 
 // 高频同步包：包含玩家/敌人/道具的增量（字段级增量或变更列表）
@@ -455,6 +464,9 @@ message S2C_GameStateSync {
   repeated ItemState items = 4;                // 道具状态（如新掉落或被拾取）,容器
   uint32 room_id = 5;                          // 所属房间ID（便于客户端路由/校验）
   bool is_full_snapshot = 6;                   // 是否为全量快照（true=全量，false=变化集合）
+  uint64 snapshot_id = 7;                      // 全量快照分片ID（0 表示未分片）
+  uint32 chunk_index = 8;                      // 全量快照分片序号（0-based）
+  uint32 chunk_count = 9;                      // 全量快照总分片数（1 表示未分片）
 }
 
 // 射弹发射广播：客户端据此创建本地射弹并模拟飞行
@@ -512,11 +524,33 @@ message S2C_PlayerLevelUp {
   uint32 exp_to_next = 3;    // 升级后到下一级所需经验
 }
 
+// 玩家受伤批量广播（同 tick 合包）
+message S2C_PlayerHurtBatch {
+  Timestamp sync_time = 1;
+  uint32 room_id = 2;
+  repeated S2C_PlayerHurt events = 3;
+}
+
+// 敌人死亡批量广播（同 tick 合包）
+message S2C_EnemyDiedBatch {
+  Timestamp sync_time = 1;
+  uint32 room_id = 2;
+  repeated S2C_EnemyDied events = 3;
+}
+
+// 玩家升级批量广播（同 tick 合包）
+message S2C_PlayerLevelUpBatch {
+  Timestamp sync_time = 1;
+  uint32 room_id = 2;
+  repeated S2C_PlayerLevelUp events = 3;
+}
+
 // 升级请求（服务端发起）
 message S2C_UpgradeRequest {
   uint32 room_id = 1;      // 房间ID
   uint32 player_id = 2;    // 触发升级的玩家ID
   UpgradeReason reason = 3; // 升级触发原因
+  Timestamp sync_time = 4; // 事件时间戳
 }
 
 // 升级请求确认（客户端回执）
@@ -583,6 +617,8 @@ message S2C_GameOver {
   bool victory = 1; // 是否胜利
   uint32 survive_time = 2; // 存活时间
   repeated PlayerScore scores = 3; // 所有玩家得分,容器
+  Timestamp sync_time = 4; // 事件时间戳
+  uint32 room_id = 5; // 房间ID（便于路由/校验）
 }
 
 // —————— 以下为配置类（仅客户端/服务端本地加载，不通过网络传输）——————

@@ -58,6 +58,7 @@ lawnmower::S2C_CreateRoomResult RoomManager::CreateRoom(
     host.session = std::move(session);
     room.players.push_back(host);
     room.player_index_by_id.emplace(host.player_id, room.players.size() - 1);
+    RebuildRoomSessionsLocked(&room);
 
     auto [iter, inserted] = rooms_.emplace(room.room_id, std::move(room));
     player_room_[player_id] = iter->first;
@@ -128,6 +129,7 @@ lawnmower::S2C_JoinRoomResult RoomManager::JoinRoom(
 
     room.players.push_back(std::move(player));
     room.player_index_by_id.emplace(player_id, room.players.size() - 1);
+    RebuildRoomSessionsLocked(&room);
     player_room_[player_id] = room.room_id;
 
     result.set_success(true);

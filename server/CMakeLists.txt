@@ -169,11 +169,191 @@ target_link_libraries(udp_sync_smoke_test
       ${ABSL_LOG_TARGETS}
 )
 
+add_executable(udp_chunking_smoke_test
+  ${TESTS_INTEGRATION_DIR}/udp_chunking_smoke_test.cpp
+)
+target_link_libraries(udp_chunking_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(tcp_event_batch_smoke_test
+  ${TESTS_INTEGRATION_DIR}/tcp_event_batch_smoke_test.cpp
+)
+target_link_libraries(tcp_event_batch_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(enemy_sync_throttle_smoke_test
+  ${TESTS_INTEGRATION_DIR}/enemy_sync_throttle_smoke_test.cpp
+)
+target_link_libraries(enemy_sync_throttle_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(event_backpressure_smoke_test
+  ${TESTS_INTEGRATION_DIR}/event_backpressure_smoke_test.cpp
+)
+target_link_libraries(event_backpressure_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(full_snapshot_chunking_smoke_test
+  ${TESTS_INTEGRATION_DIR}/full_snapshot_chunking_smoke_test.cpp
+)
+target_link_libraries(full_snapshot_chunking_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(upgrade_resume_smoke_test
+  ${TESTS_INTEGRATION_DIR}/upgrade_resume_smoke_test.cpp
+)
+target_link_libraries(upgrade_resume_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(upgrade_chain_resume_smoke_test
+  ${TESTS_INTEGRATION_DIR}/upgrade_chain_resume_smoke_test.cpp
+)
+target_link_libraries(upgrade_chain_resume_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(upgrade_refresh_resume_smoke_test
+  ${TESTS_INTEGRATION_DIR}/upgrade_refresh_resume_smoke_test.cpp
+)
+target_link_libraries(upgrade_refresh_resume_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(upgrade_rejection_paths_smoke_test
+  ${TESTS_INTEGRATION_DIR}/upgrade_rejection_paths_smoke_test.cpp
+)
+target_link_libraries(upgrade_rejection_paths_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(room_sync_budget_smoke_test
+  ${TESTS_INTEGRATION_DIR}/room_sync_budget_smoke_test.cpp
+)
+target_link_libraries(room_sync_budget_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(state_packet_budget_smoke_test
+  ${TESTS_INTEGRATION_DIR}/state_packet_budget_smoke_test.cpp
+)
+target_link_libraries(state_packet_budget_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_executable(delta_packet_budget_smoke_test
+  ${TESTS_INTEGRATION_DIR}/delta_packet_budget_smoke_test.cpp
+)
+target_link_libraries(delta_packet_budget_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
 add_test(
   NAME udp_sync_smoke
   COMMAND udp_sync_smoke_test $<TARGET_FILE:server>
 )
 set_tests_properties(udp_sync_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME udp_chunking_smoke
+  COMMAND udp_chunking_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(udp_chunking_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME state_packet_budget_smoke
+  COMMAND state_packet_budget_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(state_packet_budget_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME delta_packet_budget_smoke
+  COMMAND delta_packet_budget_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(delta_packet_budget_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME upgrade_resume_smoke
+  COMMAND upgrade_resume_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(upgrade_resume_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME upgrade_chain_resume_smoke
+  COMMAND upgrade_chain_resume_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(upgrade_chain_resume_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME upgrade_refresh_resume_smoke
+  COMMAND upgrade_refresh_resume_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(upgrade_refresh_resume_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME upgrade_rejection_paths_smoke
+  COMMAND upgrade_rejection_paths_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(upgrade_rejection_paths_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME tcp_event_batch_smoke
+  COMMAND tcp_event_batch_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(tcp_event_batch_smoke PROPERTIES TIMEOUT 90)
+
+add_test(
+  NAME enemy_sync_throttle_smoke
+  COMMAND enemy_sync_throttle_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(enemy_sync_throttle_smoke PROPERTIES TIMEOUT 90)
+
+add_test(
+  NAME event_backpressure_smoke
+  COMMAND event_backpressure_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(event_backpressure_smoke PROPERTIES TIMEOUT 90)
+
+add_test(
+  NAME full_snapshot_chunking_smoke
+  COMMAND full_snapshot_chunking_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(full_snapshot_chunking_smoke PROPERTIES TIMEOUT 90)
+
+add_test(
+  NAME room_sync_budget_smoke
+  COMMAND room_sync_budget_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(room_sync_budget_smoke PROPERTIES TIMEOUT 90)
 
 add_executable(config_loader_smoke_test
   ${TESTS_UNIT_DIR}/config_loader_smoke_test.cpp
@@ -197,3 +377,14 @@ add_test(
   COMMAND config_loader_smoke_test
 )
 set_tests_properties(config_loader_smoke PROPERTIES TIMEOUT 45)
+
+add_executable(tick_dispatch_gate_test
+  ${TESTS_UNIT_DIR}/tick_dispatch_gate_test.cpp
+)
+target_include_directories(tick_dispatch_gate_test PRIVATE include)
+
+add_test(
+  NAME tick_dispatch_gate
+  COMMAND tick_dispatch_gate_test
+)
+set_tests_properties(tick_dispatch_gate PROPERTIES TIMEOUT 30)

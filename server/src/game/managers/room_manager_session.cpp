@@ -32,6 +32,17 @@ const RoomManager::RoomPlayer* RoomManager::FindRoomPlayerLocked(
   return player.player_id == player_id ? &player : nullptr;
 }
 
+void RoomManager::RebuildRoomSessionsLocked(Room* room) {
+  if (room == nullptr) {
+    return;
+  }
+  room->cached_sessions.clear();
+  room->cached_sessions.reserve(room->players.size());
+  for (const auto& player : room->players) {
+    room->cached_sessions.push_back(player.session);
+  }
+}
+
 bool RoomManager::MarkPlayerDisconnected(uint32_t player_id) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto mapping = player_room_.find(player_id);
@@ -52,6 +63,7 @@ bool RoomManager::MarkPlayerDisconnected(uint32_t player_id) {
   }
 
   player->session.reset();
+  RebuildRoomSessionsLocked(&room);
   return true;
 }
 
@@ -81,6 +93,7 @@ bool RoomManager::AttachSession(uint32_t player_id, uint32_t room_id,
   }
 
   player->session = std::move(session);
+  RebuildRoomSessionsLocked(&room);
   if (out_is_playing != nullptr) {
     *out_is_playing = room.is_playing;
   }
@@ -100,8 +113,8 @@ RoomManager::RoomUpdate RoomManager::BuildRoomUpdateLocked(
     info->set_player_name(player.player_name);
     info->set_is_ready(player.is_ready);
     info->set_is_host(player.is_host);
-    update.targets.push_back(player.session);
   }
+  update.targets = room.cached_sessions;
   return update;
 }
 
@@ -154,6 +167,7 @@ bool RoomManager::DetachPlayerLocked(uint32_t player_id, RoomUpdate* update) {
 
   if (old_size != room.players.size()) {
     EnsureHost(room);
+    RebuildRoomSessionsLocked(&room);
     if (update != nullptr) {
       *update = BuildRoomUpdateLocked(room);
     }

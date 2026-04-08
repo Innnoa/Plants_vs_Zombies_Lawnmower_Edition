@@ -166,7 +166,8 @@ void GameManager::ApplyProjectileHitForStage(
   const uint32_t hit_enemy_id = hit_enemy.state.enemy_id();
   const int32_t prev_hp = hit_enemy.state.health();
   const int32_t dealt = std::min(proj.damage, std::max<int32_t>(0, prev_hp));
-  hit_enemy.state.set_health(std::max<int32_t>(0, prev_hp - proj.damage));
+  SetEnemyHealth(hit_enemy, std::max<int32_t>(0, prev_hp - proj.damage),
+                 scene.tick);
   MarkEnemyDirty(scene, hit_enemy_id, hit_enemy);
   *has_dirty = true;
 
@@ -179,7 +180,7 @@ void GameManager::ApplyProjectileHitForStage(
     return;
   }
 
-  hit_enemy.state.set_is_alive(false);
+  SetEnemyAlive(hit_enemy, false, scene.tick);
   if (hit_enemy.is_attacking || hit_enemy.attack_target_player_id != 0) {
     hit_enemy.is_attacking = false;
     hit_enemy.attack_target_player_id = 0;

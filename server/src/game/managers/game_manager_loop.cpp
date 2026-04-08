@@ -5,7 +5,7 @@
 #include "game/managers/game_manager.hpp"
 
 namespace {
-constexpr uint32_t kFullSyncIntervalTicks = 180;  // 全量同步时间间隔
+constexpr uint32_t kFullSyncIntervalTicks = 60;   // 全量同步时间间隔
 }  // namespace
 
 // 游戏逻辑帧的定时调度器

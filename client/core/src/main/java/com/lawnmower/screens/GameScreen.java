@@ -271,6 +271,63 @@ public class GameScreen implements Screen {
     private InputMultiplexer upgradeInputMultiplexer;
     private InputProcessor previousInputProcessor;
     private int pendingUpgradeOptionIndex = -1;
+    private PendingFullSnapshot pendingFullSnapshot;
+    private final ArrayList<StatePacketEnvelope> bufferedStatePacketsDuringFullSnapshot = new ArrayList<>();
+    private long bufferedStatePacketSequence = 0L;
+
+    private static final class StatePacketEnvelope {
+        private final boolean delta;
+        private final Message.S2C_GameStateSync sync;
+        private final Message.S2C_GameStateDeltaSync deltaSync;
+        private final long tick;
+        private final long serverTimeMs;
+        private final long arrivalMs;
+        private final long sequence;
+
+        private StatePacketEnvelope(boolean delta,
+                                    Message.S2C_GameStateSync sync,
+                                    Message.S2C_GameStateDeltaSync deltaSync,
+                                    long tick,
+                                    long serverTimeMs,
+                                    long arrivalMs,
+                                    long sequence) {
+            this.delta = delta;
+            this.sync = sync;
+            this.deltaSync = deltaSync;
+            this.tick = tick;
+            this.serverTimeMs = serverTimeMs;
+            this.arrivalMs = arrivalMs;
+            this.sequence = sequence;
+        }
+    }
+
+    private static final class PendingFullSnapshot {
+        private final long snapshotId;
+        private final long tick;
+        private final int chunkCount;
+        private final int roomId;
+        private long serverTimeMs;
+        private final BitSet receivedChunks = new BitSet();
+        private final LinkedHashMap<Integer, Message.PlayerState> players = new LinkedHashMap<>();
+        private final LinkedHashMap<Integer, Message.EnemyState> enemies = new LinkedHashMap<>();
+        private final LinkedHashMap<Integer, Message.ItemState> items = new LinkedHashMap<>();
+
+        private PendingFullSnapshot(long snapshotId,
+                                    long tick,
+                                    long serverTimeMs,
+                                    int chunkCount,
+                                    int roomId) {
+            this.snapshotId = snapshotId;
+            this.tick = tick;
+            this.serverTimeMs = serverTimeMs;
+            this.chunkCount = chunkCount;
+            this.roomId = roomId;
+        }
+
+        private boolean isComplete() {
+            return receivedChunks.cardinality() >= chunkCount;
+        }
+    }
 
     public GameScreen(Main game) {
         this.game = Objects.requireNonNull(game);
@@ -450,10 +507,12 @@ public class GameScreen implements Screen {
             if (lastItemSnapshotTick >= 0 && Long.compareUnsigned(incomingTick, lastItemSnapshotTick) < 0) {
                 return false;
             }
-            if (lastItemDeltaTick >= 0 && Long.compareUnsigned(incomingTick, lastItemDeltaTick) <= 0) {
+            if (lastItemDeltaTick >= 0 && Long.compareUnsigned(incomingTick, lastItemDeltaTick) < 0) {
                 return false;
             }
-            lastItemDeltaTick = incomingTick;
+            if (lastItemDeltaTick < 0 || Long.compareUnsigned(incomingTick, lastItemDeltaTick) > 0) {
+                lastItemDeltaTick = incomingTick;
+            }
             if (serverTimeMs > lastItemSyncServerTimeMs) {
                 lastItemSyncServerTimeMs = serverTimeMs;
             }
@@ -2035,11 +2094,13 @@ public class GameScreen implements Screen {
      */
     private boolean shouldAcceptStatePacket(long incomingTick, long serverTimeMs, long arrivalMs) {
         if (incomingTick >= 0) {
-            if (lastAppliedSyncTick >= 0L && Long.compareUnsigned(incomingTick, lastAppliedSyncTick) <= 0) {
+            if (lastAppliedSyncTick >= 0L && Long.compareUnsigned(incomingTick, lastAppliedSyncTick) < 0) {
                 logDroppedSync("tick", incomingTick, serverTimeMs, arrivalMs);
                 return false;
             }
-            lastAppliedSyncTick = incomingTick;
+            if (lastAppliedSyncTick < 0L || Long.compareUnsigned(incomingTick, lastAppliedSyncTick) > 0) {
+                lastAppliedSyncTick = incomingTick;
+            }
             if (serverTimeMs > lastAppliedServerTimeMs) {
                 lastAppliedServerTimeMs = serverTimeMs;
             }
@@ -2053,6 +2114,170 @@ public class GameScreen implements Screen {
             lastAppliedServerTimeMs = serverTimeMs;
         }
         return true;
+    }
+
+    private boolean isChunkedFullSnapshot(Message.S2C_GameStateSync sync) {
+        return sync.getIsFullSnapshot() && sync.getSnapshotId() != 0L
+                && sync.getChunkCount() > 1;
+    }
+
+    private PendingFullSnapshot beginPendingFullSnapshot(long snapshotId,
+                                                         long tick,
+                                                         long serverTimeMs,
+                                                         int chunkCount,
+                                                         int roomId) {
+        pendingFullSnapshot = new PendingFullSnapshot(snapshotId, tick, serverTimeMs,
+                chunkCount, roomId);
+        bufferedStatePacketsDuringFullSnapshot.clear();
+        bufferedStatePacketSequence = 0L;
+        awaitingFullWorldState = true;
+        return pendingFullSnapshot;
+    }
+
+    private void clearPendingFullSnapshot(boolean clearBufferedPackets) {
+        pendingFullSnapshot = null;
+        if (clearBufferedPackets) {
+            bufferedStatePacketsDuringFullSnapshot.clear();
+            bufferedStatePacketSequence = 0L;
+        }
+    }
+
+    private void bufferStatePacketDuringFullSnapshot(Message.S2C_GameStateSync sync,
+                                                     long tick,
+                                                     long serverTimeMs,
+                                                     long arrivalMs) {
+        bufferedStatePacketsDuringFullSnapshot.add(new StatePacketEnvelope(false, sync, null,
+                tick, serverTimeMs, arrivalMs, bufferedStatePacketSequence++));
+    }
+
+    private void bufferStatePacketDuringFullSnapshot(Message.S2C_GameStateDeltaSync delta,
+                                                     long tick,
+                                                     long serverTimeMs,
+                                                     long arrivalMs) {
+        bufferedStatePacketsDuringFullSnapshot.add(new StatePacketEnvelope(true, null, delta,
+                tick, serverTimeMs, arrivalMs, bufferedStatePacketSequence++));
+    }
+
+    private int compareUnsignedTick(long left, long right) {
+        return Long.compareUnsigned(left, right);
+    }
+
+    private void replayBufferedStatePacketsAfterFullSnapshot() {
+        if (bufferedStatePacketsDuringFullSnapshot.isEmpty()) {
+            bufferedStatePacketSequence = 0L;
+            return;
+        }
+        bufferedStatePacketsDuringFullSnapshot.sort((left, right) -> {
+            int tickCompare = compareUnsignedTick(left.tick, right.tick);
+            if (tickCompare != 0) {
+                return tickCompare;
+            }
+            if (left.delta != right.delta) {
+                return left.delta ? 1 : -1;
+            }
+            return Long.compare(left.sequence, right.sequence);
+        });
+        ArrayList<StatePacketEnvelope> replayQueue =
+                new ArrayList<>(bufferedStatePacketsDuringFullSnapshot);
+        bufferedStatePacketsDuringFullSnapshot.clear();
+        bufferedStatePacketSequence = 0L;
+        for (StatePacketEnvelope envelope : replayQueue) {
+            if (envelope.delta) {
+                applyGameStateDeltaInternal(envelope.deltaSync, envelope.tick,
+                        envelope.serverTimeMs, envelope.arrivalMs, false);
+            } else {
+                applyGameStateSyncInternal(envelope.sync, envelope.tick,
+                        envelope.serverTimeMs, envelope.arrivalMs, false);
+            }
+        }
+    }
+
+    private Message.S2C_GameStateSync buildMergedFullSnapshot(PendingFullSnapshot pending) {
+        Message.S2C_GameStateSync.Builder builder = Message.S2C_GameStateSync.newBuilder()
+                .setRoomId(pending.roomId)
+                .setIsFullSnapshot(true)
+                .setSnapshotId(pending.snapshotId)
+                .setChunkIndex(0)
+                .setChunkCount(1);
+        if (pending.tick >= 0L || pending.serverTimeMs > 0L) {
+            Message.Timestamp.Builder timestampBuilder = Message.Timestamp.newBuilder();
+            if (pending.tick >= 0L) {
+                timestampBuilder.setTick((int) pending.tick);
+            }
+            if (pending.serverTimeMs > 0L) {
+                timestampBuilder.setServerTime(pending.serverTimeMs);
+            }
+            builder.setSyncTime(timestampBuilder.build());
+        }
+        builder.addAllPlayers(pending.players.values());
+        builder.addAllEnemies(pending.enemies.values());
+        builder.addAllItems(pending.items.values());
+        return builder.build();
+    }
+
+    private void mergeFullSnapshotChunk(PendingFullSnapshot pending,
+                                        Message.S2C_GameStateSync sync,
+                                        long serverTimeMs,
+                                        int chunkIndex) {
+        if (serverTimeMs > pending.serverTimeMs) {
+            pending.serverTimeMs = serverTimeMs;
+        }
+        pending.receivedChunks.set(chunkIndex);
+        for (Message.PlayerState player : sync.getPlayersList()) {
+            pending.players.put((int) player.getPlayerId(), player);
+        }
+        for (Message.EnemyState enemy : sync.getEnemiesList()) {
+            pending.enemies.put((int) enemy.getEnemyId(), enemy);
+        }
+        for (Message.ItemState item : sync.getItemsList()) {
+            pending.items.put((int) item.getItemId(), item);
+        }
+    }
+
+    private void handleChunkedFullSnapshot(Message.S2C_GameStateSync sync,
+                                           long incomingTick,
+                                           long serverTimeMs,
+                                           long arrivalMs) {
+        int chunkCount = Math.max(1, sync.getChunkCount());
+        int chunkIndex = sync.getChunkIndex();
+        long snapshotId = sync.getSnapshotId();
+        if (snapshotId == 0L || chunkIndex < 0 || chunkIndex >= chunkCount) {
+            applyGameStateSyncInternal(sync, incomingTick, serverTimeMs, arrivalMs, false);
+            return;
+        }
+        if (lastAppliedSyncTick >= 0L
+                && compareUnsignedTick(incomingTick, lastAppliedSyncTick) < 0) {
+            logDroppedSync("chunked_tick", incomingTick, serverTimeMs, arrivalMs);
+            return;
+        }
+
+        PendingFullSnapshot pending = pendingFullSnapshot;
+        if (pending != null && pending.snapshotId != snapshotId) {
+            if (compareUnsignedTick(incomingTick, pending.tick) < 0) {
+                logDroppedSync("snapshot_id", incomingTick, serverTimeMs, arrivalMs);
+                return;
+            }
+            clearPendingFullSnapshot(true);
+            pending = null;
+        }
+        if (pending == null) {
+            pending = beginPendingFullSnapshot(snapshotId, incomingTick, serverTimeMs,
+                    chunkCount, (int) sync.getRoomId());
+        }
+        if (pending.receivedChunks.get(chunkIndex)) {
+            return;
+        }
+
+        mergeFullSnapshotChunk(pending, sync, serverTimeMs, chunkIndex);
+        if (!pending.isComplete()) {
+            return;
+        }
+
+        Message.S2C_GameStateSync mergedSnapshot = buildMergedFullSnapshot(pending);
+        clearPendingFullSnapshot(false);
+        applyGameStateSyncInternal(mergedSnapshot, incomingTick, pending.serverTimeMs,
+                arrivalMs, false);
+        replayBufferedStatePacketsAfterFullSnapshot();
     }
 
     private long extractSyncTick(Message.Timestamp syncTime) {
@@ -2265,11 +2490,27 @@ public class GameScreen implements Screen {
     public void onGameStateReceived(Message.S2C_GameStateSync sync) {
         long arrivalMs = TimeUtils.millis();
         setCurrentRoomId((int) sync.getRoomId());
-        //
         Message.Timestamp syncTime = sync.hasSyncTime() ? sync.getSyncTime() : null;
         long incomingTick = extractSyncTick(syncTime);
         long serverTimeMs = resolveServerTime(syncTime, arrivalMs);
-        if (!shouldAcceptStatePacket(incomingTick, serverTimeMs, arrivalMs)) {
+        if (isChunkedFullSnapshot(sync)) {
+            handleChunkedFullSnapshot(sync, incomingTick, serverTimeMs, arrivalMs);
+            return;
+        }
+        if (pendingFullSnapshot != null && incomingTick >= 0L
+                && compareUnsignedTick(incomingTick, pendingFullSnapshot.tick) >= 0) {
+            bufferStatePacketDuringFullSnapshot(sync, incomingTick, serverTimeMs, arrivalMs);
+            return;
+        }
+        applyGameStateSyncInternal(sync, incomingTick, serverTimeMs, arrivalMs, false);
+    }
+
+    private void applyGameStateSyncInternal(Message.S2C_GameStateSync sync,
+                                            long incomingTick,
+                                            long serverTimeMs,
+                                            long arrivalMs,
+                                            boolean skipAcceptance) {
+        if (!skipAcceptance && !shouldAcceptStatePacket(incomingTick, serverTimeMs, arrivalMs)) {
             return;
         }
         if (incomingTick >= 0L) {
@@ -2286,6 +2527,7 @@ public class GameScreen implements Screen {
         }
         List<Message.EnemyState> enemies = sync.getEnemiesList();
         if (isFullSnapshot) {
+            awaitingFullWorldState = false;
             enemyStateCache.clear();
             if (!enemies.isEmpty()) {
                 for (Message.EnemyState enemy : enemies) {
@@ -2315,17 +2557,27 @@ public class GameScreen implements Screen {
      * @param delta
      */
     public void onGameStateDeltaReceived(Message.S2C_GameStateDeltaSync delta) {
-        //
         long arrivalMs = TimeUtils.millis();
         setCurrentRoomId((int) delta.getRoomId());
         Message.Timestamp syncTime = delta.hasSyncTime() ? delta.getSyncTime() : null;
         long deltaTick = extractSyncTick(syncTime);
         long serverTimeMs = resolveServerTime(syncTime, arrivalMs);
-        //
-        if (!shouldAcceptStatePacket(deltaTick, serverTimeMs, arrivalMs)) {
+        if (pendingFullSnapshot != null && deltaTick >= 0L
+                && compareUnsignedTick(deltaTick, pendingFullSnapshot.tick) >= 0) {
+            bufferStatePacketDuringFullSnapshot(delta, deltaTick, serverTimeMs, arrivalMs);
             return;
         }
-        //
+        applyGameStateDeltaInternal(delta, deltaTick, serverTimeMs, arrivalMs, false);
+    }
+
+    private void applyGameStateDeltaInternal(Message.S2C_GameStateDeltaSync delta,
+                                             long deltaTick,
+                                             long serverTimeMs,
+                                             long arrivalMs,
+                                             boolean skipAcceptance) {
+        if (!skipAcceptance && !shouldAcceptStatePacket(deltaTick, serverTimeMs, arrivalMs)) {
+            return;
+        }
         List<Message.PlayerState> mergedPlayers = new ArrayList<>(delta.getPlayersCount());
         for (Message.PlayerStateDelta playerDelta : delta.getPlayersList()) {
             Message.PlayerState merged = mergePlayerDelta(playerDelta);
@@ -2333,7 +2585,7 @@ public class GameScreen implements Screen {
                 mergedPlayers.add(merged);
             }
         }
-        //
+
         List<Message.EnemyState> updatedEnemies = new ArrayList<>(delta.getEnemiesCount());
         for (Message.EnemyStateDelta enemyDelta : delta.getEnemiesList()) {
             Message.EnemyState mergedEnemy = mergeEnemyDelta(enemyDelta);
@@ -2341,12 +2593,12 @@ public class GameScreen implements Screen {
                 updatedEnemies.add(mergedEnemy);
             }
         }
-        //
+
         updateSyncArrivalStats(arrivalMs);
         if (serverTimeMs > 0L) {
             sampleClockOffset(serverTimeMs);
         }
-        //
+
         handlePlayersFromServer(mergedPlayers, serverTimeMs);
         if (!updatedEnemies.isEmpty()) {
             syncEnemyViews(updatedEnemies, serverTimeMs, false);
@@ -2387,6 +2639,7 @@ public class GameScreen implements Screen {
 
     public void resetWorldStateForFullSync(String reason) {
         String tag = (reason == null || reason.isBlank()) ? "world_reset" : reason;
+        clearPendingFullSnapshot(true);
         serverPlayerStates.clear();
         enemyViews.clear();
         enemyStateCache.clear();
@@ -2409,19 +2662,7 @@ public class GameScreen implements Screen {
     }
 
     private boolean shouldTreatSyncAsFullSnapshot(boolean serverRequestsFullSnapshot) {
-        if (serverRequestsFullSnapshot) {
-            awaitingFullWorldState = false;
-            return true;
-        }
-        if (!hasReceivedInitialState) {
-            awaitingFullWorldState = false;
-            return true;
-        }
-        if (awaitingFullWorldState) {
-            awaitingFullWorldState = false;
-            return true;
-        }
-        return false;
+        return serverRequestsFullSnapshot || !hasReceivedInitialState || awaitingFullWorldState;
     }
 
     private UpgradeSession ensureUpgradeSession() {
@@ -3516,6 +3757,7 @@ public class GameScreen implements Screen {
      * 重置初始状态跟踪
      */
     private void resetInitialStateTracking() {
+        clearPendingFullSnapshot(true);
         initialStateStartMs = TimeUtils.millis();
         lastInitialStateRequestMs = 0L;
         initialStateWarningLogged = false;

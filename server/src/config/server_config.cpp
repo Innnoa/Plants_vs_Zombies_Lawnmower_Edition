@@ -154,6 +154,17 @@ bool LoadServerConfig(ServerConfig* out) {
   ExtractFloat(root, "sync_scale_light", &cfg.sync_scale_light);
   ExtractFloat(root, "sync_scale_medium", &cfg.sync_scale_medium);
   ExtractFloat(root, "sync_scale_idle", &cfg.sync_scale_idle);
+  ExtractFloat(root, "sync_enemy_near_distance",
+               &cfg.sync_enemy_near_distance);
+  ExtractFloat(root, "sync_enemy_far_distance", &cfg.sync_enemy_far_distance);
+  ExtractUint(root, "sync_enemy_medium_stride", &cfg.sync_enemy_medium_stride);
+  ExtractUint(root, "sync_enemy_far_stride", &cfg.sync_enemy_far_stride);
+  ExtractUint(root, "room_sync_object_budget_per_tick",
+              &cfg.room_sync_object_budget_per_tick);
+  ExtractUint(root, "room_event_entry_budget_per_tick",
+              &cfg.room_event_entry_budget_per_tick);
+  ExtractUint(root, "room_packet_budget_per_tick",
+              &cfg.room_packet_budget_per_tick);
   ExtractUint(root, "map_width", &cfg.map_width);
   ExtractUint(root, "map_height", &cfg.map_height);
   ExtractFloat(root, "move_speed", &cfg.move_speed);
@@ -198,6 +209,21 @@ bool LoadServerConfig(ServerConfig* out) {
       std::clamp(cfg.sync_scale_medium, cfg.sync_scale_light, 20.0f);
   cfg.sync_scale_idle =
       std::clamp(cfg.sync_scale_idle, cfg.sync_scale_medium, 30.0f);
+  cfg.sync_enemy_near_distance =
+      std::clamp(cfg.sync_enemy_near_distance, 0.0f, 100000.0f);
+  cfg.sync_enemy_far_distance =
+      std::clamp(cfg.sync_enemy_far_distance, cfg.sync_enemy_near_distance,
+                 100000.0f);
+  cfg.sync_enemy_medium_stride =
+      std::clamp<uint32_t>(cfg.sync_enemy_medium_stride, 1u, 32u);
+  cfg.sync_enemy_far_stride = std::clamp<uint32_t>(
+      cfg.sync_enemy_far_stride, cfg.sync_enemy_medium_stride, 64u);
+  cfg.room_sync_object_budget_per_tick = std::clamp<uint32_t>(
+      cfg.room_sync_object_budget_per_tick, 1u, 4096u);
+  cfg.room_event_entry_budget_per_tick = std::clamp<uint32_t>(
+      cfg.room_event_entry_budget_per_tick, 1u, 4096u);
+  cfg.room_packet_budget_per_tick = std::clamp<uint32_t>(
+      cfg.room_packet_budget_per_tick, 1u, 64u);
   cfg.reconnect_grace_seconds =
       std::clamp(cfg.reconnect_grace_seconds, 1.0f, 600.0f);
   cfg.max_enemy_replan_per_tick =

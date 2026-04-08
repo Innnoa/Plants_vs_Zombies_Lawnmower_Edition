@@ -15,6 +15,7 @@ constexpr float kSpawnRadius = 120.0f;       // 生成半径
 constexpr int32_t kDefaultMaxHealth = 100;   // 默认最大血量
 constexpr uint32_t kDefaultAttack = 10;      // 默认攻击力
 constexpr uint32_t kDefaultExpToNext = 100;  // 默认升级所需经验
+constexpr uint32_t kItemPickedForceSyncCount = 3;
 }  // namespace
 
 // 将坐标限制在地图边界内
@@ -124,6 +125,7 @@ void GameManager::PlacePlayers(const SceneCreateSnapshot& snapshot,
     runtime.state.set_attack_speed(attack_speed);
     runtime.state.set_move_speed(move_speed);
     runtime.state.set_last_processed_input_seq(0);
+    runtime.state.set_authoritative_tick(static_cast<uint32_t>(scene->tick));
     runtime.pending_upgrade_count = 0;
     runtime.refresh_remaining = upgrade_config_.refresh_limit;
     // 初始化 delta 同步基线
@@ -131,6 +133,8 @@ void GameManager::PlacePlayers(const SceneCreateSnapshot& snapshot,
     runtime.last_sync_rotation = runtime.state.rotation();
     runtime.last_sync_is_alive = runtime.state.is_alive();
     runtime.last_sync_input_seq = runtime.last_input_seq;
+    runtime.authoritative_tick = static_cast<uint32_t>(scene->tick);
+    runtime.force_sync_left = 0;
 
     // 将玩家对应玩家信息插入会话
     scene->players.emplace(player.player_id, std::move(runtime));
@@ -249,10 +253,12 @@ lawnmower::SceneInfo GameManager::CreateScene(
     runtime.state.set_is_alive(true);
     runtime.state.set_wave_id(scene.wave_id);
     runtime.state.set_is_friendly(false);
+    runtime.state.set_authoritative_tick(static_cast<uint32_t>(scene.tick));
     // 初始化 delta 同步基线
     runtime.last_sync_position = runtime.state.position();
     runtime.last_sync_health = runtime.state.health();
     runtime.last_sync_is_alive = runtime.state.is_alive();
+    runtime.authoritative_tick = static_cast<uint32_t>(scene.tick);
     runtime.force_sync_left = kEnemySpawnForceSyncCount;
     runtime.dirty = false;
     auto [it, _] =
@@ -299,8 +305,22 @@ bool GameManager::BuildFullState(uint32_t room_id,
   sync->Clear();
   // 填充同步时间
   FillSyncTiming(room_id, scene_it->second.tick, sync);
+  sync->set_is_full_snapshot(true);
 
   const Scene& scene = scene_it->second;
+  const auto resolve_authoritative_tick = [&](const char* kind,
+                                              uint32_t object_id,
+                                              uint32_t authoritative_tick) {
+    const uint32_t packet_tick = static_cast<uint32_t>(scene.tick);
+    if (authoritative_tick > packet_tick) {
+      spdlog::warn(
+          "authoritative_tick 超前 kind={} id={} authoritative_tick={} "
+          "packet_tick={}",
+          kind, object_id, authoritative_tick, packet_tick);
+      return packet_tick;
+    }
+    return authoritative_tick;
+  };
   if (!scene.players.empty()) {
     sync->mutable_players()->Reserve(static_cast<int>(scene.players.size()));
   }
@@ -315,11 +335,15 @@ bool GameManager::BuildFullState(uint32_t room_id,
     auto* player_state = sync->add_players();
     *player_state = runtime.state;
     player_state->set_last_processed_input_seq(runtime.last_input_seq);
+    player_state->set_authoritative_tick(resolve_authoritative_tick(
+        "player", runtime.state.player_id(), runtime.authoritative_tick));
   }
   // 全量同步包的敌人信息的state赋值
   for (const auto& [_, runtime] : scene.enemies) {
     auto* enemy_state = sync->add_enemies();
     *enemy_state = runtime.state;
+    enemy_state->set_authoritative_tick(resolve_authoritative_tick(
+        "enemy", runtime.state.enemy_id(), runtime.authoritative_tick));
   }
   // 全量同步包的道具信息的state赋值
   for (const auto& [_, item] : scene.items) {
@@ -330,6 +354,8 @@ bool GameManager::BuildFullState(uint32_t room_id,
     item_state->set_item_id(item.item_id);
     item_state->set_type_id(item.type_id);
     item_state->set_is_picked(item.is_picked);
+    item_state->set_authoritative_tick(resolve_authoritative_tick(
+        "item", item.item_id, item.authoritative_tick));
     item_state->mutable_position()->set_x(item.x);
     item_state->mutable_position()->set_y(item.y);
   }
@@ -371,7 +397,9 @@ void GameManager::ProcessItems(Scene& scene, bool* has_dirty) {
         continue;
       }
 
-      item.is_picked = true;
+      SetItemPicked(item, true, scene.tick);
+      item.force_sync_left =
+          std::max(item.force_sync_left, kItemPickedForceSyncCount);
       MarkItemDirty(scene, item.item_id, item);
       *has_dirty = true;
 
@@ -383,7 +411,7 @@ void GameManager::ProcessItems(Scene& scene, bool* has_dirty) {
           const int32_t max_hp = player.state.max_health();
           const int32_t next_hp = std::min(max_hp, prev_hp + heal_value);
           if (next_hp != prev_hp) {
-            player.state.set_health(next_hp);
+            SetPlayerHealth(player, next_hp, scene.tick);
             mark_player_low_freq_dirty(player);
           }
         }

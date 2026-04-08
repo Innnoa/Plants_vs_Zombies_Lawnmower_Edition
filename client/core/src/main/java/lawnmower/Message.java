@@ -332,6 +332,30 @@ public final class Message {
      * <code>MSG_S2C_RECONNECT_ACK = 58;</code>
      */
     MSG_S2C_RECONNECT_ACK(58),
+    /**
+     * <pre>
+     * 广播：同 tick 玩家受伤批量事件
+     * </pre>
+     *
+     * <code>MSG_S2C_PLAYER_HURT_BATCH = 59;</code>
+     */
+    MSG_S2C_PLAYER_HURT_BATCH(59),
+    /**
+     * <pre>
+     * 广播：同 tick 敌人死亡批量事件
+     * </pre>
+     *
+     * <code>MSG_S2C_ENEMY_DIED_BATCH = 60;</code>
+     */
+    MSG_S2C_ENEMY_DIED_BATCH(60),
+    /**
+     * <pre>
+     * 广播：同 tick 玩家升级批量事件
+     * </pre>
+     *
+     * <code>MSG_S2C_PLAYER_LEVEL_UP_BATCH = 61;</code>
+     */
+    MSG_S2C_PLAYER_LEVEL_UP_BATCH(61),
     UNRECOGNIZED(-1),
     ;
 
@@ -648,6 +672,30 @@ public final class Message {
      * <code>MSG_S2C_RECONNECT_ACK = 58;</code>
      */
     public static final int MSG_S2C_RECONNECT_ACK_VALUE = 58;
+    /**
+     * <pre>
+     * 广播：同 tick 玩家受伤批量事件
+     * </pre>
+     *
+     * <code>MSG_S2C_PLAYER_HURT_BATCH = 59;</code>
+     */
+    public static final int MSG_S2C_PLAYER_HURT_BATCH_VALUE = 59;
+    /**
+     * <pre>
+     * 广播：同 tick 敌人死亡批量事件
+     * </pre>
+     *
+     * <code>MSG_S2C_ENEMY_DIED_BATCH = 60;</code>
+     */
+    public static final int MSG_S2C_ENEMY_DIED_BATCH_VALUE = 60;
+    /**
+     * <pre>
+     * 广播：同 tick 玩家升级批量事件
+     * </pre>
+     *
+     * <code>MSG_S2C_PLAYER_LEVEL_UP_BATCH = 61;</code>
+     */
+    public static final int MSG_S2C_PLAYER_LEVEL_UP_BATCH_VALUE = 61;
 
 
     public final int getNumber() {
@@ -713,6 +761,9 @@ public final class Message {
         case 56: return MSG_C2S_UPGRADE_REFRESH_REQUEST;
         case 57: return MSG_C2S_RECONNECT_REQUEST;
         case 58: return MSG_S2C_RECONNECT_ACK;
+        case 59: return MSG_S2C_PLAYER_HURT_BATCH;
+        case 60: return MSG_S2C_ENEMY_DIED_BATCH;
+        case 61: return MSG_S2C_PLAYER_LEVEL_UP_BATCH;
         default: return null;
       }
     }
@@ -36526,6 +36577,36 @@ public final class Message {
      * @return The isFullSnapshot.
      */
     boolean getIsFullSnapshot();
+
+    /**
+     * <pre>
+     * 全量快照分片ID（0 表示未分片）
+     * </pre>
+     *
+     * <code>uint64 snapshot_id = 7;</code>
+     * @return The snapshotId.
+     */
+    long getSnapshotId();
+
+    /**
+     * <pre>
+     * 全量快照分片序号（0-based）
+     * </pre>
+     *
+     * <code>uint32 chunk_index = 8;</code>
+     * @return The chunkIndex.
+     */
+    int getChunkIndex();
+
+    /**
+     * <pre>
+     * 全量快照总分片数（1 表示未分片）
+     * </pre>
+     *
+     * <code>uint32 chunk_count = 9;</code>
+     * @return The chunkCount.
+     */
+    int getChunkCount();
   }
   /**
    * <pre>
@@ -36628,6 +36709,21 @@ public final class Message {
             case 48: {
 
               isFullSnapshot_ = input.readBool();
+              break;
+            }
+            case 56: {
+
+              snapshotId_ = input.readUInt64();
+              break;
+            }
+            case 64: {
+
+              chunkIndex_ = input.readUInt32();
+              break;
+            }
+            case 72: {
+
+              chunkCount_ = input.readUInt32();
               break;
             }
             default: {
@@ -36909,6 +37005,51 @@ public final class Message {
       return isFullSnapshot_;
     }
 
+    public static final int SNAPSHOT_ID_FIELD_NUMBER = 7;
+    private long snapshotId_;
+    /**
+     * <pre>
+     * 全量快照分片ID（0 表示未分片）
+     * </pre>
+     *
+     * <code>uint64 snapshot_id = 7;</code>
+     * @return The snapshotId.
+     */
+    @java.lang.Override
+    public long getSnapshotId() {
+      return snapshotId_;
+    }
+
+    public static final int CHUNK_INDEX_FIELD_NUMBER = 8;
+    private int chunkIndex_;
+    /**
+     * <pre>
+     * 全量快照分片序号（0-based）
+     * </pre>
+     *
+     * <code>uint32 chunk_index = 8;</code>
+     * @return The chunkIndex.
+     */
+    @java.lang.Override
+    public int getChunkIndex() {
+      return chunkIndex_;
+    }
+
+    public static final int CHUNK_COUNT_FIELD_NUMBER = 9;
+    private int chunkCount_;
+    /**
+     * <pre>
+     * 全量快照总分片数（1 表示未分片）
+     * </pre>
+     *
+     * <code>uint32 chunk_count = 9;</code>
+     * @return The chunkCount.
+     */
+    @java.lang.Override
+    public int getChunkCount() {
+      return chunkCount_;
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -36940,6 +37081,15 @@ public final class Message {
       }
       if (isFullSnapshot_ != false) {
         output.writeBool(6, isFullSnapshot_);
+      }
+      if (snapshotId_ != 0L) {
+        output.writeUInt64(7, snapshotId_);
+      }
+      if (chunkIndex_ != 0) {
+        output.writeUInt32(8, chunkIndex_);
+      }
+      if (chunkCount_ != 0) {
+        output.writeUInt32(9, chunkCount_);
       }
       unknownFields.writeTo(output);
     }
@@ -36974,6 +37124,18 @@ public final class Message {
         size += com.google.protobuf.CodedOutputStream
           .computeBoolSize(6, isFullSnapshot_);
       }
+      if (snapshotId_ != 0L) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt64Size(7, snapshotId_);
+      }
+      if (chunkIndex_ != 0) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(8, chunkIndex_);
+      }
+      if (chunkCount_ != 0) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(9, chunkCount_);
+      }
       size += unknownFields.getSerializedSize();
       memoizedSize = size;
       return size;
@@ -37004,6 +37166,12 @@ public final class Message {
           != other.getRoomId()) return false;
       if (getIsFullSnapshot()
           != other.getIsFullSnapshot()) return false;
+      if (getSnapshotId()
+          != other.getSnapshotId()) return false;
+      if (getChunkIndex()
+          != other.getChunkIndex()) return false;
+      if (getChunkCount()
+          != other.getChunkCount()) return false;
       if (!unknownFields.equals(other.unknownFields)) return false;
       return true;
     }
@@ -37036,6 +37204,13 @@ public final class Message {
       hash = (37 * hash) + IS_FULL_SNAPSHOT_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
           getIsFullSnapshot());
+      hash = (37 * hash) + SNAPSHOT_ID_FIELD_NUMBER;
+      hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+          getSnapshotId());
+      hash = (37 * hash) + CHUNK_INDEX_FIELD_NUMBER;
+      hash = (53 * hash) + getChunkIndex();
+      hash = (37 * hash) + CHUNK_COUNT_FIELD_NUMBER;
+      hash = (53 * hash) + getChunkCount();
       hash = (29 * hash) + unknownFields.hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -37204,6 +37379,12 @@ public final class Message {
 
         isFullSnapshot_ = false;
 
+        snapshotId_ = 0L;
+
+        chunkIndex_ = 0;
+
+        chunkCount_ = 0;
+
         return this;
       }
 
@@ -37265,6 +37446,9 @@ public final class Message {
         }
         result.roomId_ = roomId_;
         result.isFullSnapshot_ = isFullSnapshot_;
+        result.snapshotId_ = snapshotId_;
+        result.chunkIndex_ = chunkIndex_;
+        result.chunkCount_ = chunkCount_;
         onBuilt();
         return result;
       }
@@ -37399,6 +37583,15 @@ public final class Message {
         }
         if (other.getIsFullSnapshot() != false) {
           setIsFullSnapshot(other.getIsFullSnapshot());
+        }
+        if (other.getSnapshotId() != 0L) {
+          setSnapshotId(other.getSnapshotId());
+        }
+        if (other.getChunkIndex() != 0) {
+          setChunkIndex(other.getChunkIndex());
+        }
+        if (other.getChunkCount() != 0) {
+          setChunkCount(other.getChunkCount());
         }
         this.mergeUnknownFields(other.unknownFields);
         onChanged();
@@ -38567,6 +38760,135 @@ public final class Message {
       public Builder clearIsFullSnapshot() {
         
         isFullSnapshot_ = false;
+        onChanged();
+        return this;
+      }
+
+      private long snapshotId_ ;
+      /**
+       * <pre>
+       * 全量快照分片ID（0 表示未分片）
+       * </pre>
+       *
+       * <code>uint64 snapshot_id = 7;</code>
+       * @return The snapshotId.
+       */
+      @java.lang.Override
+      public long getSnapshotId() {
+        return snapshotId_;
+      }
+      /**
+       * <pre>
+       * 全量快照分片ID（0 表示未分片）
+       * </pre>
+       *
+       * <code>uint64 snapshot_id = 7;</code>
+       * @param value The snapshotId to set.
+       * @return This builder for chaining.
+       */
+      public Builder setSnapshotId(long value) {
+        
+        snapshotId_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 全量快照分片ID（0 表示未分片）
+       * </pre>
+       *
+       * <code>uint64 snapshot_id = 7;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearSnapshotId() {
+        
+        snapshotId_ = 0L;
+        onChanged();
+        return this;
+      }
+
+      private int chunkIndex_ ;
+      /**
+       * <pre>
+       * 全量快照分片序号（0-based）
+       * </pre>
+       *
+       * <code>uint32 chunk_index = 8;</code>
+       * @return The chunkIndex.
+       */
+      @java.lang.Override
+      public int getChunkIndex() {
+        return chunkIndex_;
+      }
+      /**
+       * <pre>
+       * 全量快照分片序号（0-based）
+       * </pre>
+       *
+       * <code>uint32 chunk_index = 8;</code>
+       * @param value The chunkIndex to set.
+       * @return This builder for chaining.
+       */
+      public Builder setChunkIndex(int value) {
+        
+        chunkIndex_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 全量快照分片序号（0-based）
+       * </pre>
+       *
+       * <code>uint32 chunk_index = 8;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearChunkIndex() {
+        
+        chunkIndex_ = 0;
+        onChanged();
+        return this;
+      }
+
+      private int chunkCount_ ;
+      /**
+       * <pre>
+       * 全量快照总分片数（1 表示未分片）
+       * </pre>
+       *
+       * <code>uint32 chunk_count = 9;</code>
+       * @return The chunkCount.
+       */
+      @java.lang.Override
+      public int getChunkCount() {
+        return chunkCount_;
+      }
+      /**
+       * <pre>
+       * 全量快照总分片数（1 表示未分片）
+       * </pre>
+       *
+       * <code>uint32 chunk_count = 9;</code>
+       * @param value The chunkCount to set.
+       * @return This builder for chaining.
+       */
+      public Builder setChunkCount(int value) {
+        
+        chunkCount_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 全量快照总分片数（1 表示未分片）
+       * </pre>
+       *
+       * <code>uint32 chunk_count = 9;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearChunkCount() {
+        
+        chunkCount_ = 0;
         onChanged();
         return this;
       }
@@ -44997,6 +45319,3234 @@ public final class Message {
 
   }
 
+  public interface S2C_PlayerHurtBatchOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:lawnmower.S2C_PlayerHurtBatch)
+      com.google.protobuf.MessageOrBuilder {
+
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return Whether the syncTime field is set.
+     */
+    boolean hasSyncTime();
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return The syncTime.
+     */
+    lawnmower.Message.Timestamp getSyncTime();
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     */
+    lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder();
+
+    /**
+     * <code>uint32 room_id = 2;</code>
+     * @return The roomId.
+     */
+    int getRoomId();
+
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    java.util.List<lawnmower.Message.S2C_PlayerHurt> 
+        getEventsList();
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    lawnmower.Message.S2C_PlayerHurt getEvents(int index);
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    int getEventsCount();
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    java.util.List<? extends lawnmower.Message.S2C_PlayerHurtOrBuilder> 
+        getEventsOrBuilderList();
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    lawnmower.Message.S2C_PlayerHurtOrBuilder getEventsOrBuilder(
+        int index);
+  }
+  /**
+   * <pre>
+   * 玩家受伤批量广播（同 tick 合包）
+   * </pre>
+   *
+   * Protobuf type {@code lawnmower.S2C_PlayerHurtBatch}
+   */
+  public static final class S2C_PlayerHurtBatch extends
+      com.google.protobuf.GeneratedMessageV3 implements
+      // @@protoc_insertion_point(message_implements:lawnmower.S2C_PlayerHurtBatch)
+      S2C_PlayerHurtBatchOrBuilder {
+  private static final long serialVersionUID = 0L;
+    // Use S2C_PlayerHurtBatch.newBuilder() to construct.
+    private S2C_PlayerHurtBatch(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+      super(builder);
+    }
+    private S2C_PlayerHurtBatch() {
+      events_ = java.util.Collections.emptyList();
+    }
+
+    @java.lang.Override
+    @SuppressWarnings({"unused"})
+    protected java.lang.Object newInstance(
+        UnusedPrivateParameter unused) {
+      return new S2C_PlayerHurtBatch();
+    }
+
+    @java.lang.Override
+    public final com.google.protobuf.UnknownFieldSet
+    getUnknownFields() {
+      return this.unknownFields;
+    }
+    private S2C_PlayerHurtBatch(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      this();
+      if (extensionRegistry == null) {
+        throw new java.lang.NullPointerException();
+      }
+      int mutable_bitField0_ = 0;
+      com.google.protobuf.UnknownFieldSet.Builder unknownFields =
+          com.google.protobuf.UnknownFieldSet.newBuilder();
+      try {
+        boolean done = false;
+        while (!done) {
+          int tag = input.readTag();
+          switch (tag) {
+            case 0:
+              done = true;
+              break;
+            case 10: {
+              lawnmower.Message.Timestamp.Builder subBuilder = null;
+              if (syncTime_ != null) {
+                subBuilder = syncTime_.toBuilder();
+              }
+              syncTime_ = input.readMessage(lawnmower.Message.Timestamp.parser(), extensionRegistry);
+              if (subBuilder != null) {
+                subBuilder.mergeFrom(syncTime_);
+                syncTime_ = subBuilder.buildPartial();
+              }
+
+              break;
+            }
+            case 16: {
+
+              roomId_ = input.readUInt32();
+              break;
+            }
+            case 26: {
+              if (!((mutable_bitField0_ & 0x00000001) != 0)) {
+                events_ = new java.util.ArrayList<lawnmower.Message.S2C_PlayerHurt>();
+                mutable_bitField0_ |= 0x00000001;
+              }
+              events_.add(
+                  input.readMessage(lawnmower.Message.S2C_PlayerHurt.parser(), extensionRegistry));
+              break;
+            }
+            default: {
+              if (!parseUnknownField(
+                  input, unknownFields, extensionRegistry, tag)) {
+                done = true;
+              }
+              break;
+            }
+          }
+        }
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(this);
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(this);
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(
+            e).setUnfinishedMessage(this);
+      } finally {
+        if (((mutable_bitField0_ & 0x00000001) != 0)) {
+          events_ = java.util.Collections.unmodifiableList(events_);
+        }
+        this.unknownFields = unknownFields.build();
+        makeExtensionsImmutable();
+      }
+    }
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return lawnmower.Message.internal_static_lawnmower_S2C_PlayerHurtBatch_descriptor;
+    }
+
+    @java.lang.Override
+    protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return lawnmower.Message.internal_static_lawnmower_S2C_PlayerHurtBatch_fieldAccessorTable
+          .ensureFieldAccessorsInitialized(
+              lawnmower.Message.S2C_PlayerHurtBatch.class, lawnmower.Message.S2C_PlayerHurtBatch.Builder.class);
+    }
+
+    public static final int SYNC_TIME_FIELD_NUMBER = 1;
+    private lawnmower.Message.Timestamp syncTime_;
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return Whether the syncTime field is set.
+     */
+    @java.lang.Override
+    public boolean hasSyncTime() {
+      return syncTime_ != null;
+    }
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return The syncTime.
+     */
+    @java.lang.Override
+    public lawnmower.Message.Timestamp getSyncTime() {
+      return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+    }
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+      return getSyncTime();
+    }
+
+    public static final int ROOM_ID_FIELD_NUMBER = 2;
+    private int roomId_;
+    /**
+     * <code>uint32 room_id = 2;</code>
+     * @return The roomId.
+     */
+    @java.lang.Override
+    public int getRoomId() {
+      return roomId_;
+    }
+
+    public static final int EVENTS_FIELD_NUMBER = 3;
+    private java.util.List<lawnmower.Message.S2C_PlayerHurt> events_;
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    @java.lang.Override
+    public java.util.List<lawnmower.Message.S2C_PlayerHurt> getEventsList() {
+      return events_;
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    @java.lang.Override
+    public java.util.List<? extends lawnmower.Message.S2C_PlayerHurtOrBuilder> 
+        getEventsOrBuilderList() {
+      return events_;
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    @java.lang.Override
+    public int getEventsCount() {
+      return events_.size();
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.S2C_PlayerHurt getEvents(int index) {
+      return events_.get(index);
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.S2C_PlayerHurtOrBuilder getEventsOrBuilder(
+        int index) {
+      return events_.get(index);
+    }
+
+    private byte memoizedIsInitialized = -1;
+    @java.lang.Override
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized == 1) return true;
+      if (isInitialized == 0) return false;
+
+      memoizedIsInitialized = 1;
+      return true;
+    }
+
+    @java.lang.Override
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      if (syncTime_ != null) {
+        output.writeMessage(1, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        output.writeUInt32(2, roomId_);
+      }
+      for (int i = 0; i < events_.size(); i++) {
+        output.writeMessage(3, events_.get(i));
+      }
+      unknownFields.writeTo(output);
+    }
+
+    @java.lang.Override
+    public int getSerializedSize() {
+      int size = memoizedSize;
+      if (size != -1) return size;
+
+      size = 0;
+      if (syncTime_ != null) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(1, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(2, roomId_);
+      }
+      for (int i = 0; i < events_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(3, events_.get(i));
+      }
+      size += unknownFields.getSerializedSize();
+      memoizedSize = size;
+      return size;
+    }
+
+    @java.lang.Override
+    public boolean equals(final java.lang.Object obj) {
+      if (obj == this) {
+       return true;
+      }
+      if (!(obj instanceof lawnmower.Message.S2C_PlayerHurtBatch)) {
+        return super.equals(obj);
+      }
+      lawnmower.Message.S2C_PlayerHurtBatch other = (lawnmower.Message.S2C_PlayerHurtBatch) obj;
+
+      if (hasSyncTime() != other.hasSyncTime()) return false;
+      if (hasSyncTime()) {
+        if (!getSyncTime()
+            .equals(other.getSyncTime())) return false;
+      }
+      if (getRoomId()
+          != other.getRoomId()) return false;
+      if (!getEventsList()
+          .equals(other.getEventsList())) return false;
+      if (!unknownFields.equals(other.unknownFields)) return false;
+      return true;
+    }
+
+    @java.lang.Override
+    public int hashCode() {
+      if (memoizedHashCode != 0) {
+        return memoizedHashCode;
+      }
+      int hash = 41;
+      hash = (19 * hash) + getDescriptor().hashCode();
+      if (hasSyncTime()) {
+        hash = (37 * hash) + SYNC_TIME_FIELD_NUMBER;
+        hash = (53 * hash) + getSyncTime().hashCode();
+      }
+      hash = (37 * hash) + ROOM_ID_FIELD_NUMBER;
+      hash = (53 * hash) + getRoomId();
+      if (getEventsCount() > 0) {
+        hash = (37 * hash) + EVENTS_FIELD_NUMBER;
+        hash = (53 * hash) + getEventsList().hashCode();
+      }
+      hash = (29 * hash) + unknownFields.hashCode();
+      memoizedHashCode = hash;
+      return hash;
+    }
+
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        java.nio.ByteBuffer data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        java.nio.ByteBuffer data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_PlayerHurtBatch parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    @java.lang.Override
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder() {
+      return DEFAULT_INSTANCE.toBuilder();
+    }
+    public static Builder newBuilder(lawnmower.Message.S2C_PlayerHurtBatch prototype) {
+      return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+    }
+    @java.lang.Override
+    public Builder toBuilder() {
+      return this == DEFAULT_INSTANCE
+          ? new Builder() : new Builder().mergeFrom(this);
+    }
+
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    /**
+     * <pre>
+     * 玩家受伤批量广播（同 tick 合包）
+     * </pre>
+     *
+     * Protobuf type {@code lawnmower.S2C_PlayerHurtBatch}
+     */
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+        // @@protoc_insertion_point(builder_implements:lawnmower.S2C_PlayerHurtBatch)
+        lawnmower.Message.S2C_PlayerHurtBatchOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_PlayerHurtBatch_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_PlayerHurtBatch_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                lawnmower.Message.S2C_PlayerHurtBatch.class, lawnmower.Message.S2C_PlayerHurtBatch.Builder.class);
+      }
+
+      // Construct using lawnmower.Message.S2C_PlayerHurtBatch.newBuilder()
+      private Builder() {
+        maybeForceBuilderInitialization();
+      }
+
+      private Builder(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        super(parent);
+        maybeForceBuilderInitialization();
+      }
+      private void maybeForceBuilderInitialization() {
+        if (com.google.protobuf.GeneratedMessageV3
+                .alwaysUseFieldBuilders) {
+          getEventsFieldBuilder();
+        }
+      }
+      @java.lang.Override
+      public Builder clear() {
+        super.clear();
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+        roomId_ = 0;
+
+        if (eventsBuilder_ == null) {
+          events_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000001);
+        } else {
+          eventsBuilder_.clear();
+        }
+        return this;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_PlayerHurtBatch_descriptor;
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_PlayerHurtBatch getDefaultInstanceForType() {
+        return lawnmower.Message.S2C_PlayerHurtBatch.getDefaultInstance();
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_PlayerHurtBatch build() {
+        lawnmower.Message.S2C_PlayerHurtBatch result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_PlayerHurtBatch buildPartial() {
+        lawnmower.Message.S2C_PlayerHurtBatch result = new lawnmower.Message.S2C_PlayerHurtBatch(this);
+        int from_bitField0_ = bitField0_;
+        if (syncTimeBuilder_ == null) {
+          result.syncTime_ = syncTime_;
+        } else {
+          result.syncTime_ = syncTimeBuilder_.build();
+        }
+        result.roomId_ = roomId_;
+        if (eventsBuilder_ == null) {
+          if (((bitField0_ & 0x00000001) != 0)) {
+            events_ = java.util.Collections.unmodifiableList(events_);
+            bitField0_ = (bitField0_ & ~0x00000001);
+          }
+          result.events_ = events_;
+        } else {
+          result.events_ = eventsBuilder_.build();
+        }
+        onBuilt();
+        return result;
+      }
+
+      @java.lang.Override
+      public Builder clone() {
+        return super.clone();
+      }
+      @java.lang.Override
+      public Builder setField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.setField(field, value);
+      }
+      @java.lang.Override
+      public Builder clearField(
+          com.google.protobuf.Descriptors.FieldDescriptor field) {
+        return super.clearField(field);
+      }
+      @java.lang.Override
+      public Builder clearOneof(
+          com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+        return super.clearOneof(oneof);
+      }
+      @java.lang.Override
+      public Builder setRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          int index, java.lang.Object value) {
+        return super.setRepeatedField(field, index, value);
+      }
+      @java.lang.Override
+      public Builder addRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.addRepeatedField(field, value);
+      }
+      @java.lang.Override
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof lawnmower.Message.S2C_PlayerHurtBatch) {
+          return mergeFrom((lawnmower.Message.S2C_PlayerHurtBatch)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+
+      public Builder mergeFrom(lawnmower.Message.S2C_PlayerHurtBatch other) {
+        if (other == lawnmower.Message.S2C_PlayerHurtBatch.getDefaultInstance()) return this;
+        if (other.hasSyncTime()) {
+          mergeSyncTime(other.getSyncTime());
+        }
+        if (other.getRoomId() != 0) {
+          setRoomId(other.getRoomId());
+        }
+        if (eventsBuilder_ == null) {
+          if (!other.events_.isEmpty()) {
+            if (events_.isEmpty()) {
+              events_ = other.events_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+            } else {
+              ensureEventsIsMutable();
+              events_.addAll(other.events_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.events_.isEmpty()) {
+            if (eventsBuilder_.isEmpty()) {
+              eventsBuilder_.dispose();
+              eventsBuilder_ = null;
+              events_ = other.events_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+              eventsBuilder_ = 
+                com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                   getEventsFieldBuilder() : null;
+            } else {
+              eventsBuilder_.addAllMessages(other.events_);
+            }
+          }
+        }
+        this.mergeUnknownFields(other.unknownFields);
+        onChanged();
+        return this;
+      }
+
+      @java.lang.Override
+      public final boolean isInitialized() {
+        return true;
+      }
+
+      @java.lang.Override
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        lawnmower.Message.S2C_PlayerHurtBatch parsedMessage = null;
+        try {
+          parsedMessage = PARSER.parsePartialFrom(input, extensionRegistry);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          parsedMessage = (lawnmower.Message.S2C_PlayerHurtBatch) e.getUnfinishedMessage();
+          throw e.unwrapIOException();
+        } finally {
+          if (parsedMessage != null) {
+            mergeFrom(parsedMessage);
+          }
+        }
+        return this;
+      }
+      private int bitField0_;
+
+      private lawnmower.Message.Timestamp syncTime_;
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> syncTimeBuilder_;
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       * @return Whether the syncTime field is set.
+       */
+      public boolean hasSyncTime() {
+        return syncTimeBuilder_ != null || syncTime_ != null;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       * @return The syncTime.
+       */
+      public lawnmower.Message.Timestamp getSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        } else {
+          return syncTimeBuilder_.getMessage();
+        }
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder setSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          syncTime_ = value;
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(value);
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder setSyncTime(
+          lawnmower.Message.Timestamp.Builder builderForValue) {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = builderForValue.build();
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(builderForValue.build());
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder mergeSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (syncTime_ != null) {
+            syncTime_ =
+              lawnmower.Message.Timestamp.newBuilder(syncTime_).mergeFrom(value).buildPartial();
+          } else {
+            syncTime_ = value;
+          }
+          onChanged();
+        } else {
+          syncTimeBuilder_.mergeFrom(value);
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder clearSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+          onChanged();
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public lawnmower.Message.Timestamp.Builder getSyncTimeBuilder() {
+        
+        onChanged();
+        return getSyncTimeFieldBuilder().getBuilder();
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+        if (syncTimeBuilder_ != null) {
+          return syncTimeBuilder_.getMessageOrBuilder();
+        } else {
+          return syncTime_ == null ?
+              lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        }
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> 
+          getSyncTimeFieldBuilder() {
+        if (syncTimeBuilder_ == null) {
+          syncTimeBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+              lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder>(
+                  getSyncTime(),
+                  getParentForChildren(),
+                  isClean());
+          syncTime_ = null;
+        }
+        return syncTimeBuilder_;
+      }
+
+      private int roomId_ ;
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @return The roomId.
+       */
+      @java.lang.Override
+      public int getRoomId() {
+        return roomId_;
+      }
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @param value The roomId to set.
+       * @return This builder for chaining.
+       */
+      public Builder setRoomId(int value) {
+        
+        roomId_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearRoomId() {
+        
+        roomId_ = 0;
+        onChanged();
+        return this;
+      }
+
+      private java.util.List<lawnmower.Message.S2C_PlayerHurt> events_ =
+        java.util.Collections.emptyList();
+      private void ensureEventsIsMutable() {
+        if (!((bitField0_ & 0x00000001) != 0)) {
+          events_ = new java.util.ArrayList<lawnmower.Message.S2C_PlayerHurt>(events_);
+          bitField0_ |= 0x00000001;
+         }
+      }
+
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          lawnmower.Message.S2C_PlayerHurt, lawnmower.Message.S2C_PlayerHurt.Builder, lawnmower.Message.S2C_PlayerHurtOrBuilder> eventsBuilder_;
+
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public java.util.List<lawnmower.Message.S2C_PlayerHurt> getEventsList() {
+        if (eventsBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(events_);
+        } else {
+          return eventsBuilder_.getMessageList();
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public int getEventsCount() {
+        if (eventsBuilder_ == null) {
+          return events_.size();
+        } else {
+          return eventsBuilder_.getCount();
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerHurt getEvents(int index) {
+        if (eventsBuilder_ == null) {
+          return events_.get(index);
+        } else {
+          return eventsBuilder_.getMessage(index);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder setEvents(
+          int index, lawnmower.Message.S2C_PlayerHurt value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.set(index, value);
+          onChanged();
+        } else {
+          eventsBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder setEvents(
+          int index, lawnmower.Message.S2C_PlayerHurt.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder addEvents(lawnmower.Message.S2C_PlayerHurt value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.add(value);
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder addEvents(
+          int index, lawnmower.Message.S2C_PlayerHurt value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.add(index, value);
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder addEvents(
+          lawnmower.Message.S2C_PlayerHurt.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.add(builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder addEvents(
+          int index, lawnmower.Message.S2C_PlayerHurt.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder addAllEvents(
+          java.lang.Iterable<? extends lawnmower.Message.S2C_PlayerHurt> values) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, events_);
+          onChanged();
+        } else {
+          eventsBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder clearEvents() {
+        if (eventsBuilder_ == null) {
+          events_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000001);
+          onChanged();
+        } else {
+          eventsBuilder_.clear();
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public Builder removeEvents(int index) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.remove(index);
+          onChanged();
+        } else {
+          eventsBuilder_.remove(index);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerHurt.Builder getEventsBuilder(
+          int index) {
+        return getEventsFieldBuilder().getBuilder(index);
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerHurtOrBuilder getEventsOrBuilder(
+          int index) {
+        if (eventsBuilder_ == null) {
+          return events_.get(index);  } else {
+          return eventsBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public java.util.List<? extends lawnmower.Message.S2C_PlayerHurtOrBuilder> 
+           getEventsOrBuilderList() {
+        if (eventsBuilder_ != null) {
+          return eventsBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(events_);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerHurt.Builder addEventsBuilder() {
+        return getEventsFieldBuilder().addBuilder(
+            lawnmower.Message.S2C_PlayerHurt.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerHurt.Builder addEventsBuilder(
+          int index) {
+        return getEventsFieldBuilder().addBuilder(
+            index, lawnmower.Message.S2C_PlayerHurt.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerHurt events = 3;</code>
+       */
+      public java.util.List<lawnmower.Message.S2C_PlayerHurt.Builder> 
+           getEventsBuilderList() {
+        return getEventsFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          lawnmower.Message.S2C_PlayerHurt, lawnmower.Message.S2C_PlayerHurt.Builder, lawnmower.Message.S2C_PlayerHurtOrBuilder> 
+          getEventsFieldBuilder() {
+        if (eventsBuilder_ == null) {
+          eventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+              lawnmower.Message.S2C_PlayerHurt, lawnmower.Message.S2C_PlayerHurt.Builder, lawnmower.Message.S2C_PlayerHurtOrBuilder>(
+                  events_,
+                  ((bitField0_ & 0x00000001) != 0),
+                  getParentForChildren(),
+                  isClean());
+          events_ = null;
+        }
+        return eventsBuilder_;
+      }
+      @java.lang.Override
+      public final Builder setUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.setUnknownFields(unknownFields);
+      }
+
+      @java.lang.Override
+      public final Builder mergeUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.mergeUnknownFields(unknownFields);
+      }
+
+
+      // @@protoc_insertion_point(builder_scope:lawnmower.S2C_PlayerHurtBatch)
+    }
+
+    // @@protoc_insertion_point(class_scope:lawnmower.S2C_PlayerHurtBatch)
+    private static final lawnmower.Message.S2C_PlayerHurtBatch DEFAULT_INSTANCE;
+    static {
+      DEFAULT_INSTANCE = new lawnmower.Message.S2C_PlayerHurtBatch();
+    }
+
+    public static lawnmower.Message.S2C_PlayerHurtBatch getDefaultInstance() {
+      return DEFAULT_INSTANCE;
+    }
+
+    private static final com.google.protobuf.Parser<S2C_PlayerHurtBatch>
+        PARSER = new com.google.protobuf.AbstractParser<S2C_PlayerHurtBatch>() {
+      @java.lang.Override
+      public S2C_PlayerHurtBatch parsePartialFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return new S2C_PlayerHurtBatch(input, extensionRegistry);
+      }
+    };
+
+    public static com.google.protobuf.Parser<S2C_PlayerHurtBatch> parser() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public com.google.protobuf.Parser<S2C_PlayerHurtBatch> getParserForType() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public lawnmower.Message.S2C_PlayerHurtBatch getDefaultInstanceForType() {
+      return DEFAULT_INSTANCE;
+    }
+
+  }
+
+  public interface S2C_EnemyDiedBatchOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:lawnmower.S2C_EnemyDiedBatch)
+      com.google.protobuf.MessageOrBuilder {
+
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return Whether the syncTime field is set.
+     */
+    boolean hasSyncTime();
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return The syncTime.
+     */
+    lawnmower.Message.Timestamp getSyncTime();
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     */
+    lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder();
+
+    /**
+     * <code>uint32 room_id = 2;</code>
+     * @return The roomId.
+     */
+    int getRoomId();
+
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    java.util.List<lawnmower.Message.S2C_EnemyDied> 
+        getEventsList();
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    lawnmower.Message.S2C_EnemyDied getEvents(int index);
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    int getEventsCount();
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    java.util.List<? extends lawnmower.Message.S2C_EnemyDiedOrBuilder> 
+        getEventsOrBuilderList();
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    lawnmower.Message.S2C_EnemyDiedOrBuilder getEventsOrBuilder(
+        int index);
+  }
+  /**
+   * <pre>
+   * 敌人死亡批量广播（同 tick 合包）
+   * </pre>
+   *
+   * Protobuf type {@code lawnmower.S2C_EnemyDiedBatch}
+   */
+  public static final class S2C_EnemyDiedBatch extends
+      com.google.protobuf.GeneratedMessageV3 implements
+      // @@protoc_insertion_point(message_implements:lawnmower.S2C_EnemyDiedBatch)
+      S2C_EnemyDiedBatchOrBuilder {
+  private static final long serialVersionUID = 0L;
+    // Use S2C_EnemyDiedBatch.newBuilder() to construct.
+    private S2C_EnemyDiedBatch(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+      super(builder);
+    }
+    private S2C_EnemyDiedBatch() {
+      events_ = java.util.Collections.emptyList();
+    }
+
+    @java.lang.Override
+    @SuppressWarnings({"unused"})
+    protected java.lang.Object newInstance(
+        UnusedPrivateParameter unused) {
+      return new S2C_EnemyDiedBatch();
+    }
+
+    @java.lang.Override
+    public final com.google.protobuf.UnknownFieldSet
+    getUnknownFields() {
+      return this.unknownFields;
+    }
+    private S2C_EnemyDiedBatch(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      this();
+      if (extensionRegistry == null) {
+        throw new java.lang.NullPointerException();
+      }
+      int mutable_bitField0_ = 0;
+      com.google.protobuf.UnknownFieldSet.Builder unknownFields =
+          com.google.protobuf.UnknownFieldSet.newBuilder();
+      try {
+        boolean done = false;
+        while (!done) {
+          int tag = input.readTag();
+          switch (tag) {
+            case 0:
+              done = true;
+              break;
+            case 10: {
+              lawnmower.Message.Timestamp.Builder subBuilder = null;
+              if (syncTime_ != null) {
+                subBuilder = syncTime_.toBuilder();
+              }
+              syncTime_ = input.readMessage(lawnmower.Message.Timestamp.parser(), extensionRegistry);
+              if (subBuilder != null) {
+                subBuilder.mergeFrom(syncTime_);
+                syncTime_ = subBuilder.buildPartial();
+              }
+
+              break;
+            }
+            case 16: {
+
+              roomId_ = input.readUInt32();
+              break;
+            }
+            case 26: {
+              if (!((mutable_bitField0_ & 0x00000001) != 0)) {
+                events_ = new java.util.ArrayList<lawnmower.Message.S2C_EnemyDied>();
+                mutable_bitField0_ |= 0x00000001;
+              }
+              events_.add(
+                  input.readMessage(lawnmower.Message.S2C_EnemyDied.parser(), extensionRegistry));
+              break;
+            }
+            default: {
+              if (!parseUnknownField(
+                  input, unknownFields, extensionRegistry, tag)) {
+                done = true;
+              }
+              break;
+            }
+          }
+        }
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(this);
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(this);
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(
+            e).setUnfinishedMessage(this);
+      } finally {
+        if (((mutable_bitField0_ & 0x00000001) != 0)) {
+          events_ = java.util.Collections.unmodifiableList(events_);
+        }
+        this.unknownFields = unknownFields.build();
+        makeExtensionsImmutable();
+      }
+    }
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return lawnmower.Message.internal_static_lawnmower_S2C_EnemyDiedBatch_descriptor;
+    }
+
+    @java.lang.Override
+    protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return lawnmower.Message.internal_static_lawnmower_S2C_EnemyDiedBatch_fieldAccessorTable
+          .ensureFieldAccessorsInitialized(
+              lawnmower.Message.S2C_EnemyDiedBatch.class, lawnmower.Message.S2C_EnemyDiedBatch.Builder.class);
+    }
+
+    public static final int SYNC_TIME_FIELD_NUMBER = 1;
+    private lawnmower.Message.Timestamp syncTime_;
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return Whether the syncTime field is set.
+     */
+    @java.lang.Override
+    public boolean hasSyncTime() {
+      return syncTime_ != null;
+    }
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return The syncTime.
+     */
+    @java.lang.Override
+    public lawnmower.Message.Timestamp getSyncTime() {
+      return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+    }
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+      return getSyncTime();
+    }
+
+    public static final int ROOM_ID_FIELD_NUMBER = 2;
+    private int roomId_;
+    /**
+     * <code>uint32 room_id = 2;</code>
+     * @return The roomId.
+     */
+    @java.lang.Override
+    public int getRoomId() {
+      return roomId_;
+    }
+
+    public static final int EVENTS_FIELD_NUMBER = 3;
+    private java.util.List<lawnmower.Message.S2C_EnemyDied> events_;
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    @java.lang.Override
+    public java.util.List<lawnmower.Message.S2C_EnemyDied> getEventsList() {
+      return events_;
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    @java.lang.Override
+    public java.util.List<? extends lawnmower.Message.S2C_EnemyDiedOrBuilder> 
+        getEventsOrBuilderList() {
+      return events_;
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    @java.lang.Override
+    public int getEventsCount() {
+      return events_.size();
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.S2C_EnemyDied getEvents(int index) {
+      return events_.get(index);
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.S2C_EnemyDiedOrBuilder getEventsOrBuilder(
+        int index) {
+      return events_.get(index);
+    }
+
+    private byte memoizedIsInitialized = -1;
+    @java.lang.Override
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized == 1) return true;
+      if (isInitialized == 0) return false;
+
+      memoizedIsInitialized = 1;
+      return true;
+    }
+
+    @java.lang.Override
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      if (syncTime_ != null) {
+        output.writeMessage(1, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        output.writeUInt32(2, roomId_);
+      }
+      for (int i = 0; i < events_.size(); i++) {
+        output.writeMessage(3, events_.get(i));
+      }
+      unknownFields.writeTo(output);
+    }
+
+    @java.lang.Override
+    public int getSerializedSize() {
+      int size = memoizedSize;
+      if (size != -1) return size;
+
+      size = 0;
+      if (syncTime_ != null) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(1, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(2, roomId_);
+      }
+      for (int i = 0; i < events_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(3, events_.get(i));
+      }
+      size += unknownFields.getSerializedSize();
+      memoizedSize = size;
+      return size;
+    }
+
+    @java.lang.Override
+    public boolean equals(final java.lang.Object obj) {
+      if (obj == this) {
+       return true;
+      }
+      if (!(obj instanceof lawnmower.Message.S2C_EnemyDiedBatch)) {
+        return super.equals(obj);
+      }
+      lawnmower.Message.S2C_EnemyDiedBatch other = (lawnmower.Message.S2C_EnemyDiedBatch) obj;
+
+      if (hasSyncTime() != other.hasSyncTime()) return false;
+      if (hasSyncTime()) {
+        if (!getSyncTime()
+            .equals(other.getSyncTime())) return false;
+      }
+      if (getRoomId()
+          != other.getRoomId()) return false;
+      if (!getEventsList()
+          .equals(other.getEventsList())) return false;
+      if (!unknownFields.equals(other.unknownFields)) return false;
+      return true;
+    }
+
+    @java.lang.Override
+    public int hashCode() {
+      if (memoizedHashCode != 0) {
+        return memoizedHashCode;
+      }
+      int hash = 41;
+      hash = (19 * hash) + getDescriptor().hashCode();
+      if (hasSyncTime()) {
+        hash = (37 * hash) + SYNC_TIME_FIELD_NUMBER;
+        hash = (53 * hash) + getSyncTime().hashCode();
+      }
+      hash = (37 * hash) + ROOM_ID_FIELD_NUMBER;
+      hash = (53 * hash) + getRoomId();
+      if (getEventsCount() > 0) {
+        hash = (37 * hash) + EVENTS_FIELD_NUMBER;
+        hash = (53 * hash) + getEventsList().hashCode();
+      }
+      hash = (29 * hash) + unknownFields.hashCode();
+      memoizedHashCode = hash;
+      return hash;
+    }
+
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        java.nio.ByteBuffer data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        java.nio.ByteBuffer data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_EnemyDiedBatch parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    @java.lang.Override
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder() {
+      return DEFAULT_INSTANCE.toBuilder();
+    }
+    public static Builder newBuilder(lawnmower.Message.S2C_EnemyDiedBatch prototype) {
+      return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+    }
+    @java.lang.Override
+    public Builder toBuilder() {
+      return this == DEFAULT_INSTANCE
+          ? new Builder() : new Builder().mergeFrom(this);
+    }
+
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    /**
+     * <pre>
+     * 敌人死亡批量广播（同 tick 合包）
+     * </pre>
+     *
+     * Protobuf type {@code lawnmower.S2C_EnemyDiedBatch}
+     */
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+        // @@protoc_insertion_point(builder_implements:lawnmower.S2C_EnemyDiedBatch)
+        lawnmower.Message.S2C_EnemyDiedBatchOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_EnemyDiedBatch_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_EnemyDiedBatch_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                lawnmower.Message.S2C_EnemyDiedBatch.class, lawnmower.Message.S2C_EnemyDiedBatch.Builder.class);
+      }
+
+      // Construct using lawnmower.Message.S2C_EnemyDiedBatch.newBuilder()
+      private Builder() {
+        maybeForceBuilderInitialization();
+      }
+
+      private Builder(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        super(parent);
+        maybeForceBuilderInitialization();
+      }
+      private void maybeForceBuilderInitialization() {
+        if (com.google.protobuf.GeneratedMessageV3
+                .alwaysUseFieldBuilders) {
+          getEventsFieldBuilder();
+        }
+      }
+      @java.lang.Override
+      public Builder clear() {
+        super.clear();
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+        roomId_ = 0;
+
+        if (eventsBuilder_ == null) {
+          events_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000001);
+        } else {
+          eventsBuilder_.clear();
+        }
+        return this;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_EnemyDiedBatch_descriptor;
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_EnemyDiedBatch getDefaultInstanceForType() {
+        return lawnmower.Message.S2C_EnemyDiedBatch.getDefaultInstance();
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_EnemyDiedBatch build() {
+        lawnmower.Message.S2C_EnemyDiedBatch result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_EnemyDiedBatch buildPartial() {
+        lawnmower.Message.S2C_EnemyDiedBatch result = new lawnmower.Message.S2C_EnemyDiedBatch(this);
+        int from_bitField0_ = bitField0_;
+        if (syncTimeBuilder_ == null) {
+          result.syncTime_ = syncTime_;
+        } else {
+          result.syncTime_ = syncTimeBuilder_.build();
+        }
+        result.roomId_ = roomId_;
+        if (eventsBuilder_ == null) {
+          if (((bitField0_ & 0x00000001) != 0)) {
+            events_ = java.util.Collections.unmodifiableList(events_);
+            bitField0_ = (bitField0_ & ~0x00000001);
+          }
+          result.events_ = events_;
+        } else {
+          result.events_ = eventsBuilder_.build();
+        }
+        onBuilt();
+        return result;
+      }
+
+      @java.lang.Override
+      public Builder clone() {
+        return super.clone();
+      }
+      @java.lang.Override
+      public Builder setField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.setField(field, value);
+      }
+      @java.lang.Override
+      public Builder clearField(
+          com.google.protobuf.Descriptors.FieldDescriptor field) {
+        return super.clearField(field);
+      }
+      @java.lang.Override
+      public Builder clearOneof(
+          com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+        return super.clearOneof(oneof);
+      }
+      @java.lang.Override
+      public Builder setRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          int index, java.lang.Object value) {
+        return super.setRepeatedField(field, index, value);
+      }
+      @java.lang.Override
+      public Builder addRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.addRepeatedField(field, value);
+      }
+      @java.lang.Override
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof lawnmower.Message.S2C_EnemyDiedBatch) {
+          return mergeFrom((lawnmower.Message.S2C_EnemyDiedBatch)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+
+      public Builder mergeFrom(lawnmower.Message.S2C_EnemyDiedBatch other) {
+        if (other == lawnmower.Message.S2C_EnemyDiedBatch.getDefaultInstance()) return this;
+        if (other.hasSyncTime()) {
+          mergeSyncTime(other.getSyncTime());
+        }
+        if (other.getRoomId() != 0) {
+          setRoomId(other.getRoomId());
+        }
+        if (eventsBuilder_ == null) {
+          if (!other.events_.isEmpty()) {
+            if (events_.isEmpty()) {
+              events_ = other.events_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+            } else {
+              ensureEventsIsMutable();
+              events_.addAll(other.events_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.events_.isEmpty()) {
+            if (eventsBuilder_.isEmpty()) {
+              eventsBuilder_.dispose();
+              eventsBuilder_ = null;
+              events_ = other.events_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+              eventsBuilder_ = 
+                com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                   getEventsFieldBuilder() : null;
+            } else {
+              eventsBuilder_.addAllMessages(other.events_);
+            }
+          }
+        }
+        this.mergeUnknownFields(other.unknownFields);
+        onChanged();
+        return this;
+      }
+
+      @java.lang.Override
+      public final boolean isInitialized() {
+        return true;
+      }
+
+      @java.lang.Override
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        lawnmower.Message.S2C_EnemyDiedBatch parsedMessage = null;
+        try {
+          parsedMessage = PARSER.parsePartialFrom(input, extensionRegistry);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          parsedMessage = (lawnmower.Message.S2C_EnemyDiedBatch) e.getUnfinishedMessage();
+          throw e.unwrapIOException();
+        } finally {
+          if (parsedMessage != null) {
+            mergeFrom(parsedMessage);
+          }
+        }
+        return this;
+      }
+      private int bitField0_;
+
+      private lawnmower.Message.Timestamp syncTime_;
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> syncTimeBuilder_;
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       * @return Whether the syncTime field is set.
+       */
+      public boolean hasSyncTime() {
+        return syncTimeBuilder_ != null || syncTime_ != null;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       * @return The syncTime.
+       */
+      public lawnmower.Message.Timestamp getSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        } else {
+          return syncTimeBuilder_.getMessage();
+        }
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder setSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          syncTime_ = value;
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(value);
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder setSyncTime(
+          lawnmower.Message.Timestamp.Builder builderForValue) {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = builderForValue.build();
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(builderForValue.build());
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder mergeSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (syncTime_ != null) {
+            syncTime_ =
+              lawnmower.Message.Timestamp.newBuilder(syncTime_).mergeFrom(value).buildPartial();
+          } else {
+            syncTime_ = value;
+          }
+          onChanged();
+        } else {
+          syncTimeBuilder_.mergeFrom(value);
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder clearSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+          onChanged();
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public lawnmower.Message.Timestamp.Builder getSyncTimeBuilder() {
+        
+        onChanged();
+        return getSyncTimeFieldBuilder().getBuilder();
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+        if (syncTimeBuilder_ != null) {
+          return syncTimeBuilder_.getMessageOrBuilder();
+        } else {
+          return syncTime_ == null ?
+              lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        }
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> 
+          getSyncTimeFieldBuilder() {
+        if (syncTimeBuilder_ == null) {
+          syncTimeBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+              lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder>(
+                  getSyncTime(),
+                  getParentForChildren(),
+                  isClean());
+          syncTime_ = null;
+        }
+        return syncTimeBuilder_;
+      }
+
+      private int roomId_ ;
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @return The roomId.
+       */
+      @java.lang.Override
+      public int getRoomId() {
+        return roomId_;
+      }
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @param value The roomId to set.
+       * @return This builder for chaining.
+       */
+      public Builder setRoomId(int value) {
+        
+        roomId_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearRoomId() {
+        
+        roomId_ = 0;
+        onChanged();
+        return this;
+      }
+
+      private java.util.List<lawnmower.Message.S2C_EnemyDied> events_ =
+        java.util.Collections.emptyList();
+      private void ensureEventsIsMutable() {
+        if (!((bitField0_ & 0x00000001) != 0)) {
+          events_ = new java.util.ArrayList<lawnmower.Message.S2C_EnemyDied>(events_);
+          bitField0_ |= 0x00000001;
+         }
+      }
+
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          lawnmower.Message.S2C_EnemyDied, lawnmower.Message.S2C_EnemyDied.Builder, lawnmower.Message.S2C_EnemyDiedOrBuilder> eventsBuilder_;
+
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public java.util.List<lawnmower.Message.S2C_EnemyDied> getEventsList() {
+        if (eventsBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(events_);
+        } else {
+          return eventsBuilder_.getMessageList();
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public int getEventsCount() {
+        if (eventsBuilder_ == null) {
+          return events_.size();
+        } else {
+          return eventsBuilder_.getCount();
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public lawnmower.Message.S2C_EnemyDied getEvents(int index) {
+        if (eventsBuilder_ == null) {
+          return events_.get(index);
+        } else {
+          return eventsBuilder_.getMessage(index);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder setEvents(
+          int index, lawnmower.Message.S2C_EnemyDied value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.set(index, value);
+          onChanged();
+        } else {
+          eventsBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder setEvents(
+          int index, lawnmower.Message.S2C_EnemyDied.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder addEvents(lawnmower.Message.S2C_EnemyDied value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.add(value);
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder addEvents(
+          int index, lawnmower.Message.S2C_EnemyDied value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.add(index, value);
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder addEvents(
+          lawnmower.Message.S2C_EnemyDied.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.add(builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder addEvents(
+          int index, lawnmower.Message.S2C_EnemyDied.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder addAllEvents(
+          java.lang.Iterable<? extends lawnmower.Message.S2C_EnemyDied> values) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, events_);
+          onChanged();
+        } else {
+          eventsBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder clearEvents() {
+        if (eventsBuilder_ == null) {
+          events_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000001);
+          onChanged();
+        } else {
+          eventsBuilder_.clear();
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public Builder removeEvents(int index) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.remove(index);
+          onChanged();
+        } else {
+          eventsBuilder_.remove(index);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public lawnmower.Message.S2C_EnemyDied.Builder getEventsBuilder(
+          int index) {
+        return getEventsFieldBuilder().getBuilder(index);
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public lawnmower.Message.S2C_EnemyDiedOrBuilder getEventsOrBuilder(
+          int index) {
+        if (eventsBuilder_ == null) {
+          return events_.get(index);  } else {
+          return eventsBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public java.util.List<? extends lawnmower.Message.S2C_EnemyDiedOrBuilder> 
+           getEventsOrBuilderList() {
+        if (eventsBuilder_ != null) {
+          return eventsBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(events_);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public lawnmower.Message.S2C_EnemyDied.Builder addEventsBuilder() {
+        return getEventsFieldBuilder().addBuilder(
+            lawnmower.Message.S2C_EnemyDied.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public lawnmower.Message.S2C_EnemyDied.Builder addEventsBuilder(
+          int index) {
+        return getEventsFieldBuilder().addBuilder(
+            index, lawnmower.Message.S2C_EnemyDied.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_EnemyDied events = 3;</code>
+       */
+      public java.util.List<lawnmower.Message.S2C_EnemyDied.Builder> 
+           getEventsBuilderList() {
+        return getEventsFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          lawnmower.Message.S2C_EnemyDied, lawnmower.Message.S2C_EnemyDied.Builder, lawnmower.Message.S2C_EnemyDiedOrBuilder> 
+          getEventsFieldBuilder() {
+        if (eventsBuilder_ == null) {
+          eventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+              lawnmower.Message.S2C_EnemyDied, lawnmower.Message.S2C_EnemyDied.Builder, lawnmower.Message.S2C_EnemyDiedOrBuilder>(
+                  events_,
+                  ((bitField0_ & 0x00000001) != 0),
+                  getParentForChildren(),
+                  isClean());
+          events_ = null;
+        }
+        return eventsBuilder_;
+      }
+      @java.lang.Override
+      public final Builder setUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.setUnknownFields(unknownFields);
+      }
+
+      @java.lang.Override
+      public final Builder mergeUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.mergeUnknownFields(unknownFields);
+      }
+
+
+      // @@protoc_insertion_point(builder_scope:lawnmower.S2C_EnemyDiedBatch)
+    }
+
+    // @@protoc_insertion_point(class_scope:lawnmower.S2C_EnemyDiedBatch)
+    private static final lawnmower.Message.S2C_EnemyDiedBatch DEFAULT_INSTANCE;
+    static {
+      DEFAULT_INSTANCE = new lawnmower.Message.S2C_EnemyDiedBatch();
+    }
+
+    public static lawnmower.Message.S2C_EnemyDiedBatch getDefaultInstance() {
+      return DEFAULT_INSTANCE;
+    }
+
+    private static final com.google.protobuf.Parser<S2C_EnemyDiedBatch>
+        PARSER = new com.google.protobuf.AbstractParser<S2C_EnemyDiedBatch>() {
+      @java.lang.Override
+      public S2C_EnemyDiedBatch parsePartialFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return new S2C_EnemyDiedBatch(input, extensionRegistry);
+      }
+    };
+
+    public static com.google.protobuf.Parser<S2C_EnemyDiedBatch> parser() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public com.google.protobuf.Parser<S2C_EnemyDiedBatch> getParserForType() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public lawnmower.Message.S2C_EnemyDiedBatch getDefaultInstanceForType() {
+      return DEFAULT_INSTANCE;
+    }
+
+  }
+
+  public interface S2C_PlayerLevelUpBatchOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:lawnmower.S2C_PlayerLevelUpBatch)
+      com.google.protobuf.MessageOrBuilder {
+
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return Whether the syncTime field is set.
+     */
+    boolean hasSyncTime();
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return The syncTime.
+     */
+    lawnmower.Message.Timestamp getSyncTime();
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     */
+    lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder();
+
+    /**
+     * <code>uint32 room_id = 2;</code>
+     * @return The roomId.
+     */
+    int getRoomId();
+
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    java.util.List<lawnmower.Message.S2C_PlayerLevelUp> 
+        getEventsList();
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    lawnmower.Message.S2C_PlayerLevelUp getEvents(int index);
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    int getEventsCount();
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    java.util.List<? extends lawnmower.Message.S2C_PlayerLevelUpOrBuilder> 
+        getEventsOrBuilderList();
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    lawnmower.Message.S2C_PlayerLevelUpOrBuilder getEventsOrBuilder(
+        int index);
+  }
+  /**
+   * <pre>
+   * 玩家升级批量广播（同 tick 合包）
+   * </pre>
+   *
+   * Protobuf type {@code lawnmower.S2C_PlayerLevelUpBatch}
+   */
+  public static final class S2C_PlayerLevelUpBatch extends
+      com.google.protobuf.GeneratedMessageV3 implements
+      // @@protoc_insertion_point(message_implements:lawnmower.S2C_PlayerLevelUpBatch)
+      S2C_PlayerLevelUpBatchOrBuilder {
+  private static final long serialVersionUID = 0L;
+    // Use S2C_PlayerLevelUpBatch.newBuilder() to construct.
+    private S2C_PlayerLevelUpBatch(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+      super(builder);
+    }
+    private S2C_PlayerLevelUpBatch() {
+      events_ = java.util.Collections.emptyList();
+    }
+
+    @java.lang.Override
+    @SuppressWarnings({"unused"})
+    protected java.lang.Object newInstance(
+        UnusedPrivateParameter unused) {
+      return new S2C_PlayerLevelUpBatch();
+    }
+
+    @java.lang.Override
+    public final com.google.protobuf.UnknownFieldSet
+    getUnknownFields() {
+      return this.unknownFields;
+    }
+    private S2C_PlayerLevelUpBatch(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      this();
+      if (extensionRegistry == null) {
+        throw new java.lang.NullPointerException();
+      }
+      int mutable_bitField0_ = 0;
+      com.google.protobuf.UnknownFieldSet.Builder unknownFields =
+          com.google.protobuf.UnknownFieldSet.newBuilder();
+      try {
+        boolean done = false;
+        while (!done) {
+          int tag = input.readTag();
+          switch (tag) {
+            case 0:
+              done = true;
+              break;
+            case 10: {
+              lawnmower.Message.Timestamp.Builder subBuilder = null;
+              if (syncTime_ != null) {
+                subBuilder = syncTime_.toBuilder();
+              }
+              syncTime_ = input.readMessage(lawnmower.Message.Timestamp.parser(), extensionRegistry);
+              if (subBuilder != null) {
+                subBuilder.mergeFrom(syncTime_);
+                syncTime_ = subBuilder.buildPartial();
+              }
+
+              break;
+            }
+            case 16: {
+
+              roomId_ = input.readUInt32();
+              break;
+            }
+            case 26: {
+              if (!((mutable_bitField0_ & 0x00000001) != 0)) {
+                events_ = new java.util.ArrayList<lawnmower.Message.S2C_PlayerLevelUp>();
+                mutable_bitField0_ |= 0x00000001;
+              }
+              events_.add(
+                  input.readMessage(lawnmower.Message.S2C_PlayerLevelUp.parser(), extensionRegistry));
+              break;
+            }
+            default: {
+              if (!parseUnknownField(
+                  input, unknownFields, extensionRegistry, tag)) {
+                done = true;
+              }
+              break;
+            }
+          }
+        }
+      } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+        throw e.setUnfinishedMessage(this);
+      } catch (com.google.protobuf.UninitializedMessageException e) {
+        throw e.asInvalidProtocolBufferException().setUnfinishedMessage(this);
+      } catch (java.io.IOException e) {
+        throw new com.google.protobuf.InvalidProtocolBufferException(
+            e).setUnfinishedMessage(this);
+      } finally {
+        if (((mutable_bitField0_ & 0x00000001) != 0)) {
+          events_ = java.util.Collections.unmodifiableList(events_);
+        }
+        this.unknownFields = unknownFields.build();
+        makeExtensionsImmutable();
+      }
+    }
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return lawnmower.Message.internal_static_lawnmower_S2C_PlayerLevelUpBatch_descriptor;
+    }
+
+    @java.lang.Override
+    protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return lawnmower.Message.internal_static_lawnmower_S2C_PlayerLevelUpBatch_fieldAccessorTable
+          .ensureFieldAccessorsInitialized(
+              lawnmower.Message.S2C_PlayerLevelUpBatch.class, lawnmower.Message.S2C_PlayerLevelUpBatch.Builder.class);
+    }
+
+    public static final int SYNC_TIME_FIELD_NUMBER = 1;
+    private lawnmower.Message.Timestamp syncTime_;
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return Whether the syncTime field is set.
+     */
+    @java.lang.Override
+    public boolean hasSyncTime() {
+      return syncTime_ != null;
+    }
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     * @return The syncTime.
+     */
+    @java.lang.Override
+    public lawnmower.Message.Timestamp getSyncTime() {
+      return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+    }
+    /**
+     * <code>.lawnmower.Timestamp sync_time = 1;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+      return getSyncTime();
+    }
+
+    public static final int ROOM_ID_FIELD_NUMBER = 2;
+    private int roomId_;
+    /**
+     * <code>uint32 room_id = 2;</code>
+     * @return The roomId.
+     */
+    @java.lang.Override
+    public int getRoomId() {
+      return roomId_;
+    }
+
+    public static final int EVENTS_FIELD_NUMBER = 3;
+    private java.util.List<lawnmower.Message.S2C_PlayerLevelUp> events_;
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    @java.lang.Override
+    public java.util.List<lawnmower.Message.S2C_PlayerLevelUp> getEventsList() {
+      return events_;
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    @java.lang.Override
+    public java.util.List<? extends lawnmower.Message.S2C_PlayerLevelUpOrBuilder> 
+        getEventsOrBuilderList() {
+      return events_;
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    @java.lang.Override
+    public int getEventsCount() {
+      return events_.size();
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.S2C_PlayerLevelUp getEvents(int index) {
+      return events_.get(index);
+    }
+    /**
+     * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.S2C_PlayerLevelUpOrBuilder getEventsOrBuilder(
+        int index) {
+      return events_.get(index);
+    }
+
+    private byte memoizedIsInitialized = -1;
+    @java.lang.Override
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized == 1) return true;
+      if (isInitialized == 0) return false;
+
+      memoizedIsInitialized = 1;
+      return true;
+    }
+
+    @java.lang.Override
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      if (syncTime_ != null) {
+        output.writeMessage(1, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        output.writeUInt32(2, roomId_);
+      }
+      for (int i = 0; i < events_.size(); i++) {
+        output.writeMessage(3, events_.get(i));
+      }
+      unknownFields.writeTo(output);
+    }
+
+    @java.lang.Override
+    public int getSerializedSize() {
+      int size = memoizedSize;
+      if (size != -1) return size;
+
+      size = 0;
+      if (syncTime_ != null) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(1, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(2, roomId_);
+      }
+      for (int i = 0; i < events_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(3, events_.get(i));
+      }
+      size += unknownFields.getSerializedSize();
+      memoizedSize = size;
+      return size;
+    }
+
+    @java.lang.Override
+    public boolean equals(final java.lang.Object obj) {
+      if (obj == this) {
+       return true;
+      }
+      if (!(obj instanceof lawnmower.Message.S2C_PlayerLevelUpBatch)) {
+        return super.equals(obj);
+      }
+      lawnmower.Message.S2C_PlayerLevelUpBatch other = (lawnmower.Message.S2C_PlayerLevelUpBatch) obj;
+
+      if (hasSyncTime() != other.hasSyncTime()) return false;
+      if (hasSyncTime()) {
+        if (!getSyncTime()
+            .equals(other.getSyncTime())) return false;
+      }
+      if (getRoomId()
+          != other.getRoomId()) return false;
+      if (!getEventsList()
+          .equals(other.getEventsList())) return false;
+      if (!unknownFields.equals(other.unknownFields)) return false;
+      return true;
+    }
+
+    @java.lang.Override
+    public int hashCode() {
+      if (memoizedHashCode != 0) {
+        return memoizedHashCode;
+      }
+      int hash = 41;
+      hash = (19 * hash) + getDescriptor().hashCode();
+      if (hasSyncTime()) {
+        hash = (37 * hash) + SYNC_TIME_FIELD_NUMBER;
+        hash = (53 * hash) + getSyncTime().hashCode();
+      }
+      hash = (37 * hash) + ROOM_ID_FIELD_NUMBER;
+      hash = (53 * hash) + getRoomId();
+      if (getEventsCount() > 0) {
+        hash = (37 * hash) + EVENTS_FIELD_NUMBER;
+        hash = (53 * hash) + getEventsList().hashCode();
+      }
+      hash = (29 * hash) + unknownFields.hashCode();
+      memoizedHashCode = hash;
+      return hash;
+    }
+
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        java.nio.ByteBuffer data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        java.nio.ByteBuffer data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    @java.lang.Override
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder() {
+      return DEFAULT_INSTANCE.toBuilder();
+    }
+    public static Builder newBuilder(lawnmower.Message.S2C_PlayerLevelUpBatch prototype) {
+      return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+    }
+    @java.lang.Override
+    public Builder toBuilder() {
+      return this == DEFAULT_INSTANCE
+          ? new Builder() : new Builder().mergeFrom(this);
+    }
+
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    /**
+     * <pre>
+     * 玩家升级批量广播（同 tick 合包）
+     * </pre>
+     *
+     * Protobuf type {@code lawnmower.S2C_PlayerLevelUpBatch}
+     */
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+        // @@protoc_insertion_point(builder_implements:lawnmower.S2C_PlayerLevelUpBatch)
+        lawnmower.Message.S2C_PlayerLevelUpBatchOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_PlayerLevelUpBatch_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_PlayerLevelUpBatch_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                lawnmower.Message.S2C_PlayerLevelUpBatch.class, lawnmower.Message.S2C_PlayerLevelUpBatch.Builder.class);
+      }
+
+      // Construct using lawnmower.Message.S2C_PlayerLevelUpBatch.newBuilder()
+      private Builder() {
+        maybeForceBuilderInitialization();
+      }
+
+      private Builder(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        super(parent);
+        maybeForceBuilderInitialization();
+      }
+      private void maybeForceBuilderInitialization() {
+        if (com.google.protobuf.GeneratedMessageV3
+                .alwaysUseFieldBuilders) {
+          getEventsFieldBuilder();
+        }
+      }
+      @java.lang.Override
+      public Builder clear() {
+        super.clear();
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+        roomId_ = 0;
+
+        if (eventsBuilder_ == null) {
+          events_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000001);
+        } else {
+          eventsBuilder_.clear();
+        }
+        return this;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return lawnmower.Message.internal_static_lawnmower_S2C_PlayerLevelUpBatch_descriptor;
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_PlayerLevelUpBatch getDefaultInstanceForType() {
+        return lawnmower.Message.S2C_PlayerLevelUpBatch.getDefaultInstance();
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_PlayerLevelUpBatch build() {
+        lawnmower.Message.S2C_PlayerLevelUpBatch result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+
+      @java.lang.Override
+      public lawnmower.Message.S2C_PlayerLevelUpBatch buildPartial() {
+        lawnmower.Message.S2C_PlayerLevelUpBatch result = new lawnmower.Message.S2C_PlayerLevelUpBatch(this);
+        int from_bitField0_ = bitField0_;
+        if (syncTimeBuilder_ == null) {
+          result.syncTime_ = syncTime_;
+        } else {
+          result.syncTime_ = syncTimeBuilder_.build();
+        }
+        result.roomId_ = roomId_;
+        if (eventsBuilder_ == null) {
+          if (((bitField0_ & 0x00000001) != 0)) {
+            events_ = java.util.Collections.unmodifiableList(events_);
+            bitField0_ = (bitField0_ & ~0x00000001);
+          }
+          result.events_ = events_;
+        } else {
+          result.events_ = eventsBuilder_.build();
+        }
+        onBuilt();
+        return result;
+      }
+
+      @java.lang.Override
+      public Builder clone() {
+        return super.clone();
+      }
+      @java.lang.Override
+      public Builder setField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.setField(field, value);
+      }
+      @java.lang.Override
+      public Builder clearField(
+          com.google.protobuf.Descriptors.FieldDescriptor field) {
+        return super.clearField(field);
+      }
+      @java.lang.Override
+      public Builder clearOneof(
+          com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+        return super.clearOneof(oneof);
+      }
+      @java.lang.Override
+      public Builder setRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          int index, java.lang.Object value) {
+        return super.setRepeatedField(field, index, value);
+      }
+      @java.lang.Override
+      public Builder addRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.addRepeatedField(field, value);
+      }
+      @java.lang.Override
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof lawnmower.Message.S2C_PlayerLevelUpBatch) {
+          return mergeFrom((lawnmower.Message.S2C_PlayerLevelUpBatch)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+
+      public Builder mergeFrom(lawnmower.Message.S2C_PlayerLevelUpBatch other) {
+        if (other == lawnmower.Message.S2C_PlayerLevelUpBatch.getDefaultInstance()) return this;
+        if (other.hasSyncTime()) {
+          mergeSyncTime(other.getSyncTime());
+        }
+        if (other.getRoomId() != 0) {
+          setRoomId(other.getRoomId());
+        }
+        if (eventsBuilder_ == null) {
+          if (!other.events_.isEmpty()) {
+            if (events_.isEmpty()) {
+              events_ = other.events_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+            } else {
+              ensureEventsIsMutable();
+              events_.addAll(other.events_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.events_.isEmpty()) {
+            if (eventsBuilder_.isEmpty()) {
+              eventsBuilder_.dispose();
+              eventsBuilder_ = null;
+              events_ = other.events_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+              eventsBuilder_ = 
+                com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                   getEventsFieldBuilder() : null;
+            } else {
+              eventsBuilder_.addAllMessages(other.events_);
+            }
+          }
+        }
+        this.mergeUnknownFields(other.unknownFields);
+        onChanged();
+        return this;
+      }
+
+      @java.lang.Override
+      public final boolean isInitialized() {
+        return true;
+      }
+
+      @java.lang.Override
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        lawnmower.Message.S2C_PlayerLevelUpBatch parsedMessage = null;
+        try {
+          parsedMessage = PARSER.parsePartialFrom(input, extensionRegistry);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          parsedMessage = (lawnmower.Message.S2C_PlayerLevelUpBatch) e.getUnfinishedMessage();
+          throw e.unwrapIOException();
+        } finally {
+          if (parsedMessage != null) {
+            mergeFrom(parsedMessage);
+          }
+        }
+        return this;
+      }
+      private int bitField0_;
+
+      private lawnmower.Message.Timestamp syncTime_;
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> syncTimeBuilder_;
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       * @return Whether the syncTime field is set.
+       */
+      public boolean hasSyncTime() {
+        return syncTimeBuilder_ != null || syncTime_ != null;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       * @return The syncTime.
+       */
+      public lawnmower.Message.Timestamp getSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        } else {
+          return syncTimeBuilder_.getMessage();
+        }
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder setSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          syncTime_ = value;
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(value);
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder setSyncTime(
+          lawnmower.Message.Timestamp.Builder builderForValue) {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = builderForValue.build();
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(builderForValue.build());
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder mergeSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (syncTime_ != null) {
+            syncTime_ =
+              lawnmower.Message.Timestamp.newBuilder(syncTime_).mergeFrom(value).buildPartial();
+          } else {
+            syncTime_ = value;
+          }
+          onChanged();
+        } else {
+          syncTimeBuilder_.mergeFrom(value);
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public Builder clearSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+          onChanged();
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+
+        return this;
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public lawnmower.Message.Timestamp.Builder getSyncTimeBuilder() {
+        
+        onChanged();
+        return getSyncTimeFieldBuilder().getBuilder();
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+        if (syncTimeBuilder_ != null) {
+          return syncTimeBuilder_.getMessageOrBuilder();
+        } else {
+          return syncTime_ == null ?
+              lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        }
+      }
+      /**
+       * <code>.lawnmower.Timestamp sync_time = 1;</code>
+       */
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> 
+          getSyncTimeFieldBuilder() {
+        if (syncTimeBuilder_ == null) {
+          syncTimeBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+              lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder>(
+                  getSyncTime(),
+                  getParentForChildren(),
+                  isClean());
+          syncTime_ = null;
+        }
+        return syncTimeBuilder_;
+      }
+
+      private int roomId_ ;
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @return The roomId.
+       */
+      @java.lang.Override
+      public int getRoomId() {
+        return roomId_;
+      }
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @param value The roomId to set.
+       * @return This builder for chaining.
+       */
+      public Builder setRoomId(int value) {
+        
+        roomId_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>uint32 room_id = 2;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearRoomId() {
+        
+        roomId_ = 0;
+        onChanged();
+        return this;
+      }
+
+      private java.util.List<lawnmower.Message.S2C_PlayerLevelUp> events_ =
+        java.util.Collections.emptyList();
+      private void ensureEventsIsMutable() {
+        if (!((bitField0_ & 0x00000001) != 0)) {
+          events_ = new java.util.ArrayList<lawnmower.Message.S2C_PlayerLevelUp>(events_);
+          bitField0_ |= 0x00000001;
+         }
+      }
+
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          lawnmower.Message.S2C_PlayerLevelUp, lawnmower.Message.S2C_PlayerLevelUp.Builder, lawnmower.Message.S2C_PlayerLevelUpOrBuilder> eventsBuilder_;
+
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public java.util.List<lawnmower.Message.S2C_PlayerLevelUp> getEventsList() {
+        if (eventsBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(events_);
+        } else {
+          return eventsBuilder_.getMessageList();
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public int getEventsCount() {
+        if (eventsBuilder_ == null) {
+          return events_.size();
+        } else {
+          return eventsBuilder_.getCount();
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerLevelUp getEvents(int index) {
+        if (eventsBuilder_ == null) {
+          return events_.get(index);
+        } else {
+          return eventsBuilder_.getMessage(index);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder setEvents(
+          int index, lawnmower.Message.S2C_PlayerLevelUp value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.set(index, value);
+          onChanged();
+        } else {
+          eventsBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder setEvents(
+          int index, lawnmower.Message.S2C_PlayerLevelUp.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder addEvents(lawnmower.Message.S2C_PlayerLevelUp value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.add(value);
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder addEvents(
+          int index, lawnmower.Message.S2C_PlayerLevelUp value) {
+        if (eventsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureEventsIsMutable();
+          events_.add(index, value);
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder addEvents(
+          lawnmower.Message.S2C_PlayerLevelUp.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.add(builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder addEvents(
+          int index, lawnmower.Message.S2C_PlayerLevelUp.Builder builderForValue) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          eventsBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder addAllEvents(
+          java.lang.Iterable<? extends lawnmower.Message.S2C_PlayerLevelUp> values) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, events_);
+          onChanged();
+        } else {
+          eventsBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder clearEvents() {
+        if (eventsBuilder_ == null) {
+          events_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000001);
+          onChanged();
+        } else {
+          eventsBuilder_.clear();
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public Builder removeEvents(int index) {
+        if (eventsBuilder_ == null) {
+          ensureEventsIsMutable();
+          events_.remove(index);
+          onChanged();
+        } else {
+          eventsBuilder_.remove(index);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerLevelUp.Builder getEventsBuilder(
+          int index) {
+        return getEventsFieldBuilder().getBuilder(index);
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerLevelUpOrBuilder getEventsOrBuilder(
+          int index) {
+        if (eventsBuilder_ == null) {
+          return events_.get(index);  } else {
+          return eventsBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public java.util.List<? extends lawnmower.Message.S2C_PlayerLevelUpOrBuilder> 
+           getEventsOrBuilderList() {
+        if (eventsBuilder_ != null) {
+          return eventsBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(events_);
+        }
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerLevelUp.Builder addEventsBuilder() {
+        return getEventsFieldBuilder().addBuilder(
+            lawnmower.Message.S2C_PlayerLevelUp.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public lawnmower.Message.S2C_PlayerLevelUp.Builder addEventsBuilder(
+          int index) {
+        return getEventsFieldBuilder().addBuilder(
+            index, lawnmower.Message.S2C_PlayerLevelUp.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .lawnmower.S2C_PlayerLevelUp events = 3;</code>
+       */
+      public java.util.List<lawnmower.Message.S2C_PlayerLevelUp.Builder> 
+           getEventsBuilderList() {
+        return getEventsFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          lawnmower.Message.S2C_PlayerLevelUp, lawnmower.Message.S2C_PlayerLevelUp.Builder, lawnmower.Message.S2C_PlayerLevelUpOrBuilder> 
+          getEventsFieldBuilder() {
+        if (eventsBuilder_ == null) {
+          eventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+              lawnmower.Message.S2C_PlayerLevelUp, lawnmower.Message.S2C_PlayerLevelUp.Builder, lawnmower.Message.S2C_PlayerLevelUpOrBuilder>(
+                  events_,
+                  ((bitField0_ & 0x00000001) != 0),
+                  getParentForChildren(),
+                  isClean());
+          events_ = null;
+        }
+        return eventsBuilder_;
+      }
+      @java.lang.Override
+      public final Builder setUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.setUnknownFields(unknownFields);
+      }
+
+      @java.lang.Override
+      public final Builder mergeUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.mergeUnknownFields(unknownFields);
+      }
+
+
+      // @@protoc_insertion_point(builder_scope:lawnmower.S2C_PlayerLevelUpBatch)
+    }
+
+    // @@protoc_insertion_point(class_scope:lawnmower.S2C_PlayerLevelUpBatch)
+    private static final lawnmower.Message.S2C_PlayerLevelUpBatch DEFAULT_INSTANCE;
+    static {
+      DEFAULT_INSTANCE = new lawnmower.Message.S2C_PlayerLevelUpBatch();
+    }
+
+    public static lawnmower.Message.S2C_PlayerLevelUpBatch getDefaultInstance() {
+      return DEFAULT_INSTANCE;
+    }
+
+    private static final com.google.protobuf.Parser<S2C_PlayerLevelUpBatch>
+        PARSER = new com.google.protobuf.AbstractParser<S2C_PlayerLevelUpBatch>() {
+      @java.lang.Override
+      public S2C_PlayerLevelUpBatch parsePartialFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return new S2C_PlayerLevelUpBatch(input, extensionRegistry);
+      }
+    };
+
+    public static com.google.protobuf.Parser<S2C_PlayerLevelUpBatch> parser() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public com.google.protobuf.Parser<S2C_PlayerLevelUpBatch> getParserForType() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public lawnmower.Message.S2C_PlayerLevelUpBatch getDefaultInstanceForType() {
+      return DEFAULT_INSTANCE;
+    }
+
+  }
+
   public interface S2C_UpgradeRequestOrBuilder extends
       // @@protoc_insertion_point(interface_extends:lawnmower.S2C_UpgradeRequest)
       com.google.protobuf.MessageOrBuilder {
@@ -45039,6 +48589,33 @@ public final class Message {
      * @return The reason.
      */
     lawnmower.Message.UpgradeReason getReason();
+
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return Whether the syncTime field is set.
+     */
+    boolean hasSyncTime();
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return The syncTime.
+     */
+    lawnmower.Message.Timestamp getSyncTime();
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     */
+    lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder();
   }
   /**
    * <pre>
@@ -45104,6 +48681,19 @@ public final class Message {
               int rawValue = input.readEnum();
 
               reason_ = rawValue;
+              break;
+            }
+            case 34: {
+              lawnmower.Message.Timestamp.Builder subBuilder = null;
+              if (syncTime_ != null) {
+                subBuilder = syncTime_.toBuilder();
+              }
+              syncTime_ = input.readMessage(lawnmower.Message.Timestamp.parser(), extensionRegistry);
+              if (subBuilder != null) {
+                subBuilder.mergeFrom(syncTime_);
+                syncTime_ = subBuilder.buildPartial();
+              }
+
               break;
             }
             default: {
@@ -45197,6 +48787,44 @@ public final class Message {
       return result == null ? lawnmower.Message.UpgradeReason.UNRECOGNIZED : result;
     }
 
+    public static final int SYNC_TIME_FIELD_NUMBER = 4;
+    private lawnmower.Message.Timestamp syncTime_;
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return Whether the syncTime field is set.
+     */
+    @java.lang.Override
+    public boolean hasSyncTime() {
+      return syncTime_ != null;
+    }
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return The syncTime.
+     */
+    @java.lang.Override
+    public lawnmower.Message.Timestamp getSyncTime() {
+      return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+    }
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+      return getSyncTime();
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -45220,6 +48848,9 @@ public final class Message {
       if (reason_ != lawnmower.Message.UpgradeReason.UPGRADE_REASON_UNKNOWN.getNumber()) {
         output.writeEnum(3, reason_);
       }
+      if (syncTime_ != null) {
+        output.writeMessage(4, getSyncTime());
+      }
       unknownFields.writeTo(output);
     }
 
@@ -45241,6 +48872,10 @@ public final class Message {
         size += com.google.protobuf.CodedOutputStream
           .computeEnumSize(3, reason_);
       }
+      if (syncTime_ != null) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(4, getSyncTime());
+      }
       size += unknownFields.getSerializedSize();
       memoizedSize = size;
       return size;
@@ -45261,6 +48896,11 @@ public final class Message {
       if (getPlayerId()
           != other.getPlayerId()) return false;
       if (reason_ != other.reason_) return false;
+      if (hasSyncTime() != other.hasSyncTime()) return false;
+      if (hasSyncTime()) {
+        if (!getSyncTime()
+            .equals(other.getSyncTime())) return false;
+      }
       if (!unknownFields.equals(other.unknownFields)) return false;
       return true;
     }
@@ -45278,6 +48918,10 @@ public final class Message {
       hash = (53 * hash) + getPlayerId();
       hash = (37 * hash) + REASON_FIELD_NUMBER;
       hash = (53 * hash) + reason_;
+      if (hasSyncTime()) {
+        hash = (37 * hash) + SYNC_TIME_FIELD_NUMBER;
+        hash = (53 * hash) + getSyncTime().hashCode();
+      }
       hash = (29 * hash) + unknownFields.hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -45421,6 +49065,12 @@ public final class Message {
 
         reason_ = 0;
 
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
         return this;
       }
 
@@ -45450,6 +49100,11 @@ public final class Message {
         result.roomId_ = roomId_;
         result.playerId_ = playerId_;
         result.reason_ = reason_;
+        if (syncTimeBuilder_ == null) {
+          result.syncTime_ = syncTime_;
+        } else {
+          result.syncTime_ = syncTimeBuilder_.build();
+        }
         onBuilt();
         return result;
       }
@@ -45506,6 +49161,9 @@ public final class Message {
         }
         if (other.reason_ != 0) {
           setReasonValue(other.getReasonValue());
+        }
+        if (other.hasSyncTime()) {
+          mergeSyncTime(other.getSyncTime());
         }
         this.mergeUnknownFields(other.unknownFields);
         onChanged();
@@ -45694,6 +49352,161 @@ public final class Message {
         reason_ = 0;
         onChanged();
         return this;
+      }
+
+      private lawnmower.Message.Timestamp syncTime_;
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> syncTimeBuilder_;
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       * @return Whether the syncTime field is set.
+       */
+      public boolean hasSyncTime() {
+        return syncTimeBuilder_ != null || syncTime_ != null;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       * @return The syncTime.
+       */
+      public lawnmower.Message.Timestamp getSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        } else {
+          return syncTimeBuilder_.getMessage();
+        }
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder setSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          syncTime_ = value;
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(value);
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder setSyncTime(
+          lawnmower.Message.Timestamp.Builder builderForValue) {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = builderForValue.build();
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(builderForValue.build());
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder mergeSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (syncTime_ != null) {
+            syncTime_ =
+              lawnmower.Message.Timestamp.newBuilder(syncTime_).mergeFrom(value).buildPartial();
+          } else {
+            syncTime_ = value;
+          }
+          onChanged();
+        } else {
+          syncTimeBuilder_.mergeFrom(value);
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder clearSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+          onChanged();
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public lawnmower.Message.Timestamp.Builder getSyncTimeBuilder() {
+        
+        onChanged();
+        return getSyncTimeFieldBuilder().getBuilder();
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+        if (syncTimeBuilder_ != null) {
+          return syncTimeBuilder_.getMessageOrBuilder();
+        } else {
+          return syncTime_ == null ?
+              lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        }
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> 
+          getSyncTimeFieldBuilder() {
+        if (syncTimeBuilder_ == null) {
+          syncTimeBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+              lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder>(
+                  getSyncTime(),
+                  getParentForChildren(),
+                  isClean());
+          syncTime_ = null;
+        }
+        return syncTimeBuilder_;
       }
       @java.lang.Override
       public final Builder setUnknownFields(
@@ -52785,6 +56598,43 @@ public final class Message {
      */
     lawnmower.Message.PlayerScoreOrBuilder getScoresOrBuilder(
         int index);
+
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return Whether the syncTime field is set.
+     */
+    boolean hasSyncTime();
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return The syncTime.
+     */
+    lawnmower.Message.Timestamp getSyncTime();
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     */
+    lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder();
+
+    /**
+     * <pre>
+     * 房间ID（便于路由/校验）
+     * </pre>
+     *
+     * <code>uint32 room_id = 5;</code>
+     * @return The roomId.
+     */
+    int getRoomId();
   }
   /**
    * <pre>
@@ -52854,6 +56704,24 @@ public final class Message {
               }
               scores_.add(
                   input.readMessage(lawnmower.Message.PlayerScore.parser(), extensionRegistry));
+              break;
+            }
+            case 34: {
+              lawnmower.Message.Timestamp.Builder subBuilder = null;
+              if (syncTime_ != null) {
+                subBuilder = syncTime_.toBuilder();
+              }
+              syncTime_ = input.readMessage(lawnmower.Message.Timestamp.parser(), extensionRegistry);
+              if (subBuilder != null) {
+                subBuilder.mergeFrom(syncTime_);
+                syncTime_ = subBuilder.buildPartial();
+              }
+
+              break;
+            }
+            case 40: {
+
+              roomId_ = input.readUInt32();
               break;
             }
             default: {
@@ -52983,6 +56851,59 @@ public final class Message {
       return scores_.get(index);
     }
 
+    public static final int SYNC_TIME_FIELD_NUMBER = 4;
+    private lawnmower.Message.Timestamp syncTime_;
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return Whether the syncTime field is set.
+     */
+    @java.lang.Override
+    public boolean hasSyncTime() {
+      return syncTime_ != null;
+    }
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     * @return The syncTime.
+     */
+    @java.lang.Override
+    public lawnmower.Message.Timestamp getSyncTime() {
+      return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+    }
+    /**
+     * <pre>
+     * 事件时间戳
+     * </pre>
+     *
+     * <code>.lawnmower.Timestamp sync_time = 4;</code>
+     */
+    @java.lang.Override
+    public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+      return getSyncTime();
+    }
+
+    public static final int ROOM_ID_FIELD_NUMBER = 5;
+    private int roomId_;
+    /**
+     * <pre>
+     * 房间ID（便于路由/校验）
+     * </pre>
+     *
+     * <code>uint32 room_id = 5;</code>
+     * @return The roomId.
+     */
+    @java.lang.Override
+    public int getRoomId() {
+      return roomId_;
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -53006,6 +56927,12 @@ public final class Message {
       for (int i = 0; i < scores_.size(); i++) {
         output.writeMessage(3, scores_.get(i));
       }
+      if (syncTime_ != null) {
+        output.writeMessage(4, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        output.writeUInt32(5, roomId_);
+      }
       unknownFields.writeTo(output);
     }
 
@@ -53026,6 +56953,14 @@ public final class Message {
       for (int i = 0; i < scores_.size(); i++) {
         size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(3, scores_.get(i));
+      }
+      if (syncTime_ != null) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(4, getSyncTime());
+      }
+      if (roomId_ != 0) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(5, roomId_);
       }
       size += unknownFields.getSerializedSize();
       memoizedSize = size;
@@ -53048,6 +56983,13 @@ public final class Message {
           != other.getSurviveTime()) return false;
       if (!getScoresList()
           .equals(other.getScoresList())) return false;
+      if (hasSyncTime() != other.hasSyncTime()) return false;
+      if (hasSyncTime()) {
+        if (!getSyncTime()
+            .equals(other.getSyncTime())) return false;
+      }
+      if (getRoomId()
+          != other.getRoomId()) return false;
       if (!unknownFields.equals(other.unknownFields)) return false;
       return true;
     }
@@ -53068,6 +57010,12 @@ public final class Message {
         hash = (37 * hash) + SCORES_FIELD_NUMBER;
         hash = (53 * hash) + getScoresList().hashCode();
       }
+      if (hasSyncTime()) {
+        hash = (37 * hash) + SYNC_TIME_FIELD_NUMBER;
+        hash = (53 * hash) + getSyncTime().hashCode();
+      }
+      hash = (37 * hash) + ROOM_ID_FIELD_NUMBER;
+      hash = (53 * hash) + getRoomId();
       hash = (29 * hash) + unknownFields.hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -53216,6 +57164,14 @@ public final class Message {
         } else {
           scoresBuilder_.clear();
         }
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+        roomId_ = 0;
+
         return this;
       }
 
@@ -53254,6 +57210,12 @@ public final class Message {
         } else {
           result.scores_ = scoresBuilder_.build();
         }
+        if (syncTimeBuilder_ == null) {
+          result.syncTime_ = syncTime_;
+        } else {
+          result.syncTime_ = syncTimeBuilder_.build();
+        }
+        result.roomId_ = roomId_;
         onBuilt();
         return result;
       }
@@ -53333,6 +57295,12 @@ public final class Message {
               scoresBuilder_.addAllMessages(other.scores_);
             }
           }
+        }
+        if (other.hasSyncTime()) {
+          mergeSyncTime(other.getSyncTime());
+        }
+        if (other.getRoomId() != 0) {
+          setRoomId(other.getRoomId());
         }
         this.mergeUnknownFields(other.unknownFields);
         onChanged();
@@ -53760,6 +57728,204 @@ public final class Message {
           scores_ = null;
         }
         return scoresBuilder_;
+      }
+
+      private lawnmower.Message.Timestamp syncTime_;
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> syncTimeBuilder_;
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       * @return Whether the syncTime field is set.
+       */
+      public boolean hasSyncTime() {
+        return syncTimeBuilder_ != null || syncTime_ != null;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       * @return The syncTime.
+       */
+      public lawnmower.Message.Timestamp getSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          return syncTime_ == null ? lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        } else {
+          return syncTimeBuilder_.getMessage();
+        }
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder setSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          syncTime_ = value;
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(value);
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder setSyncTime(
+          lawnmower.Message.Timestamp.Builder builderForValue) {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = builderForValue.build();
+          onChanged();
+        } else {
+          syncTimeBuilder_.setMessage(builderForValue.build());
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder mergeSyncTime(lawnmower.Message.Timestamp value) {
+        if (syncTimeBuilder_ == null) {
+          if (syncTime_ != null) {
+            syncTime_ =
+              lawnmower.Message.Timestamp.newBuilder(syncTime_).mergeFrom(value).buildPartial();
+          } else {
+            syncTime_ = value;
+          }
+          onChanged();
+        } else {
+          syncTimeBuilder_.mergeFrom(value);
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public Builder clearSyncTime() {
+        if (syncTimeBuilder_ == null) {
+          syncTime_ = null;
+          onChanged();
+        } else {
+          syncTime_ = null;
+          syncTimeBuilder_ = null;
+        }
+
+        return this;
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public lawnmower.Message.Timestamp.Builder getSyncTimeBuilder() {
+        
+        onChanged();
+        return getSyncTimeFieldBuilder().getBuilder();
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      public lawnmower.Message.TimestampOrBuilder getSyncTimeOrBuilder() {
+        if (syncTimeBuilder_ != null) {
+          return syncTimeBuilder_.getMessageOrBuilder();
+        } else {
+          return syncTime_ == null ?
+              lawnmower.Message.Timestamp.getDefaultInstance() : syncTime_;
+        }
+      }
+      /**
+       * <pre>
+       * 事件时间戳
+       * </pre>
+       *
+       * <code>.lawnmower.Timestamp sync_time = 4;</code>
+       */
+      private com.google.protobuf.SingleFieldBuilderV3<
+          lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder> 
+          getSyncTimeFieldBuilder() {
+        if (syncTimeBuilder_ == null) {
+          syncTimeBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+              lawnmower.Message.Timestamp, lawnmower.Message.Timestamp.Builder, lawnmower.Message.TimestampOrBuilder>(
+                  getSyncTime(),
+                  getParentForChildren(),
+                  isClean());
+          syncTime_ = null;
+        }
+        return syncTimeBuilder_;
+      }
+
+      private int roomId_ ;
+      /**
+       * <pre>
+       * 房间ID（便于路由/校验）
+       * </pre>
+       *
+       * <code>uint32 room_id = 5;</code>
+       * @return The roomId.
+       */
+      @java.lang.Override
+      public int getRoomId() {
+        return roomId_;
+      }
+      /**
+       * <pre>
+       * 房间ID（便于路由/校验）
+       * </pre>
+       *
+       * <code>uint32 room_id = 5;</code>
+       * @param value The roomId to set.
+       * @return This builder for chaining.
+       */
+      public Builder setRoomId(int value) {
+        
+        roomId_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 房间ID（便于路由/校验）
+       * </pre>
+       *
+       * <code>uint32 room_id = 5;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearRoomId() {
+        
+        roomId_ = 0;
+        onChanged();
+        return this;
       }
       @java.lang.Override
       public final Builder setUnknownFields(
@@ -56329,6 +60495,21 @@ public final class Message {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_lawnmower_S2C_PlayerLevelUp_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_lawnmower_S2C_PlayerHurtBatch_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_lawnmower_S2C_PlayerHurtBatch_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_lawnmower_S2C_EnemyDiedBatch_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_lawnmower_S2C_EnemyDiedBatch_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_lawnmower_S2C_PlayerLevelUpBatch_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_lawnmower_S2C_PlayerLevelUpBatch_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_lawnmower_S2C_UpgradeRequest_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
@@ -56497,117 +60678,133 @@ public final class Message {
       "\022.lawnmower.Vector2\022\024\n\014is_attacking\030\003 \001(" +
       "\010\022(\n\ninput_time\030\004 \001(\0132\024.lawnmower.Timest" +
       "amp\022\021\n\tinput_seq\030\005 \001(\r\022\020\n\010delta_ms\030\006 \001(\r" +
-      "\022\025\n\rsession_token\030\007 \001(\t\"\335\001\n\021S2C_GameStat" +
+      "\022\025\n\rsession_token\030\007 \001(\t\"\234\002\n\021S2C_GameStat" +
       "eSync\022\'\n\tsync_time\030\001 \001(\0132\024.lawnmower.Tim" +
       "estamp\022\'\n\007players\030\002 \003(\0132\026.lawnmower.Play" +
       "erState\022&\n\007enemies\030\003 \003(\0132\025.lawnmower.Ene" +
       "myState\022#\n\005items\030\004 \003(\0132\024.lawnmower.ItemS" +
       "tate\022\017\n\007room_id\030\005 \001(\r\022\030\n\020is_full_snapsho" +
-      "t\030\006 \001(\010\"\200\001\n\023S2C_ProjectileSpawn\022\'\n\tsync_" +
-      "time\030\001 \001(\0132\024.lawnmower.Timestamp\022\017\n\007room" +
-      "_id\030\002 \001(\r\022/\n\013projectiles\030\003 \003(\0132\032.lawnmow" +
-      "er.ProjectileState\"\204\001\n\025S2C_ProjectileDes" +
-      "pawn\022\'\n\tsync_time\030\001 \001(\0132\024.lawnmower.Time" +
-      "stamp\022\017\n\007room_id\030\002 \001(\r\0221\n\013projectiles\030\003 " +
-      "\003(\0132\034.lawnmower.ProjectileDespawn\"Y\n\025Ene" +
-      "myAttackStateDelta\022\020\n\010enemy_id\030\001 \001(\r\022\024\n\014" +
-      "is_attacking\030\002 \001(\010\022\030\n\020target_player_id\030\003" +
-      " \001(\r\"\207\001\n\030S2C_EnemyAttackStateSync\022\'\n\tsyn" +
-      "c_time\030\001 \001(\0132\024.lawnmower.Timestamp\022\017\n\007ro" +
-      "om_id\030\002 \001(\r\0221\n\007enemies\030\003 \003(\0132 .lawnmower" +
-      ".EnemyAttackStateDelta\"`\n\016S2C_PlayerHurt" +
-      "\022\021\n\tplayer_id\030\001 \001(\r\022\016\n\006damage\030\002 \001(\r\022\030\n\020r" +
-      "emaining_health\030\003 \001(\005\022\021\n\tsource_id\030\004 \001(\r" +
-      "\"r\n\rS2C_EnemyDied\022\020\n\010enemy_id\030\001 \001(\r\022\030\n\020k" +
-      "iller_player_id\030\002 \001(\r\022\017\n\007wave_id\030\003 \001(\r\022$" +
-      "\n\010position\030\004 \001(\0132\022.lawnmower.Vector2\"N\n\021" +
-      "S2C_PlayerLevelUp\022\021\n\tplayer_id\030\001 \001(\r\022\021\n\t" +
-      "new_level\030\002 \001(\r\022\023\n\013exp_to_next\030\003 \001(\r\"b\n\022" +
-      "S2C_UpgradeRequest\022\017\n\007room_id\030\001 \001(\r\022\021\n\tp" +
-      "layer_id\030\002 \001(\r\022(\n\006reason\030\003 \001(\0162\030.lawnmow" +
-      "er.UpgradeReason\";\n\025C2S_UpgradeRequestAc" +
-      "k\022\017\n\007room_id\030\001 \001(\r\022\021\n\tplayer_id\030\002 \001(\r\"\250\001" +
-      "\n\022S2C_UpgradeOptions\022\017\n\007room_id\030\001 \001(\r\022\021\n" +
-      "\tplayer_id\030\002 \001(\r\022(\n\006reason\030\003 \001(\0162\030.lawnm" +
-      "ower.UpgradeReason\022)\n\007options\030\004 \003(\0132\030.la" +
-      "wnmower.UpgradeOption\022\031\n\021refresh_remaini" +
-      "ng\030\005 \001(\r\";\n\025C2S_UpgradeOptionsAck\022\017\n\007roo" +
-      "m_id\030\001 \001(\r\022\021\n\tplayer_id\030\002 \001(\r\"M\n\021C2S_Upg" +
-      "radeSelect\022\017\n\007room_id\030\001 \001(\r\022\021\n\tplayer_id" +
-      "\030\002 \001(\r\022\024\n\014option_index\030\003 \001(\r\"P\n\024S2C_Upgr" +
-      "adeSelectAck\022\017\n\007room_id\030\001 \001(\r\022\021\n\tplayer_" +
-      "id\030\002 \001(\r\022\024\n\014option_index\030\003 \001(\r\"?\n\031C2S_Up" +
-      "gradeRefreshRequest\022\017\n\007room_id\030\001 \001(\r\022\021\n\t" +
-      "player_id\030\002 \001(\r\"\232\001\n\017S2C_DroppedItem\022#\n\005i" +
-      "tems\030\001 \003(\0132\024.lawnmower.ItemState\022\027\n\017sour" +
-      "ce_enemy_id\030\002 \001(\r\022\017\n\007wave_id\030\003 \001(\r\022\'\n\tsy" +
-      "nc_time\030\004 \001(\0132\024.lawnmower.Timestamp\022\017\n\007r" +
-      "oom_id\030\005 \001(\r\"t\n\013PlayerScore\022\021\n\tplayer_id" +
-      "\030\001 \001(\r\022\023\n\013player_name\030\002 \001(\t\022\023\n\013final_lev" +
-      "el\030\003 \001(\005\022\022\n\nkill_count\030\004 \001(\005\022\024\n\014damage_d" +
-      "ealt\030\005 \001(\005\"]\n\014S2C_GameOver\022\017\n\007victory\030\001 " +
-      "\001(\010\022\024\n\014survive_time\030\002 \001(\r\022&\n\006scores\030\003 \003(" +
-      "\0132\026.lawnmower.PlayerScore\"\262\001\n\013EnemyConfi" +
-      "g\022\017\n\007type_id\030\001 \001(\r\022\014\n\004name\030\002 \001(\t\022\022\n\ntext" +
-      "ure_id\030\003 \001(\t\022\024\n\014walk_anim_id\030\004 \001(\t\022\023\n\013di" +
-      "e_anim_id\030\005 \001(\t\022\022\n\nmax_health\030\006 \001(\005\022\r\n\005s" +
-      "peed\030\007 \001(\002\022\016\n\006damage\030\010 \001(\r\022\022\n\nexp_reward" +
-      "\030\t \001(\r\"C\n\006Packet\022(\n\010msg_type\030\001 \001(\0162\026.law" +
-      "nmower.MessageType\022\017\n\007payload\030\002 \001(\014*\273\010\n\013" +
-      "MessageType\022\017\n\013MSG_UNKNOWN\020\000\022\021\n\rMSG_C2S_" +
-      "LOGIN\020\001\022\030\n\024MSG_S2C_LOGIN_RESULT\020\002\022\025\n\021MSG" +
-      "_C2S_HEARTBEAT\020\003\022\025\n\021MSG_S2C_HEARTBEAT\020\004\022" +
-      "\027\n\023MSG_C2S_CREATE_ROOM\020\n\022\031\n\025MSG_C2S_GET_" +
-      "ROOM_LIST\020\013\022\025\n\021MSG_C2S_JOIN_ROOM\020\014\022\026\n\022MS" +
-      "G_C2S_LEAVE_ROOM\020\r\022\025\n\021MSG_C2S_SET_READY\020" +
-      "\016\022\026\n\022MSG_C2S_START_GAME\020\017\022\030\n\024MSG_C2S_REQ" +
-      "UEST_QUIT\020\020\022\036\n\032MSG_S2C_CREATE_ROOM_RESUL" +
-      "T\020\024\022\025\n\021MSG_S2C_ROOM_LIST\020\025\022\034\n\030MSG_S2C_JO" +
-      "IN_ROOM_RESULT\020\026\022\035\n\031MSG_S2C_LEAVE_ROOM_R" +
-      "ESULT\020\027\022\034\n\030MSG_S2C_SET_READY_RESULT\020\030\022\027\n" +
-      "\023MSG_S2C_ROOM_UPDATE\020\031\022\026\n\022MSG_S2C_GAME_S" +
-      "TART\020\032\022\030\n\024MSG_C2S_PLAYER_INPUT\020\036\022\033\n\027MSG_" +
-      "S2C_GAME_STATE_SYNC\020(\022\027\n\023MSG_S2C_PLAYER_" +
-      "HURT\020)\022\026\n\022MSG_S2C_ENEMY_DIED\020*\022\033\n\027MSG_S2" +
-      "C_PLAYER_LEVEL_UP\020+\022\030\n\024MSG_S2C_DROPPED_I" +
-      "TEM\020,\022\025\n\021MSG_S2C_GAME_OVER\020-\022!\n\035MSG_S2C_" +
-      "GAME_STATE_DELTA_SYNC\020.\022\034\n\030MSG_S2C_PROJE" +
-      "CTILE_SPAWN\020/\022\036\n\032MSG_S2C_PROJECTILE_DESP" +
-      "AWN\0200\022#\n\037MSG_S2C_ENEMY_ATTACK_STATE_SYNC" +
-      "\0201\022\033\n\027MSG_S2C_UPGRADE_REQUEST\0202\022\037\n\033MSG_C" +
-      "2S_UPGRADE_REQUEST_ACK\0203\022\033\n\027MSG_S2C_UPGR" +
-      "ADE_OPTIONS\0204\022\037\n\033MSG_C2S_UPGRADE_OPTIONS" +
-      "_ACK\0205\022\032\n\026MSG_C2S_UPGRADE_SELECT\0206\022\036\n\032MS" +
-      "G_S2C_UPGRADE_SELECT_ACK\0207\022#\n\037MSG_C2S_UP" +
-      "GRADE_REFRESH_REQUEST\0208\022\035\n\031MSG_C2S_RECON" +
-      "NECT_REQUEST\0209\022\031\n\025MSG_S2C_RECONNECT_ACK\020" +
-      ":*d\n\rUpgradeReason\022\032\n\026UPGRADE_REASON_UNK" +
-      "NOWN\020\000\022\033\n\027UPGRADE_REASON_LEVEL_UP\020\001\022\032\n\026U" +
-      "PGRADE_REASON_REFRESH\020\002*\271\001\n\013UpgradeType\022" +
-      "\030\n\024UPGRADE_TYPE_UNKNOWN\020\000\022\033\n\027UPGRADE_TYP" +
-      "E_MOVE_SPEED\020\001\022\027\n\023UPGRADE_TYPE_ATTACK\020\002\022" +
-      "\035\n\031UPGRADE_TYPE_ATTACK_SPEED\020\003\022\033\n\027UPGRAD" +
-      "E_TYPE_MAX_HEALTH\020\004\022\036\n\032UPGRADE_TYPE_CRIT" +
-      "ICAL_RATE\020\005*r\n\014UpgradeLevel\022\031\n\025UPGRADE_L" +
-      "EVEL_UNKNOWN\020\000\022\025\n\021UPGRADE_LEVEL_LOW\020\001\022\030\n" +
-      "\024UPGRADE_LEVEL_MEDIUM\020\002\022\026\n\022UPGRADE_LEVEL" +
-      "_HIGH\020\003*\233\001\n\027ProjectileDespawnReason\022\036\n\032P" +
-      "ROJECTILE_DESPAWN_UNKNOWN\020\000\022\032\n\026PROJECTIL" +
-      "E_DESPAWN_HIT\020\001\022$\n PROJECTILE_DESPAWN_OU" +
-      "T_OF_BOUNDS\020\002\022\036\n\032PROJECTILE_DESPAWN_EXPI" +
-      "RED\020\003*h\n\016ItemEffectType\022\024\n\020ITEM_EFFECT_N" +
-      "ONE\020\000\022\024\n\020ITEM_EFFECT_HEAL\020\001\022\023\n\017ITEM_EFFE" +
-      "CT_EXP\020\002\022\025\n\021ITEM_EFFECT_SPEED\020\003*l\n\rItemD" +
-      "eltaMask\022\023\n\017ITEM_DELTA_NONE\020\000\022\027\n\023ITEM_DE" +
-      "LTA_POSITION\020\001\022\030\n\024ITEM_DELTA_IS_PICKED\020\002" +
-      "\022\023\n\017ITEM_DELTA_TYPE\020\004*\244\001\n\017PlayerDeltaMas" +
-      "k\022\025\n\021PLAYER_DELTA_NONE\020\000\022\031\n\025PLAYER_DELTA" +
-      "_POSITION\020\001\022\031\n\025PLAYER_DELTA_ROTATION\020\002\022\031" +
-      "\n\025PLAYER_DELTA_IS_ALIVE\020\004\022)\n%PLAYER_DELT" +
-      "A_LAST_PROCESSED_INPUT_SEQ\020\010*r\n\016EnemyDel" +
-      "taMask\022\024\n\020ENEMY_DELTA_NONE\020\000\022\030\n\024ENEMY_DE" +
-      "LTA_POSITION\020\001\022\026\n\022ENEMY_DELTA_HEALTH\020\002\022\030" +
-      "\n\024ENEMY_DELTA_IS_ALIVE\020\004b\006proto3"
+      "t\030\006 \001(\010\022\023\n\013snapshot_id\030\007 \001(\004\022\023\n\013chunk_in" +
+      "dex\030\010 \001(\r\022\023\n\013chunk_count\030\t \001(\r\"\200\001\n\023S2C_P" +
+      "rojectileSpawn\022\'\n\tsync_time\030\001 \001(\0132\024.lawn" +
+      "mower.Timestamp\022\017\n\007room_id\030\002 \001(\r\022/\n\013proj" +
+      "ectiles\030\003 \003(\0132\032.lawnmower.ProjectileStat" +
+      "e\"\204\001\n\025S2C_ProjectileDespawn\022\'\n\tsync_time" +
+      "\030\001 \001(\0132\024.lawnmower.Timestamp\022\017\n\007room_id\030" +
+      "\002 \001(\r\0221\n\013projectiles\030\003 \003(\0132\034.lawnmower.P" +
+      "rojectileDespawn\"Y\n\025EnemyAttackStateDelt" +
+      "a\022\020\n\010enemy_id\030\001 \001(\r\022\024\n\014is_attacking\030\002 \001(" +
+      "\010\022\030\n\020target_player_id\030\003 \001(\r\"\207\001\n\030S2C_Enem" +
+      "yAttackStateSync\022\'\n\tsync_time\030\001 \001(\0132\024.la" +
+      "wnmower.Timestamp\022\017\n\007room_id\030\002 \001(\r\0221\n\007en" +
+      "emies\030\003 \003(\0132 .lawnmower.EnemyAttackState" +
+      "Delta\"`\n\016S2C_PlayerHurt\022\021\n\tplayer_id\030\001 \001" +
+      "(\r\022\016\n\006damage\030\002 \001(\r\022\030\n\020remaining_health\030\003" +
+      " \001(\005\022\021\n\tsource_id\030\004 \001(\r\"r\n\rS2C_EnemyDied" +
+      "\022\020\n\010enemy_id\030\001 \001(\r\022\030\n\020killer_player_id\030\002" +
+      " \001(\r\022\017\n\007wave_id\030\003 \001(\r\022$\n\010position\030\004 \001(\0132" +
+      "\022.lawnmower.Vector2\"N\n\021S2C_PlayerLevelUp" +
+      "\022\021\n\tplayer_id\030\001 \001(\r\022\021\n\tnew_level\030\002 \001(\r\022\023" +
+      "\n\013exp_to_next\030\003 \001(\r\"z\n\023S2C_PlayerHurtBat" +
+      "ch\022\'\n\tsync_time\030\001 \001(\0132\024.lawnmower.Timest" +
+      "amp\022\017\n\007room_id\030\002 \001(\r\022)\n\006events\030\003 \003(\0132\031.l" +
+      "awnmower.S2C_PlayerHurt\"x\n\022S2C_EnemyDied" +
+      "Batch\022\'\n\tsync_time\030\001 \001(\0132\024.lawnmower.Tim" +
+      "estamp\022\017\n\007room_id\030\002 \001(\r\022(\n\006events\030\003 \003(\0132" +
+      "\030.lawnmower.S2C_EnemyDied\"\200\001\n\026S2C_Player" +
+      "LevelUpBatch\022\'\n\tsync_time\030\001 \001(\0132\024.lawnmo" +
+      "wer.Timestamp\022\017\n\007room_id\030\002 \001(\r\022,\n\006events" +
+      "\030\003 \003(\0132\034.lawnmower.S2C_PlayerLevelUp\"\213\001\n" +
+      "\022S2C_UpgradeRequest\022\017\n\007room_id\030\001 \001(\r\022\021\n\t" +
+      "player_id\030\002 \001(\r\022(\n\006reason\030\003 \001(\0162\030.lawnmo" +
+      "wer.UpgradeReason\022\'\n\tsync_time\030\004 \001(\0132\024.l" +
+      "awnmower.Timestamp\";\n\025C2S_UpgradeRequest" +
+      "Ack\022\017\n\007room_id\030\001 \001(\r\022\021\n\tplayer_id\030\002 \001(\r\"" +
+      "\250\001\n\022S2C_UpgradeOptions\022\017\n\007room_id\030\001 \001(\r\022" +
+      "\021\n\tplayer_id\030\002 \001(\r\022(\n\006reason\030\003 \001(\0162\030.law" +
+      "nmower.UpgradeReason\022)\n\007options\030\004 \003(\0132\030." +
+      "lawnmower.UpgradeOption\022\031\n\021refresh_remai" +
+      "ning\030\005 \001(\r\";\n\025C2S_UpgradeOptionsAck\022\017\n\007r" +
+      "oom_id\030\001 \001(\r\022\021\n\tplayer_id\030\002 \001(\r\"M\n\021C2S_U" +
+      "pgradeSelect\022\017\n\007room_id\030\001 \001(\r\022\021\n\tplayer_" +
+      "id\030\002 \001(\r\022\024\n\014option_index\030\003 \001(\r\"P\n\024S2C_Up" +
+      "gradeSelectAck\022\017\n\007room_id\030\001 \001(\r\022\021\n\tplaye" +
+      "r_id\030\002 \001(\r\022\024\n\014option_index\030\003 \001(\r\"?\n\031C2S_" +
+      "UpgradeRefreshRequest\022\017\n\007room_id\030\001 \001(\r\022\021" +
+      "\n\tplayer_id\030\002 \001(\r\"\232\001\n\017S2C_DroppedItem\022#\n" +
+      "\005items\030\001 \003(\0132\024.lawnmower.ItemState\022\027\n\017so" +
+      "urce_enemy_id\030\002 \001(\r\022\017\n\007wave_id\030\003 \001(\r\022\'\n\t" +
+      "sync_time\030\004 \001(\0132\024.lawnmower.Timestamp\022\017\n" +
+      "\007room_id\030\005 \001(\r\"t\n\013PlayerScore\022\021\n\tplayer_" +
+      "id\030\001 \001(\r\022\023\n\013player_name\030\002 \001(\t\022\023\n\013final_l" +
+      "evel\030\003 \001(\005\022\022\n\nkill_count\030\004 \001(\005\022\024\n\014damage" +
+      "_dealt\030\005 \001(\005\"\227\001\n\014S2C_GameOver\022\017\n\007victory" +
+      "\030\001 \001(\010\022\024\n\014survive_time\030\002 \001(\r\022&\n\006scores\030\003" +
+      " \003(\0132\026.lawnmower.PlayerScore\022\'\n\tsync_tim" +
+      "e\030\004 \001(\0132\024.lawnmower.Timestamp\022\017\n\007room_id" +
+      "\030\005 \001(\r\"\262\001\n\013EnemyConfig\022\017\n\007type_id\030\001 \001(\r\022" +
+      "\014\n\004name\030\002 \001(\t\022\022\n\ntexture_id\030\003 \001(\t\022\024\n\014wal" +
+      "k_anim_id\030\004 \001(\t\022\023\n\013die_anim_id\030\005 \001(\t\022\022\n\n" +
+      "max_health\030\006 \001(\005\022\r\n\005speed\030\007 \001(\002\022\016\n\006damag" +
+      "e\030\010 \001(\r\022\022\n\nexp_reward\030\t \001(\r\"C\n\006Packet\022(\n" +
+      "\010msg_type\030\001 \001(\0162\026.lawnmower.MessageType\022" +
+      "\017\n\007payload\030\002 \001(\014*\233\t\n\013MessageType\022\017\n\013MSG_" +
+      "UNKNOWN\020\000\022\021\n\rMSG_C2S_LOGIN\020\001\022\030\n\024MSG_S2C_" +
+      "LOGIN_RESULT\020\002\022\025\n\021MSG_C2S_HEARTBEAT\020\003\022\025\n" +
+      "\021MSG_S2C_HEARTBEAT\020\004\022\027\n\023MSG_C2S_CREATE_R" +
+      "OOM\020\n\022\031\n\025MSG_C2S_GET_ROOM_LIST\020\013\022\025\n\021MSG_" +
+      "C2S_JOIN_ROOM\020\014\022\026\n\022MSG_C2S_LEAVE_ROOM\020\r\022" +
+      "\025\n\021MSG_C2S_SET_READY\020\016\022\026\n\022MSG_C2S_START_" +
+      "GAME\020\017\022\030\n\024MSG_C2S_REQUEST_QUIT\020\020\022\036\n\032MSG_" +
+      "S2C_CREATE_ROOM_RESULT\020\024\022\025\n\021MSG_S2C_ROOM" +
+      "_LIST\020\025\022\034\n\030MSG_S2C_JOIN_ROOM_RESULT\020\026\022\035\n" +
+      "\031MSG_S2C_LEAVE_ROOM_RESULT\020\027\022\034\n\030MSG_S2C_" +
+      "SET_READY_RESULT\020\030\022\027\n\023MSG_S2C_ROOM_UPDAT" +
+      "E\020\031\022\026\n\022MSG_S2C_GAME_START\020\032\022\030\n\024MSG_C2S_P" +
+      "LAYER_INPUT\020\036\022\033\n\027MSG_S2C_GAME_STATE_SYNC" +
+      "\020(\022\027\n\023MSG_S2C_PLAYER_HURT\020)\022\026\n\022MSG_S2C_E" +
+      "NEMY_DIED\020*\022\033\n\027MSG_S2C_PLAYER_LEVEL_UP\020+" +
+      "\022\030\n\024MSG_S2C_DROPPED_ITEM\020,\022\025\n\021MSG_S2C_GA" +
+      "ME_OVER\020-\022!\n\035MSG_S2C_GAME_STATE_DELTA_SY" +
+      "NC\020.\022\034\n\030MSG_S2C_PROJECTILE_SPAWN\020/\022\036\n\032MS" +
+      "G_S2C_PROJECTILE_DESPAWN\0200\022#\n\037MSG_S2C_EN" +
+      "EMY_ATTACK_STATE_SYNC\0201\022\033\n\027MSG_S2C_UPGRA" +
+      "DE_REQUEST\0202\022\037\n\033MSG_C2S_UPGRADE_REQUEST_" +
+      "ACK\0203\022\033\n\027MSG_S2C_UPGRADE_OPTIONS\0204\022\037\n\033MS" +
+      "G_C2S_UPGRADE_OPTIONS_ACK\0205\022\032\n\026MSG_C2S_U" +
+      "PGRADE_SELECT\0206\022\036\n\032MSG_S2C_UPGRADE_SELEC" +
+      "T_ACK\0207\022#\n\037MSG_C2S_UPGRADE_REFRESH_REQUE" +
+      "ST\0208\022\035\n\031MSG_C2S_RECONNECT_REQUEST\0209\022\031\n\025M" +
+      "SG_S2C_RECONNECT_ACK\020:\022\035\n\031MSG_S2C_PLAYER" +
+      "_HURT_BATCH\020;\022\034\n\030MSG_S2C_ENEMY_DIED_BATC" +
+      "H\020<\022!\n\035MSG_S2C_PLAYER_LEVEL_UP_BATCH\020=*d" +
+      "\n\rUpgradeReason\022\032\n\026UPGRADE_REASON_UNKNOW" +
+      "N\020\000\022\033\n\027UPGRADE_REASON_LEVEL_UP\020\001\022\032\n\026UPGR" +
+      "ADE_REASON_REFRESH\020\002*\271\001\n\013UpgradeType\022\030\n\024" +
+      "UPGRADE_TYPE_UNKNOWN\020\000\022\033\n\027UPGRADE_TYPE_M" +
+      "OVE_SPEED\020\001\022\027\n\023UPGRADE_TYPE_ATTACK\020\002\022\035\n\031" +
+      "UPGRADE_TYPE_ATTACK_SPEED\020\003\022\033\n\027UPGRADE_T" +
+      "YPE_MAX_HEALTH\020\004\022\036\n\032UPGRADE_TYPE_CRITICA" +
+      "L_RATE\020\005*r\n\014UpgradeLevel\022\031\n\025UPGRADE_LEVE" +
+      "L_UNKNOWN\020\000\022\025\n\021UPGRADE_LEVEL_LOW\020\001\022\030\n\024UP" +
+      "GRADE_LEVEL_MEDIUM\020\002\022\026\n\022UPGRADE_LEVEL_HI" +
+      "GH\020\003*\233\001\n\027ProjectileDespawnReason\022\036\n\032PROJ" +
+      "ECTILE_DESPAWN_UNKNOWN\020\000\022\032\n\026PROJECTILE_D" +
+      "ESPAWN_HIT\020\001\022$\n PROJECTILE_DESPAWN_OUT_O" +
+      "F_BOUNDS\020\002\022\036\n\032PROJECTILE_DESPAWN_EXPIRED" +
+      "\020\003*h\n\016ItemEffectType\022\024\n\020ITEM_EFFECT_NONE" +
+      "\020\000\022\024\n\020ITEM_EFFECT_HEAL\020\001\022\023\n\017ITEM_EFFECT_" +
+      "EXP\020\002\022\025\n\021ITEM_EFFECT_SPEED\020\003*l\n\rItemDelt" +
+      "aMask\022\023\n\017ITEM_DELTA_NONE\020\000\022\027\n\023ITEM_DELTA" +
+      "_POSITION\020\001\022\030\n\024ITEM_DELTA_IS_PICKED\020\002\022\023\n" +
+      "\017ITEM_DELTA_TYPE\020\004*\244\001\n\017PlayerDeltaMask\022\025" +
+      "\n\021PLAYER_DELTA_NONE\020\000\022\031\n\025PLAYER_DELTA_PO" +
+      "SITION\020\001\022\031\n\025PLAYER_DELTA_ROTATION\020\002\022\031\n\025P" +
+      "LAYER_DELTA_IS_ALIVE\020\004\022)\n%PLAYER_DELTA_L" +
+      "AST_PROCESSED_INPUT_SEQ\020\010*r\n\016EnemyDeltaM" +
+      "ask\022\024\n\020ENEMY_DELTA_NONE\020\000\022\030\n\024ENEMY_DELTA" +
+      "_POSITION\020\001\022\026\n\022ENEMY_DELTA_HEALTH\020\002\022\030\n\024E" +
+      "NEMY_DELTA_IS_ALIVE\020\004b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -56840,7 +61037,7 @@ public final class Message {
     internal_static_lawnmower_S2C_GameStateSync_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_S2C_GameStateSync_descriptor,
-        new java.lang.String[] { "SyncTime", "Players", "Enemies", "Items", "RoomId", "IsFullSnapshot", });
+        new java.lang.String[] { "SyncTime", "Players", "Enemies", "Items", "RoomId", "IsFullSnapshot", "SnapshotId", "ChunkIndex", "ChunkCount", });
     internal_static_lawnmower_S2C_ProjectileSpawn_descriptor =
       getDescriptor().getMessageTypes().get(38);
     internal_static_lawnmower_S2C_ProjectileSpawn_fieldAccessorTable = new
@@ -56883,74 +61080,92 @@ public final class Message {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_S2C_PlayerLevelUp_descriptor,
         new java.lang.String[] { "PlayerId", "NewLevel", "ExpToNext", });
-    internal_static_lawnmower_S2C_UpgradeRequest_descriptor =
+    internal_static_lawnmower_S2C_PlayerHurtBatch_descriptor =
       getDescriptor().getMessageTypes().get(45);
+    internal_static_lawnmower_S2C_PlayerHurtBatch_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_lawnmower_S2C_PlayerHurtBatch_descriptor,
+        new java.lang.String[] { "SyncTime", "RoomId", "Events", });
+    internal_static_lawnmower_S2C_EnemyDiedBatch_descriptor =
+      getDescriptor().getMessageTypes().get(46);
+    internal_static_lawnmower_S2C_EnemyDiedBatch_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_lawnmower_S2C_EnemyDiedBatch_descriptor,
+        new java.lang.String[] { "SyncTime", "RoomId", "Events", });
+    internal_static_lawnmower_S2C_PlayerLevelUpBatch_descriptor =
+      getDescriptor().getMessageTypes().get(47);
+    internal_static_lawnmower_S2C_PlayerLevelUpBatch_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_lawnmower_S2C_PlayerLevelUpBatch_descriptor,
+        new java.lang.String[] { "SyncTime", "RoomId", "Events", });
+    internal_static_lawnmower_S2C_UpgradeRequest_descriptor =
+      getDescriptor().getMessageTypes().get(48);
     internal_static_lawnmower_S2C_UpgradeRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_S2C_UpgradeRequest_descriptor,
-        new java.lang.String[] { "RoomId", "PlayerId", "Reason", });
+        new java.lang.String[] { "RoomId", "PlayerId", "Reason", "SyncTime", });
     internal_static_lawnmower_C2S_UpgradeRequestAck_descriptor =
-      getDescriptor().getMessageTypes().get(46);
+      getDescriptor().getMessageTypes().get(49);
     internal_static_lawnmower_C2S_UpgradeRequestAck_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_C2S_UpgradeRequestAck_descriptor,
         new java.lang.String[] { "RoomId", "PlayerId", });
     internal_static_lawnmower_S2C_UpgradeOptions_descriptor =
-      getDescriptor().getMessageTypes().get(47);
+      getDescriptor().getMessageTypes().get(50);
     internal_static_lawnmower_S2C_UpgradeOptions_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_S2C_UpgradeOptions_descriptor,
         new java.lang.String[] { "RoomId", "PlayerId", "Reason", "Options", "RefreshRemaining", });
     internal_static_lawnmower_C2S_UpgradeOptionsAck_descriptor =
-      getDescriptor().getMessageTypes().get(48);
+      getDescriptor().getMessageTypes().get(51);
     internal_static_lawnmower_C2S_UpgradeOptionsAck_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_C2S_UpgradeOptionsAck_descriptor,
         new java.lang.String[] { "RoomId", "PlayerId", });
     internal_static_lawnmower_C2S_UpgradeSelect_descriptor =
-      getDescriptor().getMessageTypes().get(49);
+      getDescriptor().getMessageTypes().get(52);
     internal_static_lawnmower_C2S_UpgradeSelect_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_C2S_UpgradeSelect_descriptor,
         new java.lang.String[] { "RoomId", "PlayerId", "OptionIndex", });
     internal_static_lawnmower_S2C_UpgradeSelectAck_descriptor =
-      getDescriptor().getMessageTypes().get(50);
+      getDescriptor().getMessageTypes().get(53);
     internal_static_lawnmower_S2C_UpgradeSelectAck_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_S2C_UpgradeSelectAck_descriptor,
         new java.lang.String[] { "RoomId", "PlayerId", "OptionIndex", });
     internal_static_lawnmower_C2S_UpgradeRefreshRequest_descriptor =
-      getDescriptor().getMessageTypes().get(51);
+      getDescriptor().getMessageTypes().get(54);
     internal_static_lawnmower_C2S_UpgradeRefreshRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_C2S_UpgradeRefreshRequest_descriptor,
         new java.lang.String[] { "RoomId", "PlayerId", });
     internal_static_lawnmower_S2C_DroppedItem_descriptor =
-      getDescriptor().getMessageTypes().get(52);
+      getDescriptor().getMessageTypes().get(55);
     internal_static_lawnmower_S2C_DroppedItem_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_S2C_DroppedItem_descriptor,
         new java.lang.String[] { "Items", "SourceEnemyId", "WaveId", "SyncTime", "RoomId", });
     internal_static_lawnmower_PlayerScore_descriptor =
-      getDescriptor().getMessageTypes().get(53);
+      getDescriptor().getMessageTypes().get(56);
     internal_static_lawnmower_PlayerScore_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_PlayerScore_descriptor,
         new java.lang.String[] { "PlayerId", "PlayerName", "FinalLevel", "KillCount", "DamageDealt", });
     internal_static_lawnmower_S2C_GameOver_descriptor =
-      getDescriptor().getMessageTypes().get(54);
+      getDescriptor().getMessageTypes().get(57);
     internal_static_lawnmower_S2C_GameOver_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_S2C_GameOver_descriptor,
-        new java.lang.String[] { "Victory", "SurviveTime", "Scores", });
+        new java.lang.String[] { "Victory", "SurviveTime", "Scores", "SyncTime", "RoomId", });
     internal_static_lawnmower_EnemyConfig_descriptor =
-      getDescriptor().getMessageTypes().get(55);
+      getDescriptor().getMessageTypes().get(58);
     internal_static_lawnmower_EnemyConfig_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_EnemyConfig_descriptor,
         new java.lang.String[] { "TypeId", "Name", "TextureId", "WalkAnimId", "DieAnimId", "MaxHealth", "Speed", "Damage", "ExpReward", });
     internal_static_lawnmower_Packet_descriptor =
-      getDescriptor().getMessageTypes().get(56);
+      getDescriptor().getMessageTypes().get(59);
     internal_static_lawnmower_Packet_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_lawnmower_Packet_descriptor,

@@ -136,7 +136,7 @@ void GameManager::TryApplyEnemyMeleeDamageForStage(
 
   const int32_t prev_hp = player.state.health();
   const int32_t dealt = std::min(damage, std::max<int32_t>(0, prev_hp));
-  player.state.set_health(std::max<int32_t>(0, prev_hp - damage));
+  SetPlayerHealth(player, std::max<int32_t>(0, prev_hp - damage), scene.tick);
   MarkPlayerLowFreqDirtyForCombat(scene, player);
 
   lawnmower::S2C_PlayerHurt hurt;
@@ -147,7 +147,7 @@ void GameManager::TryApplyEnemyMeleeDamageForStage(
   player_hurts->push_back(std::move(hurt));
 
   if (player.state.health() <= 0) {
-    player.state.set_is_alive(false);
+    SetPlayerAlive(player, false, scene.tick);
     player.wants_attacking = false;
     MarkPlayerLowFreqDirtyForCombat(scene, player);
   }

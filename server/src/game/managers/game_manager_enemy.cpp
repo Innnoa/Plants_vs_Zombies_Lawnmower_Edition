@@ -355,6 +355,7 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     runtime.state.set_is_alive(true);
     runtime.state.set_wave_id(scene.wave_id);
     runtime.state.set_is_friendly(false);
+    runtime.state.set_authoritative_tick(static_cast<uint32_t>(scene.tick));
     runtime.target_player_id = 0;
     runtime.path_index = 0;
     runtime.last_path_start_cell = {0, 0};
@@ -368,6 +369,7 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
     runtime.last_sync_position = runtime.state.position();
     runtime.last_sync_health = runtime.state.health();
     runtime.last_sync_is_alive = runtime.state.is_alive();
+    runtime.authoritative_tick = static_cast<uint32_t>(scene.tick);
     runtime.force_sync_left = kEnemySpawnForceSyncCount;
     runtime.dirty = false;
     auto [it, _] =
@@ -546,8 +548,10 @@ void GameManager::ProcessEnemies(Scene& scene, double dt_seconds,
       const float new_y = new_pos.y();
       if (std::abs(new_x - prev_x) > 1e-4f ||
           std::abs(new_y - prev_y) > 1e-4f) {
-        pos->set_x(new_x);
-        pos->set_y(new_y);
+        lawnmower::Vector2 next_pos;
+        next_pos.set_x(new_x);
+        next_pos.set_y(new_y);
+        SetEnemyPosition(enemy, next_pos, scene.tick);
         MarkEnemyDirty(scene, enemy.state.enemy_id(), enemy);
       }
     }
