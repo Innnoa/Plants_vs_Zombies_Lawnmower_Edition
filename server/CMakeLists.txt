@@ -175,6 +175,21 @@ add_test(
 )
 set_tests_properties(udp_sync_smoke PROPERTIES TIMEOUT 60)
 
+add_executable(server_net_fix_smoke_test
+  ${TESTS_INTEGRATION_DIR}/server_net_fix_smoke_test.cpp
+)
+target_link_libraries(server_net_fix_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
+add_test(
+  NAME server_net_fix_smoke
+  COMMAND server_net_fix_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(server_net_fix_smoke PROPERTIES TIMEOUT 60)
+
 add_executable(config_loader_smoke_test
   ${TESTS_UNIT_DIR}/config_loader_smoke_test.cpp
   src/config/server_config.cpp
