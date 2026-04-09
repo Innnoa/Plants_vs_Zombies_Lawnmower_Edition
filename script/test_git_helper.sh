@@ -187,6 +187,10 @@ run_helper_in_repo "$bob_repo" pull >/dev/null
 bob_head_after_pull="$(git -C "$bob_repo" rev-parse HEAD)"
 assert_equals "$bob_head_after_pull" "$alice_head_after_push"
 
+menu_fail_then_exit_output="$(printf '7\n2\n8\n' | run_helper_in_repo "$alice_repo" menu 2>&1)"
+assert_contains "$menu_fail_then_exit_output" "菜单操作失败（stash"
+assert_contains "$menu_fail_then_exit_output" "退出菜单"
+
 menu_output="$(printf '8\n' | run_helper_in_repo "$alice_repo" menu)"
 assert_contains "$menu_output" "退出"
 

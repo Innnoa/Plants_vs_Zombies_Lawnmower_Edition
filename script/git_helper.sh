@@ -241,6 +241,19 @@ EOF
 
 show_menu() {
   local selection=""
+
+  run_menu_action() {
+    local action_label="$1"
+    shift
+
+    if "$@"; then
+      return 0
+    fi
+
+    local status=$?
+    echo "菜单操作失败（$action_label，退出码: $status），返回菜单继续。" >&2
+  }
+
   while true; do
     cat <<'EOF'
 Git Helper 菜单:
@@ -260,25 +273,25 @@ EOF
 
     case "$selection" in
       1)
-        run_status
+        run_menu_action "status" run_status
         ;;
       2)
-        run_pull
+        run_menu_action "pull" run_pull
         ;;
       3)
-        run_push
+        run_menu_action "push" run_push
         ;;
       4)
-        prompt_commit
+        run_menu_action "commit" prompt_commit
         ;;
       5)
-        prompt_switch
+        run_menu_action "switch" prompt_switch
         ;;
       6)
-        run_log
+        run_menu_action "log" run_log
         ;;
       7)
-        prompt_stash
+        run_menu_action "stash" prompt_stash
         ;;
       8)
         echo "退出菜单。"
