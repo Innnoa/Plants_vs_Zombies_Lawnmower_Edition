@@ -9,6 +9,7 @@ usage() {
   cat <<'EOF'
 用法:
   script/git_helper.sh <命令> [参数]
+  script/git_helper.sh              # 不带参数时默认进入 menu
 
 命令:
   menu                 显示交互菜单

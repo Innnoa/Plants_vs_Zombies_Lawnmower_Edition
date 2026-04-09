@@ -81,6 +81,7 @@ run_helper_in_repo() {
 
 help_output="$(run_helper --help)"
 assert_contains "$help_output" "用法:"
+assert_contains "$help_output" "不带参数时默认进入 menu"
 
 status_output="$(run_helper status)"
 assert_contains "$status_output" "## "
@@ -136,7 +137,7 @@ assert_command_fails "pull 不接受额外参数。" run_helper pull extra
 assert_command_fails "push 不接受额外参数。" run_helper push extra
 assert_command_fails "help 不接受额外参数。" run_helper --help extra
 assert_command_fails "stash list 不接受额外参数。" run_helper stash list extra
-assert_command_fails "switch 只接受一个目标分支名。" run_helper switch main extra
+assert_command_fails "switch 只接受一个目标分支名。" run_helper switch "$base_branch" extra
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit -m msg extra
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit --message msg --amend
 assert_command_fails "switch 需要目标分支名。" run_helper switch
