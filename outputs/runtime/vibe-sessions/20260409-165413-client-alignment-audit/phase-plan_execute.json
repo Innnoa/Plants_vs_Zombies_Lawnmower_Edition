@@ -1,0 +1,26 @@
+{
+  "run_id": "20260409-165413-client-alignment-audit",
+  "status": "completed",
+  "completed_scope": [
+    "通读协议、客户端入口与服务端关键发送路径",
+    "核对房间控制、开局、重连、升级、状态同步、batch 事件、full snapshot 分片",
+    "补充动态验证：server_smoke、udp_sync_smoke、tcp_event_batch_smoke、full_snapshot_chunking_smoke、upgrade_resume_smoke",
+    "产出最终审计文档 docs/client-alignment/2026-04-09-client-alignment-audit.md",
+    "补齐 requirement / execution plan / runtime receipts / CURRENT_TASK.md"
+  ],
+  "deliverable": "docs/client-alignment/2026-04-09-client-alignment-audit.md",
+  "verification": [
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"server_smoke|udp_sync_smoke|tcp_event_batch_smoke|full_snapshot_chunking_smoke|upgrade_resume_smoke\"",
+      "result": "failed_in_sandbox",
+      "details": "创建端口探测 socket 失败"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"server_smoke|udp_sync_smoke|tcp_event_batch_smoke|full_snapshot_chunking_smoke|upgrade_resume_smoke\"",
+      "result": "passed_with_escalation"
+    }
+  ],
+  "residual_risks": [
+    "真实 full resync 入口目前是客户端伪接口，若后续只允许改客户端，这一项无法彻底闭环"
+  ]
+}

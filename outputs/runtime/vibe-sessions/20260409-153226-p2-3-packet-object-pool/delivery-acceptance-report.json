@@ -1,0 +1,6 @@
+{
+  "run_id": "20260409-153226-p2-3-packet-object-pool",
+  "p2_3_packet_object_pool_completed": true,
+  "p2_3_server_scope_completed": true,
+  "reason": "已完成发送热路径 Packet 对象池，并保留前序 prepared cache / backlog / template 改造，P2-3 服务器侧既定范围已收口。"
+}

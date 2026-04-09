@@ -1,0 +1,32 @@
+{
+  "run_id": "20260409-153226-p2-3-packet-object-pool",
+  "status": "completed",
+  "completed_scope": [
+    "新增 network/shared/packet_object_pool.hpp，提供 Packet acquire/release RAII 句柄",
+    "新增 packet_object_pool 单元测试，覆盖地址复用与 Clear 语义",
+    "tcp_session.cpp 发送热路径改为复用 Packet 实例",
+    "udp_server.cpp 发送热路径改为复用 Packet 实例",
+    "game_manager_dispatch_cache.cpp 与 game_manager_sync_dispatch.cpp 的构包热点改为复用 Packet 实例"
+  ],
+  "not_in_scope": [
+    "业务 message 对象池化",
+    "接收链路 Packet 解析",
+    "客户端改动",
+    "protobuf arena"
+  ],
+  "verification": [
+    {
+      "command": "env CCACHE_DISABLE=1 script/build_server.sh --debug",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R packet_object_pool",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"packet_object_pool|state_sync_backlog|dispatch_cache|event_dispatch_backlog|channel_policy|server_smoke|udp_sync_smoke|tcp_event_batch_smoke|state_packet_budget_smoke|delta_packet_budget_smoke|event_backpressure_smoke|room_sync_budget_smoke|full_snapshot_chunking_smoke\"",
+      "result": "passed"
+    }
+  ],
+  "residual_risks": []
+}

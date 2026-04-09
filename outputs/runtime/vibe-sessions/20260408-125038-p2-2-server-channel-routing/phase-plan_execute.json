@@ -1,0 +1,36 @@
+{
+  "run_id": "20260408-125038-p2-2-server-channel-routing",
+  "status": "completed",
+  "completed_scope": [
+    "channel_policy 模块与单元测试",
+    "状态同步分发接入 policy",
+    "事件分发接入 policy",
+    "TCP/UDP 输入入口与 TCP SendProto 显式接入 policy",
+    "服务器内部 channel semantics 第一阶段收口"
+  ],
+  "not_in_scope": [
+    "proto 外层包结构变更",
+    "客户端改动",
+    "可靠 UDP / 应用层重传",
+    "P2-2 协议级频道化第二阶段"
+  ],
+  "verification": [
+    {
+      "command": "env CCACHE_DISABLE=1 script/build_server.sh --debug",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R channel_policy",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"channel_policy|server_smoke|udp_sync_smoke|tcp_event_batch_smoke\"",
+      "result": "passed"
+    }
+  ],
+  "residual_risks": [
+    "policy 默认分支仍可能掩盖新增 MessageType 未补映射的问题",
+    "事件 backlog 的全局容器与房间生命周期绑定仍不够显式，这是 pre-existing 风险",
+    "输入/发送入口的观测日志尚未做限频，极端错误配置下可能出现日志放大"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "run_id": "20260408-113648-p2-1-server-rollback",
+  "status": "completed",
+  "implemented_scope": [
+    "窗口内迟到输入可接收并排序入队",
+    "last_processed_input_seq 改为连续确认前缀语义",
+    "玩家已处理输入片段历史与初始快照基线",
+    "单玩家近窗口重放纠偏",
+    "现有状态同步链路下发纠偏结果",
+    "late_input_reconciliation_smoke_test"
+  ],
+  "verification": [
+    {
+      "command": "env CCACHE_DISABLE=1 script/build_server.sh --debug",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R late_input_reconciliation_smoke",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"late_input_reconciliation_smoke|udp_sync_smoke|server_smoke|tick_dispatch_gate\"",
+      "result": "passed"
+    }
+  ],
+  "residual_scope_not_included": [
+    "房间级完整回滚",
+    "敌人/射弹/伤害/掉落/升级的历史重演",
+    "客户端改动",
+    "新增协议字段"
+  ]
+}

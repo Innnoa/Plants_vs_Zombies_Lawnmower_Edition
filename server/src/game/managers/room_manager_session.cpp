@@ -2,6 +2,8 @@
 #include <cstddef>
 
 #include "game/managers/room_manager.hpp"
+#include "game/managers/internal/game_manager_sync_dispatch.hpp"
+#include "internal/game_manager_event_dispatch.hpp"
 #include "network/tcp/tcp_session.hpp"
 
 RoomManager::RoomPlayer* RoomManager::FindRoomPlayerLocked(Room& room,
@@ -161,6 +163,8 @@ bool RoomManager::DetachPlayerLocked(uint32_t player_id, RoomUpdate* update) {
   player_room_.erase(mapping);
 
   if (room.players.empty()) {
+    game_manager_sync_dispatch::ClearRoomDispatchState(room.room_id);
+    game_manager_event_dispatch::ClearRoomDispatchState(room.room_id);
     rooms_.erase(room_it);
     return true;
   }

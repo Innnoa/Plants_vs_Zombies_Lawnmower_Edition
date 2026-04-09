@@ -24,6 +24,16 @@ struct PlayerRuntime {
     uint32_t last_processed_input_seq = 0;  // 已处理输入序号
   };
 
+  struct ProcessedInputSegment {
+    uint32_t input_seq = 0;
+    uint32_t input_tick = 0;
+    uint64_t applied_tick = 0;
+    float delta_seconds = 0.0f;
+    float move_direction_x = 0.0f;
+    float move_direction_y = 0.0f;
+    float rotation = 0.0f;
+  };
+
   // 对齐优化：按位宽从大到小聚合，减少 padding。
   double attack_cooldown_seconds = 0.0;         // 攻击冷却剩余
   double target_refresh_elapsed = 0.0;          // 目标刷新计时
@@ -34,9 +44,12 @@ struct PlayerRuntime {
   lawnmower::Vector2 last_sync_position;                  // delta 同步基线位置
   std::deque<lawnmower::C2S_PlayerInput> pending_inputs;  // 待处理输入队列
   std::deque<HistoryEntry> history;     // 历史缓冲（用于预测校验）
+  std::deque<ProcessedInputSegment> processed_input_segments;  // 已处理输入片段历史
   lawnmower::PlayerState state;         // 玩家状态
   uint32_t authoritative_tick = 0;     // 玩家对象最后一次权威状态变更 tick
   uint32_t last_input_seq = 0;          // 已处理的最新输入序号
+  uint32_t last_contiguous_input_seq = 0;  // 连续可确认的最新输入序号
+  uint32_t highest_received_input_seq = 0;  // 已接收过的最高输入序号
   uint32_t force_sync_left = 0;         // 关键低频状态的强制续发次数
   float last_sync_rotation = 0.0f;      // delta 同步基线朝向
   uint32_t last_sync_input_seq = 0;     // delta 同步基线输入序号
@@ -55,6 +68,9 @@ struct PlayerRuntime {
   bool low_freq_dirty = false;          // 低频/全量同步字段变化标记
   bool dirty = false;                   // 高频同步字段变化标记
   bool dirty_queued = false;            // 是否已进入脏队列（去重）
+  bool needs_prediction_reconciliation = false;  // 是否需要做迟到输入重放纠偏
+  uint32_t reconcile_from_input_seq = 0;         // 需要重放的最早输入序号
+  std::set<uint32_t> processed_input_seq_window;  // 已处理但未确认的输入序号窗口
 };
 
 // 敌人运行时状态

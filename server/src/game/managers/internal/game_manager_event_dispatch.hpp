@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -25,5 +26,13 @@ uint32_t DispatchTickEvents(
     const std::optional<lawnmower::S2C_UpgradeRequest>& upgrade_request,
     uint32_t noncritical_event_entries_budget,
     uint32_t noncritical_event_messages_budget);
+
+uint32_t QueuedNonCriticalEventPacketCount(uint32_t room_id);
+
+bool HasDeferredBacklogRoom(uint32_t room_id);
+
+std::uintptr_t FirstDeferredBacklogPreparedBytesIdentity(uint32_t room_id);
+
+void ClearRoomDispatchState(uint32_t room_id);
 
 }  // namespace game_manager_event_dispatch

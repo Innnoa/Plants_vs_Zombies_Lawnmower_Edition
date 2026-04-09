@@ -50,6 +50,7 @@ add_executable(server
   src/network/tcp/session_gameplay.cpp
   src/network/tcp/tcp_server.cpp
   src/network/udp/udp_server.cpp
+  src/network/channel_policy.cpp
   src/config/server_config.cpp
   src/config/player_roles_config.cpp
   src/config/enemy_types_config.cpp
@@ -63,6 +64,7 @@ add_executable(server
   src/game/managers/game_manager_loop.cpp
   src/game/managers/game_manager_metrics.cpp
   src/game/managers/game_manager_scene.cpp
+  src/game/managers/game_manager_dispatch_cache.cpp
   src/game/managers/game_manager_sync.cpp
   src/game/managers/game_manager_sync_dispatch.cpp
   src/game/managers/game_manager_event_dispatch.cpp
@@ -277,6 +279,15 @@ target_link_libraries(delta_packet_budget_smoke_test
       ${ABSL_LOG_TARGETS}
 )
 
+add_executable(late_input_reconciliation_smoke_test
+  ${TESTS_INTEGRATION_DIR}/late_input_reconciliation_smoke_test.cpp
+)
+target_link_libraries(late_input_reconciliation_smoke_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+)
+
 add_test(
   NAME udp_sync_smoke
   COMMAND udp_sync_smoke_test $<TARGET_FILE:server>
@@ -300,6 +311,12 @@ add_test(
   COMMAND delta_packet_budget_smoke_test $<TARGET_FILE:server>
 )
 set_tests_properties(delta_packet_budget_smoke PROPERTIES TIMEOUT 60)
+
+add_test(
+  NAME late_input_reconciliation_smoke
+  COMMAND late_input_reconciliation_smoke_test $<TARGET_FILE:server>
+)
+set_tests_properties(late_input_reconciliation_smoke PROPERTIES TIMEOUT 90)
 
 add_test(
   NAME upgrade_resume_smoke
@@ -388,3 +405,98 @@ add_test(
   COMMAND tick_dispatch_gate_test
 )
 set_tests_properties(tick_dispatch_gate PROPERTIES TIMEOUT 30)
+
+add_executable(channel_policy_test
+  ${TESTS_UNIT_DIR}/channel_policy_test.cpp
+  src/network/channel_policy.cpp
+)
+target_include_directories(channel_policy_test PRIVATE include)
+target_link_libraries(channel_policy_test
+  PRIVATE
+      proto_lib
+)
+
+add_test(
+  NAME channel_policy
+  COMMAND channel_policy_test
+)
+set_tests_properties(channel_policy PROPERTIES TIMEOUT 30)
+
+add_executable(dispatch_cache_test
+  ${TESTS_UNIT_DIR}/dispatch_cache_test.cpp
+  src/game/managers/game_manager_dispatch_cache.cpp
+)
+target_include_directories(dispatch_cache_test PRIVATE include)
+target_link_libraries(dispatch_cache_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+      ${ABSL_STATUS_TARGETS}
+)
+
+add_test(
+  NAME dispatch_cache
+  COMMAND dispatch_cache_test
+)
+set_tests_properties(dispatch_cache PROPERTIES TIMEOUT 30)
+
+add_executable(event_dispatch_backlog_test
+  ${TESTS_UNIT_DIR}/event_dispatch_backlog_test.cpp
+  src/game/managers/game_manager_event_dispatch.cpp
+  src/game/managers/game_manager_dispatch_cache.cpp
+  src/game/managers/game_manager_internal_utils.cpp
+  src/network/channel_policy.cpp
+)
+target_include_directories(event_dispatch_backlog_test PRIVATE include src/game/managers)
+target_link_libraries(event_dispatch_backlog_test
+  PRIVATE
+      proto_lib
+      spdlog::spdlog
+      ${ABSL_LOG_TARGETS}
+      ${ABSL_STATUS_TARGETS}
+)
+
+add_test(
+  NAME event_dispatch_backlog
+  COMMAND event_dispatch_backlog_test
+)
+set_tests_properties(event_dispatch_backlog PROPERTIES TIMEOUT 30)
+
+add_executable(state_sync_backlog_test
+  ${TESTS_UNIT_DIR}/state_sync_backlog_test.cpp
+  src/game/managers/game_manager_sync_dispatch.cpp
+  src/game/managers/game_manager_dispatch_cache.cpp
+  src/game/managers/game_manager_internal_utils.cpp
+  src/network/channel_policy.cpp
+)
+target_include_directories(state_sync_backlog_test PRIVATE include src/game/managers)
+target_link_libraries(state_sync_backlog_test
+  PRIVATE
+      proto_lib
+      spdlog::spdlog
+      ${ABSL_LOG_TARGETS}
+      ${ABSL_STATUS_TARGETS}
+)
+
+add_test(
+  NAME state_sync_backlog
+  COMMAND state_sync_backlog_test
+)
+set_tests_properties(state_sync_backlog PROPERTIES TIMEOUT 30)
+
+add_executable(packet_object_pool_test
+  ${TESTS_UNIT_DIR}/packet_object_pool_test.cpp
+)
+target_include_directories(packet_object_pool_test PRIVATE include)
+target_link_libraries(packet_object_pool_test
+  PRIVATE
+      proto_lib
+      ${ABSL_LOG_TARGETS}
+      ${ABSL_STATUS_TARGETS}
+)
+
+add_test(
+  NAME packet_object_pool
+  COMMAND packet_object_pool_test
+)
+set_tests_properties(packet_object_pool PROPERTIES TIMEOUT 30)

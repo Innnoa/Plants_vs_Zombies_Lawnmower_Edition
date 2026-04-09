@@ -1,71 +1,66 @@
 #include "internal/game_manager_event_dispatch.hpp"
 
-#if defined(_WIN32)
-#include <winsock2.h>
-#else
-#include <arpa/inet.h>
-#endif
-
 #include <algorithm>
-#include <cstring>
 #include <deque>
-#include <unordered_map>
 #include <span>
+#include <unordered_map>
+#include <variant>
 #include <spdlog/spdlog.h>
 
+#include "game/managers/internal/game_manager_dispatch_cache.hpp"
 #include "internal/game_manager_internal_utils.hpp"
+#include "network/channel_policy.hpp"
 #include "network/tcp/tcp_session.hpp"
-#include "network/shared/shared_string_pool.hpp"
 
 namespace {
 using game_manager_internal::NowMs;
 
+using EventMessageVariant = std::variant<
+    lawnmower::S2C_ProjectileSpawn, lawnmower::S2C_ProjectileDespawn,
+    lawnmower::S2C_DroppedItem, lawnmower::S2C_EnemyAttackStateSync,
+    lawnmower::S2C_PlayerHurtBatch, lawnmower::S2C_EnemyDiedBatch,
+    lawnmower::S2C_PlayerLevelUpBatch, lawnmower::S2C_UpgradeRequest,
+    lawnmower::S2C_GameOver>;
+
 struct PreparedPacket {
   lawnmower::MessageType type = lawnmower::MessageType::MSG_UNKNOWN;
-  std::shared_ptr<const std::string> framed;
-  std::size_t payload_len = 0;
-  std::size_t body_len = 0;
+  EventMessageVariant message;
   uint32_t entry_count = 0;
+  game_manager_dispatch_cache::PreparedPacketBytes prepared_packet;
 };
 
-PreparedPacket BuildPreparedPacket(lawnmower::MessageType type,
-                                   const google::protobuf::Message& message) {
-  lawnmower::Packet packet;
-  packet.set_msg_type(type);
-  const auto payload_len = static_cast<std::size_t>(message.ByteSizeLong());
-  auto* payload = packet.mutable_payload();
-  payload->resize(payload_len);
-  if (payload_len > 0 &&
-      !message.SerializeToArray(payload->data(), static_cast<int>(payload_len))) {
-    return {type, nullptr, 0, 0};
-  }
-  const auto body_len = static_cast<std::size_t>(packet.ByteSizeLong());
-  const uint32_t net_len = htonl(static_cast<uint32_t>(body_len));
-  auto framed = network_shared::AcquireSharedString(sizeof(net_len) + body_len);
-  framed->resize(sizeof(net_len) + body_len);
-  std::memcpy(framed->data(), &net_len, sizeof(net_len));
-  if (body_len > 0 &&
-      !packet.SerializeToArray(framed->data() + sizeof(net_len),
-                               static_cast<int>(body_len))) {
-    return {type, nullptr, 0, 0};
-  }
-  return {type, framed, payload_len, body_len, 0};
-}
-
+template <typename TMessage>
 void AppendPreparedPacket(std::vector<PreparedPacket>* out,
-                          lawnmower::MessageType type,
-                          const google::protobuf::Message& message,
+                          lawnmower::MessageType type, const TMessage& message,
                           uint32_t entry_count = 0) {
   if (out == nullptr) {
     return;
   }
-  auto packet = BuildPreparedPacket(type, message);
-  if (packet.framed == nullptr) {
-    spdlog::warn("构造事件包失败 type={}", lawnmower::MessageType_Name(type));
+  out->push_back(PreparedPacket{
+      .type = type,
+      .message = EventMessageVariant{message},
+      .entry_count = entry_count,
+      .prepared_packet = {},
+  });
+}
+
+game_manager_dispatch_cache::PreparedPacketBytes BuildPreparedEventPacketBytes(
+    const PreparedPacket& packet) {
+  return std::visit(
+      [&](const auto& message) {
+        return game_manager_dispatch_cache::MaterializePacketBytes(
+            packet.type,
+            game_manager_dispatch_cache::PreparedTransport::kTcpFramed,
+            message);
+      },
+      packet.message);
+}
+
+void EnsurePreparedEventPacketBytes(PreparedPacket* packet) {
+  if (packet == nullptr || packet->prepared_packet.bytes != nullptr) {
     return;
   }
-  packet.entry_count = entry_count;
-  out->push_back(std::move(packet));
+  packet->prepared_packet = BuildPreparedEventPacketBytes(*packet);
 }
 
 struct TickEventMessages {
@@ -96,6 +91,23 @@ struct DeferredNonCriticalEventBacklog {
   std::deque<PreparedPacket> enemy_attack_states;
 };
 
+struct EventDispatchDecision {
+  bool is_critical_path = false;
+  bool allow_backlog = false;
+  bool subject_to_message_budget = false;
+  bool subject_to_entry_budget = false;
+};
+
+EventDispatchDecision ResolveEventDispatchDecision(lawnmower::MessageType type) {
+  const auto policy = network_channel_policy::ResolveMessageChannelPolicy(type);
+  return EventDispatchDecision{
+      .is_critical_path = !policy.allow_backlog,
+      .allow_backlog = policy.allow_backlog,
+      .subject_to_message_budget = policy.subject_to_packet_budget,
+      .subject_to_entry_budget = policy.subject_to_event_entry_budget,
+  };
+}
+
 std::unordered_map<uint32_t, DeferredNonCriticalEventBacklog>& DeferredEventBacklogs() {
   static auto* backlogs =
       new std::unordered_map<uint32_t, DeferredNonCriticalEventBacklog>();
@@ -104,6 +116,20 @@ std::unordered_map<uint32_t, DeferredNonCriticalEventBacklog>& DeferredEventBack
 
 DeferredNonCriticalEventBacklog& DeferredBacklogForRoom(uint32_t room_id) {
   return DeferredEventBacklogs()[room_id];
+}
+
+bool IsDeferredBacklogEmpty(const DeferredNonCriticalEventBacklog& backlog) {
+  return backlog.projectile_spawns.empty() &&
+         backlog.projectile_despawns.empty() && backlog.dropped_items.empty() &&
+         backlog.enemy_attack_states.empty();
+}
+
+void MaybeClearDeferredBacklog(uint32_t room_id) {
+  auto& backlogs = DeferredEventBacklogs();
+  auto it = backlogs.find(room_id);
+  if (it != backlogs.end() && IsDeferredBacklogEmpty(it->second)) {
+    backlogs.erase(it);
+  }
 }
 
 void ClearDeferredBacklog(uint32_t room_id) {
@@ -299,6 +325,7 @@ void QueueCurrentMessage(const TMessage& current,
       ready->push_back(std::move(packet));
       continue;
     }
+    EnsurePreparedEventPacketBytes(&packet);
     backlog->push_back(std::move(packet));
   }
 }
@@ -458,15 +485,41 @@ bool HasTickEventsToBroadcast(
 }
 
 void SendTickEventsToSessions(
+    uint32_t room_id, uint64_t event_tick,
     std::span<const std::weak_ptr<TcpSession>> sessions,
     const std::vector<PreparedPacket>& prepared_packets) {
+  std::vector<game_manager_dispatch_cache::PreparedPacketBytes> materialized_packets;
+  materialized_packets.reserve(prepared_packets.size());
+  for (uint32_t index = 0; index < prepared_packets.size(); ++index) {
+    const auto& packet = prepared_packets[index];
+    const auto materialized =
+        packet.prepared_packet.bytes != nullptr
+            ? packet.prepared_packet
+            : std::visit(
+                  [&](const auto& message) {
+                    return game_manager_dispatch_cache::MaterializeOrReusePacket(
+                        room_id, event_tick,
+                        game_manager_dispatch_cache::CacheFamily::kTickEvents,
+                        index, packet.type,
+                        game_manager_dispatch_cache::PreparedTransport::kTcpFramed,
+                        message);
+                  },
+                  packet.message);
+    if (materialized.bytes == nullptr) {
+      spdlog::warn("构造事件包失败 type={}",
+                   lawnmower::MessageType_Name(packet.type));
+      continue;
+    }
+    materialized_packets.push_back(materialized);
+  }
+
   for (const auto& weak_session : sessions) {
     auto session = weak_session.lock();
     if (!session) {
       continue;
     }
-    for (const auto& packet : prepared_packets) {
-      session->SendFramedPacket(packet.framed, packet.type, packet.payload_len,
+    for (const auto& packet : materialized_packets) {
+      session->SendFramedPacket(packet.bytes, packet.type, packet.payload_len,
                                 packet.body_len);
     }
   }
@@ -486,42 +539,139 @@ void ScheduleDeferredNonCriticalEvents(
   uint32_t remaining_entries = noncritical_event_entries_budget;
   uint32_t remaining_messages = noncritical_event_messages_budget;
 
-  DrainDeferredMessages(&backlog.projectile_spawns, prepared_packets,
-                        &remaining_entries, &remaining_messages);
-  DrainDeferredMessages(&backlog.projectile_despawns, prepared_packets,
-                        &remaining_entries, &remaining_messages);
-  DrainDeferredMessages(&backlog.dropped_items, prepared_packets,
-                        &remaining_entries, &remaining_messages);
-  DrainDeferredMessages(&backlog.enemy_attack_states, prepared_packets,
-                        &remaining_entries, &remaining_messages);
+  const auto projectile_spawn_decision = ResolveEventDispatchDecision(
+      lawnmower::MessageType::MSG_S2C_PROJECTILE_SPAWN);
+  const auto projectile_despawn_decision = ResolveEventDispatchDecision(
+      lawnmower::MessageType::MSG_S2C_PROJECTILE_DESPAWN);
+  const auto dropped_item_decision = ResolveEventDispatchDecision(
+      lawnmower::MessageType::MSG_S2C_DROPPED_ITEM);
+  const auto enemy_attack_state_decision = ResolveEventDispatchDecision(
+      lawnmower::MessageType::MSG_S2C_ENEMY_ATTACK_STATE_SYNC);
+
+  if (projectile_spawn_decision.allow_backlog) {
+    DrainDeferredMessages(projectile_spawn_decision.subject_to_message_budget
+                              ? &backlog.projectile_spawns
+                              : nullptr,
+                          prepared_packets,
+                          projectile_spawn_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          projectile_spawn_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+  }
+  if (projectile_despawn_decision.allow_backlog) {
+    DrainDeferredMessages(projectile_despawn_decision.subject_to_message_budget
+                              ? &backlog.projectile_despawns
+                              : nullptr,
+                          prepared_packets,
+                          projectile_despawn_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          projectile_despawn_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+  }
+  if (dropped_item_decision.allow_backlog) {
+    DrainDeferredMessages(dropped_item_decision.subject_to_message_budget
+                              ? &backlog.dropped_items
+                              : nullptr,
+                          prepared_packets,
+                          dropped_item_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          dropped_item_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+  }
+  if (enemy_attack_state_decision.allow_backlog) {
+    DrainDeferredMessages(enemy_attack_state_decision.subject_to_message_budget
+                              ? &backlog.enemy_attack_states
+                              : nullptr,
+                          prepared_packets,
+                          enemy_attack_state_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          enemy_attack_state_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+  }
 
   if (messages.has_projectile_spawn) {
-    QueueCurrentMessage(messages.projectile_spawn_msg,
-                        lawnmower::MessageType::MSG_S2C_PROJECTILE_SPAWN,
-                        max_entries_per_chunk, &backlog.projectile_spawns,
-                        prepared_packets, &remaining_entries,
-                        &remaining_messages);
+    if (projectile_spawn_decision.allow_backlog) {
+      QueueCurrentMessage(messages.projectile_spawn_msg,
+                          lawnmower::MessageType::MSG_S2C_PROJECTILE_SPAWN,
+                          max_entries_per_chunk, &backlog.projectile_spawns,
+                          prepared_packets,
+                          projectile_spawn_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          projectile_spawn_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+    } else {
+      AppendPreparedPacket(prepared_packets,
+                           lawnmower::MessageType::MSG_S2C_PROJECTILE_SPAWN,
+                           messages.projectile_spawn_msg,
+                           CountEntries(messages.projectile_spawn_msg));
+    }
   }
   if (messages.has_projectile_despawn) {
-    QueueCurrentMessage(messages.projectile_despawn_msg,
-                        lawnmower::MessageType::MSG_S2C_PROJECTILE_DESPAWN,
-                        max_entries_per_chunk, &backlog.projectile_despawns,
-                        prepared_packets, &remaining_entries,
-                        &remaining_messages);
+    if (projectile_despawn_decision.allow_backlog) {
+      QueueCurrentMessage(messages.projectile_despawn_msg,
+                          lawnmower::MessageType::MSG_S2C_PROJECTILE_DESPAWN,
+                          max_entries_per_chunk, &backlog.projectile_despawns,
+                          prepared_packets,
+                          projectile_despawn_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          projectile_despawn_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+    } else {
+      AppendPreparedPacket(prepared_packets,
+                           lawnmower::MessageType::MSG_S2C_PROJECTILE_DESPAWN,
+                           messages.projectile_despawn_msg,
+                           CountEntries(messages.projectile_despawn_msg));
+    }
   }
   if (messages.has_dropped_items) {
-    QueueCurrentMessage(messages.dropped_item_msg,
-                        lawnmower::MessageType::MSG_S2C_DROPPED_ITEM,
-                        max_entries_per_chunk, &backlog.dropped_items,
-                        prepared_packets, &remaining_entries,
-                        &remaining_messages);
+    if (dropped_item_decision.allow_backlog) {
+      QueueCurrentMessage(messages.dropped_item_msg,
+                          lawnmower::MessageType::MSG_S2C_DROPPED_ITEM,
+                          max_entries_per_chunk, &backlog.dropped_items,
+                          prepared_packets,
+                          dropped_item_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          dropped_item_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+    } else {
+      AppendPreparedPacket(prepared_packets,
+                           lawnmower::MessageType::MSG_S2C_DROPPED_ITEM,
+                           messages.dropped_item_msg,
+                           CountEntries(messages.dropped_item_msg));
+    }
   }
   if (messages.has_enemy_attack_state) {
-    QueueCurrentMessage(messages.enemy_attack_state_msg,
-                        lawnmower::MessageType::MSG_S2C_ENEMY_ATTACK_STATE_SYNC,
-                        max_entries_per_chunk, &backlog.enemy_attack_states,
-                        prepared_packets, &remaining_entries,
-                        &remaining_messages);
+    if (enemy_attack_state_decision.allow_backlog) {
+      QueueCurrentMessage(messages.enemy_attack_state_msg,
+                          lawnmower::MessageType::MSG_S2C_ENEMY_ATTACK_STATE_SYNC,
+                          max_entries_per_chunk, &backlog.enemy_attack_states,
+                          prepared_packets,
+                          enemy_attack_state_decision.subject_to_entry_budget
+                              ? &remaining_entries
+                              : nullptr,
+                          enemy_attack_state_decision.subject_to_message_budget
+                              ? &remaining_messages
+                              : nullptr);
+    } else {
+      AppendPreparedPacket(prepared_packets,
+                           lawnmower::MessageType::MSG_S2C_ENEMY_ATTACK_STATE_SYNC,
+                           messages.enemy_attack_state_msg,
+                           CountEntries(messages.enemy_attack_state_msg));
+    }
   }
 }
 }  // namespace
@@ -588,28 +738,76 @@ uint32_t DispatchTickEvents(
 
   LogGameOverSummary(room_id, game_over);
 
-  const bool has_noncritical_packets = !prepared_packets.empty() &&
+  const bool has_noncritical_packets =
       std::any_of(prepared_packets.begin(), prepared_packets.end(),
                   [](const PreparedPacket& packet) {
-                    return packet.type != lawnmower::MessageType::MSG_S2C_PLAYER_HURT_BATCH &&
-                           packet.type != lawnmower::MessageType::MSG_S2C_ENEMY_DIED_BATCH &&
-                           packet.type != lawnmower::MessageType::MSG_S2C_PLAYER_LEVEL_UP_BATCH &&
-                           packet.type != lawnmower::MessageType::MSG_S2C_UPGRADE_REQUEST &&
-                           packet.type != lawnmower::MessageType::MSG_S2C_GAME_OVER;
+                    return !ResolveEventDispatchDecision(packet.type)
+                                .is_critical_path;
                   });
   if (tick_event_messages.has_player_hurt_batch ||
       tick_event_messages.has_enemy_died_batch ||
       tick_event_messages.has_level_up_batch ||
       tick_event_messages.has_game_over ||
       tick_event_messages.has_upgrade_request || has_noncritical_packets) {
-    SendTickEventsToSessions(sessions, prepared_packets);
+    SendTickEventsToSessions(room_id, event_tick, sessions, prepared_packets);
   }
 
   if (game_over.has_value()) {
     ClearDeferredBacklog(room_id);
+  } else {
+    MaybeClearDeferredBacklog(room_id);
   }
 
   return static_cast<uint32_t>(prepared_packets.size());
+}
+
+uint32_t QueuedNonCriticalEventPacketCount(uint32_t room_id) {
+  const auto& backlogs = DeferredEventBacklogs();
+  const auto it = backlogs.find(room_id);
+  if (it == backlogs.end()) {
+    return 0;
+  }
+  return static_cast<uint32_t>(it->second.projectile_spawns.size() +
+                               it->second.projectile_despawns.size() +
+                               it->second.dropped_items.size() +
+                               it->second.enemy_attack_states.size());
+}
+
+bool HasDeferredBacklogRoom(uint32_t room_id) {
+  return DeferredEventBacklogs().find(room_id) != DeferredEventBacklogs().end();
+}
+
+std::uintptr_t FirstDeferredBacklogPreparedBytesIdentity(uint32_t room_id) {
+  const auto& backlogs = DeferredEventBacklogs();
+  const auto it = backlogs.find(room_id);
+  if (it == backlogs.end()) {
+    return 0;
+  }
+  const auto to_identity = [](const std::deque<PreparedPacket>& packets) {
+    if (packets.empty() || packets.front().prepared_packet.bytes == nullptr) {
+      return static_cast<std::uintptr_t>(0);
+    }
+    return reinterpret_cast<std::uintptr_t>(
+        packets.front().prepared_packet.bytes.get());
+  };
+  if (const auto identity = to_identity(it->second.projectile_spawns);
+      identity != 0) {
+    return identity;
+  }
+  if (const auto identity = to_identity(it->second.projectile_despawns);
+      identity != 0) {
+    return identity;
+  }
+  if (const auto identity = to_identity(it->second.dropped_items);
+      identity != 0) {
+    return identity;
+  }
+  return to_identity(it->second.enemy_attack_states);
+}
+
+void ClearRoomDispatchState(uint32_t room_id) {
+  ClearDeferredBacklog(room_id);
+  game_manager_dispatch_cache::ClearRoomDispatchCache(room_id);
 }
 
 }  // namespace game_manager_event_dispatch

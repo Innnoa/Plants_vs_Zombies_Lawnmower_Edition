@@ -29,6 +29,7 @@
 - 已为客户端补齐可配置服务器目标、独立联通诊断入口和一键检查脚本，并同步修正文档与 Gradle 入口。
 - 已验证 `bash -n script/check_connectivity.sh` 通过，且在可用本地 socket 的环境中执行 `./script/check_connectivity.sh` 全链路通过，覆盖 TCP 登录/建房/开局与 UDP 状态同步。
 - 已调整项目内 `.agtx/skills` 的 `research / plan / execute / review` 模板，使其更符合全局 `AGENTS.md` 中关于 `AGTX_CONTEXT`、证据优先、验证输出和非递归委派的约束。
+- 已完成“客户端对齐审计”，输出可直接交给另一位 AI 的 Markdown，并明确区分客户端必改项、协同项、已对齐项和纯服务端无需改项。
 <!-- AI_GUIDE:SUMMARY:END -->
 
 ## 4. 执行记录
@@ -105,6 +106,48 @@
 - 结论：
   - 当前项目内后续由这些模板生成的 `agtx` 阶段会话，将更稳定地遵循全局规则，而不是只依赖会话侧隐式指令。
 <!-- AI_GUIDE:ENTRY:END ts=2026-04-03 10:24:59 CST id=session-20260403-102459-agtx-skill-tuning -->
+
+<!-- AI_GUIDE:ENTRY:BEGIN ts=2026-04-09 17:02:00 CST id=session-20260409-170200-client-alignment-audit -->
+- 时间：`2026-04-09 17:02:00 CST`
+- 类型：审计 / 文档治理
+- 目标：全面核对当前客户端相对服务端实现还需要对齐什么，并整理成可直接喂给另一位 AI 的 Markdown。
+- 关键读取：
+  - `AI_GUIDE.md`
+  - `server/docs/AI_GUIDE.md`
+  - `proto/message.proto`
+  - `client/core/src/main/java/com/lawnmower/Main.java`
+  - `client/core/src/main/java/com/lawnmower/screens/GameScreen.java`
+  - `client/core/src/main/java/com/lawnmower/screens/MainMenuScreen.java`
+  - `client/core/src/main/java/com/lawnmower/screens/RoomListScreen.java`
+  - `client/core/src/main/java/com/lawnmower/screens/GameRoomScreen.java`
+  - `server/src/network/tcp/session_auth.cpp`
+  - `server/src/network/tcp/session_gameplay.cpp`
+  - `server/src/network/tcp/session_room.cpp`
+  - `server/src/game/managers/game_manager_sync.cpp`
+  - `server/src/game/managers/game_manager_sync_dispatch.cpp`
+  - `server/src/game/managers/game_manager_event_dispatch.cpp`
+  - `server/tests/integration/server_smoke_test.cpp`
+  - `server/tests/integration/udp_sync_smoke_test.cpp`
+  - `server/tests/integration/tcp_event_batch_smoke_test.cpp`
+  - `server/tests/integration/full_snapshot_chunking_smoke_test.cpp`
+  - `server/tests/integration/upgrade_resume_smoke_test.cpp`
+- 关键产物：
+  - `docs/client-alignment/2026-04-09-client-alignment-audit.md`
+  - `docs/requirements/2026-04-09-client-alignment-audit.md`
+  - `docs/plans/2026-04-09-client-alignment-audit-execution-plan.md`
+  - `CURRENT_TASK.md`
+  - `outputs/runtime/vibe-sessions/20260409-165413-client-alignment-audit/*`
+- 关键结论：
+  - 客户端最核心的缺口不在“升级/重连/full snapshot 分片”，而在“房间控制结果消息、batch 事件、authoritative_tick 语义、真实 full resync 控制面”。
+  - 当前 `requestFullGameStateSync()` 只是发送 `MSG_C2S_HEARTBEAT`，服务端不会因此回 full snapshot；这是一项客户端单改无法闭环的协同项。
+  - 服务端近几轮的 `channel routing / backlog cache / template reuse / packet object pool` 属于内部优化，不应误判为客户端也要复刻。
+- 验证：
+  - `ctest --test-dir server/build-debug --output-on-failure -R "server_smoke|udp_sync_smoke|tcp_event_batch_smoke|full_snapshot_chunking_smoke|upgrade_resume_smoke"`：
+    - 沙箱内首次执行失败，原因是 `创建端口探测 socket 失败`
+    - 越权后重跑通过，5/5 tests passed
+- 备注：
+  - `serena` 在本轮初始化失败，错误为 `cpp: Error extracting archive`；本轮审计改用 `rg/sed/git` 完成。
+<!-- AI_GUIDE:ENTRY:END ts=2026-04-09 17:02:00 CST id=session-20260409-170200-client-alignment-audit -->
 
 ## 5. 修改标记 / 审计轨迹
 
@@ -192,6 +235,24 @@
 - 原因：为后续会话保留“为什么该项目的 agtx 模板行为发生变化”的可追溯上下文
 <!-- AI_GUIDE:TRACE:END ts=2026-04-03 10:24:59 CST id=trace-20260403-102459-ai-guide -->
 
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-09 17:02:00 CST id=trace-20260409-170200-client-alignment-doc -->
+- 文件：`docs/client-alignment/2026-04-09-client-alignment-audit.md`
+- 动作：新增客户端对齐审计文档
+- 原因：为后续另一位 AI 提供可直接执行的客户端对齐范围与证据矩阵
+<!-- AI_GUIDE:TRACE:END ts=2026-04-09 17:02:00 CST id=trace-20260409-170200-client-alignment-doc -->
+
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-09 17:02:00 CST id=trace-20260409-170200-current-task -->
+- 文件：`CURRENT_TASK.md`
+- 动作：新增当前任务权威状态文件
+- 原因：按当前仓库规则把本轮审计目标、范围、验证、状态与下一步外部化，避免后续会话重复依赖聊天历史
+<!-- AI_GUIDE:TRACE:END ts=2026-04-09 17:02:00 CST id=trace-20260409-170200-current-task -->
+
+<!-- AI_GUIDE:TRACE:BEGIN ts=2026-04-09 17:02:00 CST id=trace-20260409-170200-vibe-artifacts -->
+- 文件：`docs/requirements/2026-04-09-client-alignment-audit.md`、`docs/plans/2026-04-09-client-alignment-audit-execution-plan.md`、`outputs/runtime/vibe-sessions/20260409-165413-client-alignment-audit/*`
+- 动作：新增本轮 `vibe` requirement、plan 与 runtime receipts
+- 原因：按 `$vibe` 受控流程为本轮跨端审计保留冻结需求、执行计划和验证留痕
+<!-- AI_GUIDE:TRACE:END ts=2026-04-09 17:02:00 CST id=trace-20260409-170200-vibe-artifacts -->
+
 ## 6. 待办与后续动作
 
 - 当前计划范围内事项已完成。
@@ -201,3 +262,4 @@
 <!-- AI_GUIDE:READ_ANCHOR ts=2026-03-30 15:26:27 CST id=session-20260330-152627-connectivity-plan -->
 <!-- AI_GUIDE:READ_ANCHOR ts=2026-03-30 17:11:23 CST id=session-20260330-171123-connectivity-execute -->
 <!-- AI_GUIDE:READ_ANCHOR ts=2026-04-03 10:24:59 CST id=session-20260403-102459-agtx-skill-tuning -->
+<!-- AI_GUIDE:READ_ANCHOR ts=2026-04-09 17:02:00 CST id=session-20260409-170200-client-alignment-audit -->

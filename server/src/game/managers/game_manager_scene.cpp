@@ -132,12 +132,16 @@ void GameManager::PlacePlayers(const SceneCreateSnapshot& snapshot,
     runtime.last_sync_position = runtime.state.position();
     runtime.last_sync_rotation = runtime.state.rotation();
     runtime.last_sync_is_alive = runtime.state.is_alive();
-    runtime.last_sync_input_seq = runtime.last_input_seq;
+    runtime.last_sync_input_seq = runtime.last_contiguous_input_seq;
     runtime.authoritative_tick = static_cast<uint32_t>(scene->tick);
     runtime.force_sync_left = 0;
 
     // 将玩家对应玩家信息插入会话
-    scene->players.emplace(player.player_id, std::move(runtime));
+    auto [it, inserted] =
+        scene->players.emplace(player.player_id, std::move(runtime));
+    if (inserted) {
+      PushInitialPlayerHistory(&it->second, scene->tick);
+    }
     player_scene_[player.player_id] = snapshot.room_id;  // 增加玩家对应房间结构
   }
 }
@@ -334,7 +338,7 @@ bool GameManager::BuildFullState(uint32_t room_id,
   for (const auto& [_, runtime] : scene.players) {
     auto* player_state = sync->add_players();
     *player_state = runtime.state;
-    player_state->set_last_processed_input_seq(runtime.last_input_seq);
+    player_state->set_last_processed_input_seq(runtime.last_contiguous_input_seq);
     player_state->set_authoritative_tick(resolve_authoritative_tick(
         "player", runtime.state.player_id(), runtime.authoritative_tick));
   }

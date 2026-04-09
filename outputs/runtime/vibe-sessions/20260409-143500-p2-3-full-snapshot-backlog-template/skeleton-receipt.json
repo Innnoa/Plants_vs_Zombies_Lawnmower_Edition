@@ -1,0 +1,17 @@
+{
+  "run_id": "20260409-143500-p2-3-full-snapshot-backlog-template",
+  "status": "completed",
+  "authoritative_context": {
+    "depends_on": [
+      "docs/superpowers/specs/2026-04-09-p2-3-full-snapshot-backlog-template-design.md",
+      "docs/requirements/2026-04-09-p2-3-full-snapshot-backlog-template.md",
+      "docs/plans/2026-04-09-p2-3-full-snapshot-backlog-template-execution-plan.md",
+      "outputs/runtime/vibe-sessions/20260409-123607-p2-3-cross-tick-state-cache"
+    ],
+    "carry_forward_boundary": [
+      "只改服务器，不覆盖当前未提交改动",
+      "保持 full snapshot 的实际发送 tick 语义",
+      "本轮不触碰 protobuf 对象池化"
+    ]
+  }
+}

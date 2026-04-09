@@ -38,7 +38,7 @@ void GameManager::FillPlayerHighFreq(const PlayerRuntime& runtime,
   out->set_player_id(runtime.state.player_id());
   out->set_rotation(runtime.state.rotation());
   out->set_is_alive(runtime.state.is_alive());
-  out->set_last_processed_input_seq(runtime.last_input_seq);
+  out->set_last_processed_input_seq(runtime.last_contiguous_input_seq);
   out->set_authoritative_tick(ResolveAuthoritativeTickForPacket(
       "player", runtime.state.player_id(), runtime.authoritative_tick,
       packet_tick));
@@ -55,7 +55,7 @@ void GameManager::FillPlayerForSync(PlayerRuntime& runtime, uint64_t packet_tick
   if (runtime.low_freq_dirty || runtime.force_sync_left > 0) {
     // 全量状态
     *out = runtime.state;
-    out->set_last_processed_input_seq(runtime.last_input_seq);
+    out->set_last_processed_input_seq(runtime.last_contiguous_input_seq);
     out->set_authoritative_tick(ResolveAuthoritativeTickForPacket(
         "player", runtime.state.player_id(), runtime.authoritative_tick,
         packet_tick));
@@ -144,7 +144,7 @@ void GameManager::UpdatePlayerLastSync(PlayerRuntime& runtime) {
   runtime.last_sync_position = runtime.state.position();
   runtime.last_sync_rotation = runtime.state.rotation();
   runtime.last_sync_is_alive = runtime.state.is_alive();
-  runtime.last_sync_input_seq = runtime.last_input_seq;
+  runtime.last_sync_input_seq = runtime.last_contiguous_input_seq;
 }
 
 void GameManager::TouchPlayerAuthoritativeTick(PlayerRuntime& runtime,
@@ -478,7 +478,7 @@ void GameManager::BuildSyncPayloadsLocked(
       if (runtime.state.is_alive() != runtime.last_sync_is_alive) {
         changed_mask |= lawnmower::PLAYER_DELTA_IS_ALIVE;
       }
-      if (runtime.last_input_seq != runtime.last_sync_input_seq) {
+      if (runtime.last_contiguous_input_seq != runtime.last_sync_input_seq) {
         changed_mask |= lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ;
       }
       if (changed_mask == 0) {
@@ -504,7 +504,7 @@ void GameManager::BuildSyncPayloadsLocked(
       if ((changed_mask & lawnmower::PLAYER_DELTA_LAST_PROCESSED_INPUT_SEQ) !=
           0) {
         out->set_last_processed_input_seq(
-            static_cast<int32_t>(runtime.last_input_seq));
+            static_cast<int32_t>(runtime.last_contiguous_input_seq));
       }
       out->set_authoritative_tick(runtime.authoritative_tick);
       *built_delta = true;

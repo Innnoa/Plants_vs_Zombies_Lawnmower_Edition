@@ -1,0 +1,6 @@
+{
+  "run_id": "20260408-113648-p2-1-server-rollback",
+  "server_p2_1_a_scope_completed": true,
+  "full_room_rollback_completed": false,
+  "reason": "已完成用户确认的服务器-only A 方案，但未扩展到房间级完整回滚。"
+}

@@ -1,0 +1,7 @@
+{
+  "run_id": "20260409-110602-p2-3-cross-tick-event-cache",
+  "p2_3_cross_tick_event_cache_completed": true,
+  "state_sync_cross_tick_cache_completed": false,
+  "protobuf_pooling_completed": false,
+  "reason": "已完成延迟非关键事件 backlog 的跨 tick prepared bytes 复用，但未扩展到状态同步链路或 protobuf 对象池化。"
+}

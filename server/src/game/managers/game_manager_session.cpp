@@ -77,17 +77,31 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
   }
 
   const uint32_t seq = input.input_seq();  // 输入序号（客户端递增）
-  if (seq != 0 && seq <= runtime.last_input_seq) {
-    spdlog::debug("HandlePlayerInput: player {} 输入序号回退 seq={} last={}",
-                  player_id, seq, runtime.last_input_seq);
+  if (seq != 0 && seq <= runtime.last_contiguous_input_seq) {
+    spdlog::debug(
+        "HandlePlayerInput: player {} 输入序号已确认 seq={} contiguous={}",
+        player_id, seq, runtime.last_contiguous_input_seq);
     return false;
   }
+  if (seq != 0 &&
+      (runtime.processed_input_seq_window.contains(seq) ||
+       HasPendingInputWithSeq(runtime, seq))) {
+    spdlog::debug("HandlePlayerInput: player {} 输入序号重复 seq={}", player_id,
+                  seq);
+    return false;
+  }
+  runtime.highest_received_input_seq =
+      std::max(runtime.highest_received_input_seq, seq);
 
   if (scene.is_paused) {
-    const uint32_t prev_seq = runtime.last_input_seq;
+    const uint32_t prev_contiguous_seq = runtime.last_contiguous_input_seq;
     runtime.last_input_seq =
         std::max(runtime.last_input_seq, input.input_seq());
-    if (runtime.last_input_seq != prev_seq) {
+    if (seq != 0) {
+      runtime.processed_input_seq_window.insert(seq);
+      AdvanceContiguousInputSeq(&runtime);
+    }
+    if (runtime.last_contiguous_input_seq != prev_contiguous_seq) {
       TouchPlayerAuthoritativeTick(runtime, scene.tick);
       MarkPlayerDirty(scene, player_id, runtime, false);
     }
@@ -105,11 +119,15 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
   const float len_sq = dx_raw * dx_raw + dy_raw * dy_raw;
   if (len_sq < kDirectionEpsilonSq) {
     // 零向量视作“无移动”，仅更新序号防止排队阻塞
-    const uint32_t prev_seq = runtime.last_input_seq;
+    const uint32_t prev_contiguous_seq = runtime.last_contiguous_input_seq;
     runtime.last_input_seq =
         std::max(runtime.last_input_seq, input.input_seq());
-    if (runtime.last_input_seq != prev_seq) {
-      // 需要尽快把输入确认序号同步回客户端，避免客户端预测队列长期堆积。
+    if (seq != 0) {
+      runtime.processed_input_seq_window.insert(seq);
+      AdvanceContiguousInputSeq(&runtime);
+    }
+    if (runtime.last_contiguous_input_seq != prev_contiguous_seq) {
+      // 只同步连续确认前缀，避免越过缺口提前确认高序号输入。
       TouchPlayerAuthoritativeTick(runtime, scene.tick);
       MarkPlayerDirty(scene, player_id, runtime, false);
     }
@@ -122,10 +140,18 @@ bool GameManager::HandlePlayerInput(uint32_t player_id,
   }
 
   if (runtime.pending_inputs.size() >= kMaxPendingInputs) {
-    runtime.pending_inputs.pop_front();  // 丢弃最旧输入，防止队列过长
+    runtime.pending_inputs.pop_back();  // 优先保留更靠近连续前缀的输入
   }
 
-  runtime.pending_inputs.push_back(input);
+  if (seq != 0 && seq < runtime.last_input_seq) {
+    runtime.needs_prediction_reconciliation = true;
+    runtime.reconcile_from_input_seq =
+        runtime.reconcile_from_input_seq == 0
+            ? seq
+            : std::min(runtime.reconcile_from_input_seq, seq);
+  }
+
+  InsertPendingInputOrdered(&runtime, input);
   *room_id = target_room_id;
   return true;
 }
@@ -199,7 +225,14 @@ bool GameManager::TryReconnectPlayer(uint32_t player_id, uint32_t room_id,
   runtime.has_attack_dir = false;
   runtime.attack_cooldown_seconds = 0.0;
   runtime.last_input_seq = last_input_seq;
+  runtime.last_contiguous_input_seq = last_input_seq;
+  runtime.highest_received_input_seq = last_input_seq;
   runtime.last_sync_input_seq = last_input_seq;
+  runtime.state.set_last_processed_input_seq(last_input_seq);
+  runtime.processed_input_seq_window.clear();
+  runtime.processed_input_segments.clear();
+  runtime.needs_prediction_reconciliation = false;
+  runtime.reconcile_from_input_seq = 0;
 
   out->room_id = mapping->second;
   out->server_tick = scene.tick;

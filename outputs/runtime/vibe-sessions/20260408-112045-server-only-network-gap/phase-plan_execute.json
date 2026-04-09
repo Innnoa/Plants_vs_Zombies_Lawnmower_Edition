@@ -1,0 +1,31 @@
+{
+  "run_id": "20260408-112045-server-only-network-gap",
+  "server_only_remaining": [
+    {
+      "id": "P2-1",
+      "status": "not_done",
+      "summary": "完整预测回滚配套未完成；当前只有 input_seq/history 基础，没有服务端回滚校验与纠偏闭环。"
+    },
+    {
+      "id": "P2-2",
+      "status": "not_done",
+      "summary": "频道化消息体系未完成；当前仍是 TCP/UDP 双通道的约定式分工，没有更明确的可靠分级与应用层重传。"
+    },
+    {
+      "id": "P2-3",
+      "status": "partial",
+      "summary": "序列化与内存池优化只做了一部分；已有 shared string pool、预 framed backlog、直写缓冲，但还没做到按房间缓存序列化结果等更完整体系。"
+    }
+  ],
+  "server_done_not_counted_as_remaining": [
+    "P0-1",
+    "P0-2(server side)",
+    "P0-3",
+    "P0-4(server side)",
+    "P0-5(server side)",
+    "P1-1",
+    "P1-2",
+    "P1-3"
+  ],
+  "verification_reused_from_run": "20260408-110959-network-gap-audit"
+}

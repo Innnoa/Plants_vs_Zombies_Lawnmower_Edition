@@ -1,0 +1,16 @@
+{
+  "run_id": "20260408-113648-p2-1-server-rollback",
+  "status": "completed",
+  "temp_cleanup": {
+    "performed": true,
+    "notes": [
+      "保留 server/build-debug 作为验证产物。"
+    ]
+  },
+  "node_audit": {
+    "performed": true,
+    "notes": [
+      "本轮未使用 Node/npm。"
+    ]
+  }
+}

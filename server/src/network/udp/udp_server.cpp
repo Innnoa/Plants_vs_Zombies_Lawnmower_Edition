@@ -11,6 +11,8 @@
 
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
+#include "network/channel_policy.hpp"
+#include "network/shared/packet_object_pool.hpp"
 #include "network/tcp/tcp_session.hpp"
 #include "network/shared/shared_string_pool.hpp"
 
@@ -19,23 +21,53 @@ constexpr std::chrono::seconds kEndpointTtl{10};
 constexpr int kUdpSocketBufferBytes = 256 * 1024;
 constexpr std::size_t kUdpPacketBudgetBytes = 1200;
 
+const char* MessageChannelToString(
+    network_channel_policy::MessageChannel channel) {
+  using network_channel_policy::MessageChannel;
+  switch (channel) {
+    case MessageChannel::ReliableControl:
+      return "ReliableControl";
+    case MessageChannel::ReliableCriticalEvent:
+      return "ReliableCriticalEvent";
+    case MessageChannel::UnreliableRealtimeState:
+      return "UnreliableRealtimeState";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* DeliveryTransportToString(
+    network_channel_policy::DeliveryTransport transport) {
+  using network_channel_policy::DeliveryTransport;
+  switch (transport) {
+    case DeliveryTransport::TcpOnly:
+      return "TcpOnly";
+    case DeliveryTransport::UdpOnly:
+      return "UdpOnly";
+    case DeliveryTransport::UdpPreferredTcpFallback:
+      return "UdpPreferredTcpFallback";
+    default:
+      return "Unknown";
+  }
+}
+
 template <typename TMessage>
 std::shared_ptr<const std::string> BuildUdpPacketData(
     lawnmower::MessageType type, const TMessage& message) {
-  lawnmower::Packet packet;
-  packet.set_msg_type(type);
+  auto packet = network_shared::AcquireReusablePacket();
+  packet->set_msg_type(type);
   const auto payload_size = static_cast<std::size_t>(message.ByteSizeLong());
-  auto* payload = packet.mutable_payload();
+  auto* payload = packet->mutable_payload();
   payload->resize(payload_size);
   if (payload_size > 0 &&
       !message.SerializeToArray(payload->data(), static_cast<int>(payload_size))) {
     return nullptr;
   }
-  const auto packet_size = static_cast<std::size_t>(packet.ByteSizeLong());
+  const auto packet_size = static_cast<std::size_t>(packet->ByteSizeLong());
   auto data = network_shared::AcquireSharedString(packet_size);
   data->resize(packet_size);
   if (packet_size > 0 &&
-      !packet.SerializeToArray(data->data(), static_cast<int>(packet_size))) {
+      !packet->SerializeToArray(data->data(), static_cast<int>(packet_size))) {
     return nullptr;
   }
   return data;
@@ -292,6 +324,23 @@ void UdpServer::HandlePacket(const lawnmower::Packet& packet,
 
 void UdpServer::HandlePlayerInput(const lawnmower::Packet& packet,
                                   const udp::endpoint& from) {
+  const auto policy = network_channel_policy::ResolveMessageChannelPolicy(
+      lawnmower::MessageType::MSG_C2S_PLAYER_INPUT);
+  using network_channel_policy::MessageChannel;
+  using network_channel_policy::DeliveryTransport;
+  if (policy.channel != MessageChannel::UnreliableRealtimeState) {
+    spdlog::warn(
+        "UDP 输入入口 channel 异常: type={} expect=UnreliableRealtimeState actual={}",
+        lawnmower::MessageType_Name(lawnmower::MessageType::MSG_C2S_PLAYER_INPUT),
+        MessageChannelToString(policy.channel));
+  }
+  if (policy.default_transport != DeliveryTransport::UdpOnly &&
+      policy.default_transport != DeliveryTransport::UdpPreferredTcpFallback) {
+    spdlog::warn("UDP 输入入口收到非默认 UDP 消息: transport={} fallback={}",
+                 DeliveryTransportToString(policy.default_transport),
+                 policy.allow_fallback);
+  }
+
   lawnmower::C2S_PlayerInput input;
   if (!input.ParseFromString(packet.payload())) {
     spdlog::debug("UDP 输入解析失败");
@@ -397,6 +446,27 @@ std::size_t UdpServer::BroadcastDeltaState(
     }
   }
 
+  return targets.size();
+}
+
+std::size_t UdpServer::BroadcastPreparedPacket(
+    uint32_t room_id, const std::shared_ptr<const std::string>& data) {
+  if (data == nullptr || data->empty()) {
+    return 0;
+  }
+
+  const auto targets = EndpointsForRoom(room_id);
+  if (targets.empty()) {
+    return 0;
+  }
+
+  if (spdlog::should_log(spdlog::level::debug)) {
+    spdlog::debug("UDP 广播预构包 room={} targets={} bytes={}", room_id,
+                  targets.size(), data->size());
+  }
+  for (const auto& endpoint : targets) {
+    SendPacket(data, endpoint);
+  }
   return targets.size();
 }
 

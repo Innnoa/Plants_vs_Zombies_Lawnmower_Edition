@@ -5,9 +5,42 @@
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
 #include "game/managers/internal/game_manager_sync_dispatch.hpp"
+#include "network/channel_policy.hpp"
 #include "network/tcp/tcp_session.hpp"
 #include "network/tcp/tcp_session_internal.hpp"
 #include "network/udp/udp_server.hpp"
+
+namespace {
+const char* MessageChannelToString(
+    network_channel_policy::MessageChannel channel) {
+  using network_channel_policy::MessageChannel;
+  switch (channel) {
+    case MessageChannel::ReliableControl:
+      return "ReliableControl";
+    case MessageChannel::ReliableCriticalEvent:
+      return "ReliableCriticalEvent";
+    case MessageChannel::UnreliableRealtimeState:
+      return "UnreliableRealtimeState";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* DeliveryTransportToString(
+    network_channel_policy::DeliveryTransport transport) {
+  using network_channel_policy::DeliveryTransport;
+  switch (transport) {
+    case DeliveryTransport::TcpOnly:
+      return "TcpOnly";
+    case DeliveryTransport::UdpOnly:
+      return "UdpOnly";
+    case DeliveryTransport::UdpPreferredTcpFallback:
+      return "UdpPreferredTcpFallback";
+    default:
+      return "Unknown";
+  }
+}
+}  // namespace
 
 template <typename Request, typename Handler>
 void TcpSession::HandleLoggedInRequest(const std::string& payload,
@@ -86,6 +119,26 @@ bool TcpSession::EnsureLoggedInOrWarn(const char* warn_message) const {
 
 // 处理玩家输入请求
 void TcpSession::HandlePlayerInput(const std::string& payload) {
+  const auto policy = network_channel_policy::ResolveMessageChannelPolicy(
+      lawnmower::MessageType::MSG_C2S_PLAYER_INPUT);
+  using network_channel_policy::MessageChannel;
+  using network_channel_policy::DeliveryTransport;
+  if (policy.channel != MessageChannel::UnreliableRealtimeState) {
+    spdlog::warn(
+        "TCP 输入入口 channel 异常: type={} expect=UnreliableRealtimeState actual={}",
+        tcp_session_internal::MessageTypeToString(
+            lawnmower::MessageType::MSG_C2S_PLAYER_INPUT),
+        MessageChannelToString(policy.channel));
+  }
+  if (policy.default_transport != DeliveryTransport::TcpOnly) {
+    spdlog::debug(
+        "TCP 输入入口收到非默认 TCP 消息: type={} transport={} fallback={}",
+        tcp_session_internal::MessageTypeToString(
+            lawnmower::MessageType::MSG_C2S_PLAYER_INPUT),
+        DeliveryTransportToString(policy.default_transport),
+        policy.allow_fallback);
+  }
+
   HandleLoggedInRequest<lawnmower::C2S_PlayerInput>(
       payload, "解析玩家输入失败", "未登录玩家发送移动输入",
       [this](lawnmower::C2S_PlayerInput& input) {

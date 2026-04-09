@@ -34,7 +34,8 @@ void GameManager::ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
   double processed_seconds = 0.0;
   while (!runtime->pending_inputs.empty() &&
          processed_seconds < kMaxTickDeltaSeconds) {
-    auto& input = runtime->pending_inputs.front();
+    auto input = runtime->pending_inputs.front();
+    runtime->pending_inputs.pop_front();
     const float dx_raw = input.move_direction().x();
     const float dy_raw = input.move_direction().y();
     const float len_sq = dx_raw * dx_raw + dy_raw * dy_raw;
@@ -73,9 +74,12 @@ void GameManager::ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
       lawnmower::Vector2 next_pos;
       next_pos.set_x(new_x);
       next_pos.set_y(new_y);
+      const float next_rotation =
+          game_manager_misc_utils::DegreesFromDirection(dx, dy);
       SetPlayerPositionAndRotation(
-          *runtime, next_pos,
-          game_manager_misc_utils::DegreesFromDirection(dx, dy), scene_tick);
+          *runtime, next_pos, next_rotation, scene_tick);
+      RecordProcessedInputSegment(runtime, input, scene_tick, input_dt, dx, dy,
+                                  next_rotation);
       processed_seconds += input_dt;
       *consumed_input = true;
     } else {
@@ -87,7 +91,6 @@ void GameManager::ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
     // 更新序号（即便被拆分）
     if (input.input_seq() > runtime->last_input_seq) {
       runtime->last_input_seq = input.input_seq();
-      TouchPlayerAuthoritativeTick(*runtime, scene_tick);
     }
 
     const double remaining_dt = reported_dt - input_dt;
@@ -97,9 +100,13 @@ void GameManager::ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
           std::clamp(std::llround(remaining_dt * 1000.0), 1LL,
                      static_cast<long long>(kMaxInputDeltaSeconds * 1000.0)));
       input.set_delta_ms(remaining_ms);
+      runtime->pending_inputs.push_front(input);
       break;
     }
-    runtime->pending_inputs.pop_front();
+    if (input.input_seq() != 0) {
+      runtime->processed_input_seq_window.insert(input.input_seq());
+      AdvanceContiguousInputSeq(runtime);
+    }
   }
 }
 
@@ -233,6 +240,7 @@ void GameManager::SimulateSceneFrameLocked(Scene& scene,
   bool has_dirty = false;
   ProcessPlayerInputsLocked(scene, frame.tick_interval_seconds,
                             frame.dt_seconds, &has_dirty);
+  ReconcilePlayerPredictionsLocked(scene, &has_dirty);
 
   scene.elapsed += frame.dt_seconds;
   ProcessEnemies(scene, frame.dt_seconds, &has_dirty);
@@ -397,6 +405,11 @@ void GameManager::FinalizeSceneTick(
   game_manager_sync_dispatch::DispatchStateSyncPayloads(
       room_id, event_tick, udp_server_, sessions, force_full_sync, built_sync,
       built_delta, sync, delta, remaining_state_packet_budget);
+
+  if (game_over.has_value()) {
+    game_manager_sync_dispatch::ClearRoomDispatchState(room_id);
+    game_manager_event_dispatch::ClearRoomDispatchState(room_id);
+  }
 }
 
 void GameManager::DispatchSceneTickAsync(uint32_t room_id, TickOutputs outputs) {

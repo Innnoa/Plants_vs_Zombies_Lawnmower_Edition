@@ -1,0 +1,26 @@
+{
+  "run_id": "20260409-165413-client-alignment-audit",
+  "goal": "全面梳理客户端相对当前服务端实现还需要对齐的功能，并产出可直接喂给另一位 AI 的 Markdown。",
+  "deliverable": "一份按功能精确列出客户端必改项、协同项、已对齐项和无需改项的证据化审计文档。",
+  "constraints": [
+    "只基于代码、协议、测试和仓库文档下结论",
+    "本轮不修改业务实现",
+    "必须区分客户端缺口与纯服务端内部优化",
+    "需要尽量给出文件级证据"
+  ],
+  "acceptance_criteria": [
+    "覆盖房间控制、开局、状态同步、authoritative_tick、batch 事件、升级、重连、full snapshot 分片",
+    "文档可直接交给另一位 AI 使用",
+    "若存在客户端单改无法闭环的项，必须明确标出"
+  ],
+  "non_goals": [
+    "直接修复客户端问题",
+    "改协议或服务端业务代码",
+    "重写既有服务端设计文档"
+  ],
+  "autonomy_mode": "default-autonomous-with-user-confirmation-on-escalation",
+  "inferred_assumptions": [
+    "用户要的是一份高可信审计文档，而不是当场实现",
+    "用户后续会把 Markdown 交给另一位 AI 实施"
+  ]
+}

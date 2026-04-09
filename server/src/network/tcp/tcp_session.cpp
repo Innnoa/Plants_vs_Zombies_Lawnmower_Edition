@@ -11,8 +11,10 @@
 
 #include "game/managers/game_manager.hpp"
 #include "game/managers/room_manager.hpp"
-#include "network/tcp/tcp_session_internal.hpp"
+#include "network/channel_policy.hpp"
+#include "network/shared/packet_object_pool.hpp"
 #include "network/shared/shared_string_pool.hpp"
+#include "network/tcp/tcp_session_internal.hpp"
 
 // 用于给 player 赋 id，next_player_id_ 是静态的
 std::atomic<uint32_t> TcpSession::next_player_id_{1};
@@ -31,28 +33,43 @@ TcpSession::TcpSession(tcp::socket socket) : socket_(std::move(socket)) {}
 
 namespace {
 
+const char* DeliveryTransportToString(
+    network_channel_policy::DeliveryTransport transport) {
+  using network_channel_policy::DeliveryTransport;
+  switch (transport) {
+    case DeliveryTransport::TcpOnly:
+      return "TcpOnly";
+    case DeliveryTransport::UdpOnly:
+      return "UdpOnly";
+    case DeliveryTransport::UdpPreferredTcpFallback:
+      return "UdpPreferredTcpFallback";
+    default:
+      return "Unknown";
+  }
+}
+
 std::shared_ptr<const std::string> BuildFramedPacketBuffer(
     lawnmower::MessageType type, const google::protobuf::Message& message,
     std::size_t* payload_len, std::size_t* body_len) {
-  lawnmower::Packet packet;
-  packet.set_msg_type(type);
+  auto packet = network_shared::AcquireReusablePacket();
+  packet->set_msg_type(type);
 
   const auto message_size = static_cast<std::size_t>(message.ByteSizeLong());
-  auto* payload = packet.mutable_payload();
+  auto* payload = packet->mutable_payload();
   payload->resize(message_size);
   if (message_size > 0 &&
       !message.SerializeToArray(payload->data(), static_cast<int>(message_size))) {
     return nullptr;
   }
 
-  const auto packet_size = static_cast<std::size_t>(packet.ByteSizeLong());
+  const auto packet_size = static_cast<std::size_t>(packet->ByteSizeLong());
   const uint32_t net_len = htonl(static_cast<uint32_t>(packet_size));
   auto framed = network_shared::AcquireSharedString(sizeof(net_len) + packet_size);
   framed->resize(sizeof(net_len) + packet_size);
   std::memcpy(framed->data(), &net_len, sizeof(net_len));
   if (packet_size > 0 &&
-      !packet.SerializeToArray(framed->data() + sizeof(net_len),
-                               static_cast<int>(packet_size))) {
+      !packet->SerializeToArray(framed->data() + sizeof(net_len),
+                                static_cast<int>(packet_size))) {
     return nullptr;
   }
 
@@ -77,6 +94,30 @@ void TcpSession::start() {
 // 专门用于填充 Packet 包，设置 Message_type 类型 + payload 内容
 void TcpSession::SendProto(lawnmower::MessageType type,
                            const google::protobuf::Message& message) {
+  const auto policy = network_channel_policy::ResolveMessageChannelPolicy(type);
+  using network_channel_policy::DeliveryTransport;
+  switch (policy.default_transport) {
+    case DeliveryTransport::TcpOnly:
+      break;
+    case DeliveryTransport::UdpPreferredTcpFallback:
+      spdlog::debug(
+          "TCP SendProto 发送非默认传输消息 type={} transport={} fallback={}",
+          tcp_session_internal::MessageTypeToString(type),
+          DeliveryTransportToString(policy.default_transport),
+          policy.allow_fallback);
+      break;
+    case DeliveryTransport::UdpOnly:
+      spdlog::warn(
+          "TCP SendProto 发送 UDP-only 策略消息 type={} transport={} "
+          "fallback={}（保持既有 TCP 发送行为）",
+          tcp_session_internal::MessageTypeToString(type),
+          DeliveryTransportToString(policy.default_transport),
+          policy.allow_fallback);
+      break;
+    default:
+      break;
+  }
+
   std::size_t payload_len = 0;
   std::size_t body_len = 0;
   const auto framed =

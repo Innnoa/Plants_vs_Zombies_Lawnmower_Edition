@@ -1,0 +1,18 @@
+{
+  "run_id": "20260409-110602-p2-3-cross-tick-event-cache",
+  "goal": "实现 P2-3 第二阶段的跨 tick 事件 backlog prepared bytes 复用。",
+  "deliverable": "只改服务器的延迟非关键事件 backlog 跨 tick framed bytes 复用，不扩展到状态同步链路。",
+  "constraints": [
+    "只改服务器",
+    "不改客户端",
+    "不改 protobuf 外层结构",
+    "不扩展到状态同步跨 tick 复用",
+    "先写失败测试"
+  ],
+  "non_goals": [
+    "状态同步跨 tick 复用",
+    "客户端改动",
+    "协议字段变更",
+    "protobuf 对象池化"
+  ]
+}

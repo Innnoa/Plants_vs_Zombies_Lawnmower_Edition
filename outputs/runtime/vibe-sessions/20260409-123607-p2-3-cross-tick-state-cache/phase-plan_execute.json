@@ -1,0 +1,36 @@
+{
+  "run_id": "20260409-123607-p2-3-cross-tick-state-cache",
+  "status": "completed",
+  "completed_scope": [
+    "新增 state_sync_backlog 单元测试，覆盖 TCP/UDP prepared bytes identity 与 frozen timing",
+    "PreparedStatePacket 增加 timing_frozen、prepared_tcp、prepared_udp 等 backlog 持久字段",
+    "状态 backlog 首次入队时冻结 timing，并预构可复用 TCP/UDP bytes",
+    "状态 backlog 跨 tick drain 时直接复用 packet 自带 prepared bytes",
+    "保留 full snapshot backlog 的现有 per-send timing 语义，避免破坏 room packet budget smoke"
+  ],
+  "not_in_scope": [
+    "full snapshot backlog 的跨 tick frozen timing 复用",
+    "事件 backlog",
+    "客户端改动",
+    "协议字段变更",
+    "protobuf 对象池化"
+  ],
+  "verification": [
+    {
+      "command": "env CCACHE_DISABLE=1 script/build_server.sh --debug",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R state_sync_backlog",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"state_sync_backlog|dispatch_cache|event_dispatch_backlog|channel_policy|server_smoke|udp_sync_smoke|tcp_event_batch_smoke|state_packet_budget_smoke|delta_packet_budget_smoke|event_backpressure_smoke|room_sync_budget_smoke|full_snapshot_chunking_smoke\"",
+      "result": "passed"
+    }
+  ],
+  "residual_risks": [
+    "full snapshot backlog 仍未做跨 tick prepared bytes 复用，因为 state_packet_budget_smoke 证明其 tick 语义需要保持按实际发送 tick 推进",
+    "protobuf 对象池化仍未纳入当前范围"
+  ]
+}

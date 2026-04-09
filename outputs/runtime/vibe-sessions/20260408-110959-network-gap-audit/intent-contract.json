@@ -1,0 +1,35 @@
+{
+  "run_id": "20260408-110959-network-gap-audit",
+  "stage": "deep_interview",
+  "goal": "核对 P0/P1/P2 网络稳定性清单当前哪些已做、哪些未做。",
+  "deliverable": "一份带代码证据的状态矩阵与缺口结论。",
+  "constraints": [
+    "只基于仓库证据下结论",
+    "优先区分服务器完成与端到端完成",
+    "本轮默认不补实现"
+  ],
+  "acceptance_criteria": [
+    "P0/P1/P2 每项都有状态",
+    "结论能追溯到代码、协议或测试",
+    "说明实际执行的验证命令"
+  ],
+  "product_acceptance": [
+    "用户能直接知道下一步该补哪一端"
+  ],
+  "manual_spot_checks": [
+    "server sync/event/tick dispatch",
+    "client Main/GameScreen consumption",
+    "proto message definitions",
+    "server integration tests"
+  ],
+  "completion_language_policy": "仅在有代码或测试依据时使用“已做”。",
+  "delivery_truth_contract": "服务器已做但客户端未消费，视为部分完成。",
+  "non_goals": [
+    "本轮不实施缺口修复"
+  ],
+  "autonomy_mode": "inferred_and_execute",
+  "inferred_assumptions": [
+    "用户要的是现状审计，不是立刻编码修复。",
+    "用户更关心剩余缺口，因此最终输出以未完成项优先。"
+  ]
+}

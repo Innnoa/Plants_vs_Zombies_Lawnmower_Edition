@@ -29,6 +29,8 @@ class UdpServer {
   // 广播游戏状态增量到指定房间的已登记终端
   std::size_t BroadcastDeltaState(
       uint32_t room_id, const lawnmower::S2C_GameStateDeltaSync& sync);
+  std::size_t BroadcastPreparedPacket(
+      uint32_t room_id, const std::shared_ptr<const std::string>& data);
 
  private:
   struct EndpointInfo {

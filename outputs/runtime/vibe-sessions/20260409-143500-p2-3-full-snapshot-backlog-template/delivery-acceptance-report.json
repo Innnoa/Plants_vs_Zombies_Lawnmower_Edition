@@ -1,0 +1,6 @@
+{
+  "run_id": "20260409-143500-p2-3-full-snapshot-backlog-template",
+  "p2_3_full_snapshot_backlog_template_completed": true,
+  "protobuf_pooling_completed": false,
+  "reason": "已完成 full snapshot backlog 模板复用，发送时仍保持实际发送 tick 语义；protobuf 对象池化仍未实现。"
+}

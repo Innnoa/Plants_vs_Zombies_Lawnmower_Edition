@@ -1,0 +1,18 @@
+{
+  "run_id": "20260408-151945-p2-3-server-serialization-cache",
+  "goal": "实现 P2-3 的服务器侧房间级 prepared packet cache。",
+  "deliverable": "不改客户端与协议的服务器侧序列化缓存层，把状态同步与事件分发接到统一的 room dispatch cache。",
+  "constraints": [
+    "只改服务器",
+    "不改客户端",
+    "不改 protobuf 外层结构",
+    "不做跨 tick bytes 复用",
+    "先写失败测试"
+  ],
+  "non_goals": [
+    "客户端改动",
+    "跨 tick 长期缓存",
+    "protobuf arena 或 message 池化",
+    "协议升级"
+  ]
+}

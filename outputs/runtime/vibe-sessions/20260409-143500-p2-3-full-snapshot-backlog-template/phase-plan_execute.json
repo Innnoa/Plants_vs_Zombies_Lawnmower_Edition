@@ -1,0 +1,35 @@
+{
+  "run_id": "20260409-143500-p2-3-full-snapshot-backlog-template",
+  "status": "completed",
+  "completed_scope": [
+    "新增 full snapshot backlog 模板复用测试，覆盖模板 identity 与实际发送 tick 更新",
+    "PreparedStatePacket 增加 full snapshot template 字段",
+    "full snapshot backlog 首次入队时提取静态 payload 模板后缀",
+    "full snapshot backlog 发送时按当前 dispatch tick 重新编码 sync_time，并与静态模板拼接生成最终 bytes",
+    "保持 state_packet_budget_smoke 所需的实际发送 tick 语义"
+  ],
+  "not_in_scope": [
+    "非 full snapshot backlog",
+    "事件 backlog",
+    "客户端改动",
+    "协议字段变更",
+    "protobuf 对象池化"
+  ],
+  "verification": [
+    {
+      "command": "env CCACHE_DISABLE=1 script/build_server.sh --debug",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R state_sync_backlog",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"state_sync_backlog|dispatch_cache|event_dispatch_backlog|channel_policy|server_smoke|udp_sync_smoke|tcp_event_batch_smoke|state_packet_budget_smoke|delta_packet_budget_smoke|event_backpressure_smoke|room_sync_budget_smoke|full_snapshot_chunking_smoke\"",
+      "result": "passed"
+    }
+  ],
+  "residual_risks": [
+    "protobuf 对象池化仍未纳入当前范围"
+  ]
+}

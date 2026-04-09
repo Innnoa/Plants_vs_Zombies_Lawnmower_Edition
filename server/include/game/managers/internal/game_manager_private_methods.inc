@@ -23,6 +23,19 @@ void ConsumePlayerInputQueueLocked(const SceneConfig& scene_config,
                                    bool* consumed_input) const;
 void ProcessPlayerInputsLocked(Scene& scene, double tick_interval_seconds,
                                double dt_seconds, bool* has_dirty);
+static bool HasPendingInputWithSeq(const PlayerRuntime& runtime, uint32_t seq);
+static void InsertPendingInputOrdered(
+    PlayerRuntime* runtime, const lawnmower::C2S_PlayerInput& input);
+static void AdvanceContiguousInputSeq(PlayerRuntime* runtime);
+static void RecordProcessedInputSegment(
+    PlayerRuntime* runtime, const lawnmower::C2S_PlayerInput& input,
+    uint64_t applied_tick, double delta_seconds, float move_direction_x,
+    float move_direction_y, float rotation);
+static void PushInitialPlayerHistory(PlayerRuntime* runtime, uint64_t tick);
+void ReconcilePlayerPredictionsLocked(Scene& scene, bool* has_dirty);
+bool ReconcilePlayerPredictionLocked(const Scene& scene, uint32_t player_id,
+                                     PlayerRuntime* runtime);
+void TrimPredictionHistoryLocked(const Scene& scene, PlayerRuntime* runtime);
 void ReserveTickEventBuffersLocked(
     const Scene& scene, std::vector<lawnmower::S2C_PlayerHurt>* player_hurts,
     std::vector<lawnmower::S2C_EnemyDied>* enemy_dieds,

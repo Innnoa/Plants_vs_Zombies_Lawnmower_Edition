@@ -1,0 +1,44 @@
+{
+  "run_id": "20260408-151945-p2-3-server-serialization-cache",
+  "status": "completed",
+  "completed_scope": [
+    "新增房间级 game_manager_dispatch_cache 模块与 dispatch_cache 单元测试",
+    "状态同步分发接入统一 prepared packet cache，并按 transport 复用 TCP/UDP bytes",
+    "事件分发接入统一 prepared packet cache",
+    "UDP 新增 prepared packet 直接广播入口",
+    "房间删除与 game_over 后的 dispatch cache / backlog 清理",
+    "dispatch cache key 扩充到 family + slot + message_type + transport，避免不同消息类型误命中同一 cache 槽位",
+    "非关键事件 backlog 在 drain 后自动移除空房间记录，并新增 event_dispatch_backlog 单元测试"
+  ],
+  "not_in_scope": [
+    "客户端改动",
+    "protobuf 外层结构改动",
+    "跨 tick bytes 长期复用",
+    "protobuf arena 或 message 池化"
+  ],
+  "verification": [
+    {
+      "command": "env CCACHE_DISABLE=1 script/build_server.sh --debug",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R dispatch_cache",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R event_dispatch_backlog",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"dispatch_cache|event_dispatch_backlog|channel_policy|server_smoke|udp_sync_smoke|tcp_event_batch_smoke\"",
+      "result": "passed"
+    },
+    {
+      "command": "ctest --test-dir server/build-debug --output-on-failure -R \"dispatch_cache|event_dispatch_backlog|channel_policy|server_smoke|udp_sync_smoke|tcp_event_batch_smoke|state_packet_budget_smoke|delta_packet_budget_smoke|event_backpressure_smoke|room_sync_budget_smoke|full_snapshot_chunking_smoke\"",
+      "result": "passed"
+    }
+  ],
+  "residual_risks": [
+    "更激进的跨 tick 缓存与 protobuf 对象池化仍未纳入本轮范围"
+  ]
+}

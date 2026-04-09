@@ -1,0 +1,18 @@
+{
+  "run_id": "20260409-143500-p2-3-full-snapshot-backlog-template",
+  "goal": "实现 P2-3 下一阶段的 full snapshot backlog 模板复用。",
+  "deliverable": "只改服务器的 full snapshot backlog 模板化复用，发送时仍保持实际发送 tick 语义。",
+  "constraints": [
+    "只改服务器",
+    "不改客户端",
+    "不改 protobuf 外层结构",
+    "保持 full snapshot 的实际发送 tick 语义",
+    "先写失败测试"
+  ],
+  "non_goals": [
+    "非 full snapshot backlog",
+    "事件 backlog",
+    "客户端改动",
+    "protobuf 对象池化"
+  ]
+}
