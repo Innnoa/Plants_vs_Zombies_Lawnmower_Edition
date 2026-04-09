@@ -74,6 +74,10 @@ if [[ -n "$stash_output" ]]; then
 fi
 
 assert_command_fails "commit 需要通过 -m 或 --message 提供提交信息。" run_helper commit
+assert_command_fails "stash 默认仅支持 list，其他动作暂不支持。" run_helper stash list extra
+assert_command_fails "switch 只接受一个目标分支名。" run_helper switch main extra
+assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit -m msg extra
+assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit --message msg --amend
 assert_command_fails "switch 需要目标分支名。" run_helper switch
 
 echo "git_helper read-only smoke test: PASS"

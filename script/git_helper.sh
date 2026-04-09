@@ -44,11 +44,16 @@ run_log() {
 }
 
 run_stash() {
-  local subcommand="${1:-list}"
-  if [[ "$subcommand" != "list" ]]; then
+  if (($# == 0)); then
+    git stash list
+    return
+  fi
+
+  if (($# != 1)) || [[ "$1" != "list" ]]; then
     echo "stash 默认仅支持 list，其他动作暂不支持。" >&2
     exit 1
   fi
+
   git stash list
 }
 
@@ -66,11 +71,16 @@ run_commit() {
         shift 2
         ;;
       --message=*)
+        if [[ -z "${1#--message=}" ]]; then
+          echo "commit 需要通过 -m 或 --message 提供提交信息。" >&2
+          exit 1
+        fi
         message="${1#--message=}"
         shift
         ;;
       *)
-        shift
+        echo "commit 仅支持 -m/--message，且不接受多余参数。" >&2
+        exit 1
         ;;
     esac
   done
@@ -86,6 +96,10 @@ run_commit() {
 run_switch() {
   if (($# < 1)) || [[ -z "${1:-}" ]]; then
     echo "switch 需要目标分支名。" >&2
+    exit 1
+  fi
+  if (($# > 1)); then
+    echo "switch 只接受一个目标分支名。" >&2
     exit 1
   fi
 
