@@ -130,4 +130,4 @@ assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数�
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit --message msg --amend
 assert_command_fails "switch 需要目标分支名。" run_helper switch
 
-echo "git_helper read-only smoke test: PASS"
+echo "git_helper smoke test: PASS"

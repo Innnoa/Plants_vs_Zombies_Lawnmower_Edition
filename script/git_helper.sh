@@ -13,12 +13,12 @@ usage() {
 命令:
   menu                 显示命令菜单
   status               显示 git status --short --branch
-  pull                 预留命令（只读骨架，暂不执行）
-  push                 预留命令（只读骨架，暂不执行）
-  commit               校验提交参数（需 -m/--message）
-  switch               校验分支参数（需目标分支名）
+  pull                 当前骨架阶段暂不执行（预期为 git pull --ff-only）
+  push                 当前骨架阶段暂不执行
+  commit -m <message>  暂存全部变更并提交（git add -A + git commit）
+  switch <branch>      切换到已有本地分支
   log                  显示最近 15 条提交
-  stash                仅支持: stash list
+  stash                支持: list / push / pop（push 使用默认行为，不包含额外未跟踪文件）
   help                 显示帮助
 
 示例:
