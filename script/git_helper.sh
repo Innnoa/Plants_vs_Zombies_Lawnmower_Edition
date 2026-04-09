@@ -41,7 +41,7 @@ require_no_extra_args() {
   shift
   if (($# > 0)); then
     echo "$command_name 不接受额外参数。" >&2
-    exit 1
+    return 1
   fi
 }
 
@@ -80,7 +80,7 @@ run_stash() {
           -m|--message)
             if (($# < 2)) || [[ -z "$2" ]]; then
               echo "stash push 的消息不能为空。" >&2
-              exit 1
+              return 1
             fi
             message="$2"
             shift 2
@@ -88,14 +88,14 @@ run_stash() {
           --message=*)
             if [[ -z "${1#--message=}" ]]; then
               echo "stash push 的消息不能为空。" >&2
-              exit 1
+              return 1
             fi
             message="${1#--message=}"
             shift
             ;;
           *)
             echo "stash push 仅支持可选的 -m/--message 参数，且不接受多余参数。" >&2
-            exit 1
+            return 1
             ;;
         esac
       done
@@ -108,7 +108,7 @@ run_stash() {
       ;;
     *)
       echo "未知 stash 子命令: $subcommand" >&2
-      exit 1
+      return 1
       ;;
   esac
 }
@@ -121,7 +121,7 @@ run_commit() {
       -m|--message)
         if (($# < 2)) || [[ -z "$2" ]]; then
           echo "commit 需要通过 -m 或 --message 提供提交信息。" >&2
-          exit 1
+          return 1
         fi
         message="$2"
         shift 2
@@ -129,21 +129,21 @@ run_commit() {
       --message=*)
         if [[ -z "${1#--message=}" ]]; then
           echo "commit 需要通过 -m 或 --message 提供提交信息。" >&2
-          exit 1
+          return 1
         fi
         message="${1#--message=}"
         shift
         ;;
       *)
         echo "commit 仅支持 -m/--message，且不接受多余参数。" >&2
-        exit 1
+        return 1
         ;;
     esac
   done
 
   if [[ -z "$message" ]]; then
     echo "commit 需要通过 -m 或 --message 提供提交信息。" >&2
-    exit 1
+    return 1
   fi
 
   git status --short
@@ -154,17 +154,17 @@ run_commit() {
 run_switch() {
   if (($# < 1)) || [[ -z "${1:-}" ]]; then
     echo "switch 需要目标分支名。" >&2
-    exit 1
+    return 1
   fi
   if (($# > 1)); then
     echo "switch 只接受一个目标分支名。" >&2
-    exit 1
+    return 1
   fi
 
   local branch="$1"
   if ! git show-ref --verify --quiet "refs/heads/$branch"; then
     echo "本地分支不存在: $branch" >&2
-    exit 1
+    return 1
   fi
 
   git switch "$branch"
@@ -184,7 +184,7 @@ prompt_commit() {
   local message=""
   if ! read -r -p "请输入提交信息: " message; then
     echo "读取输入失败。" >&2
-    exit 1
+    return 1
   fi
   run_commit -m "$message"
 }
@@ -195,7 +195,7 @@ prompt_switch() {
   git branch --format='  %(refname:short)'
   if ! read -r -p "请输入目标分支名: " branch; then
     echo "读取输入失败。" >&2
-    exit 1
+    return 1
   fi
   run_switch "$branch"
 }
@@ -211,14 +211,14 @@ prompt_stash() {
 EOF
   if ! read -r -p "请输入选项 [1-3]: " selection; then
     echo "读取输入失败。" >&2
-    exit 1
+    return 1
   fi
 
   case "$selection" in
     1|push)
       if ! read -r -p "请输入 stash 说明（可留空）: " message; then
         echo "读取输入失败。" >&2
-        exit 1
+        return 1
       fi
       if [[ -n "$message" ]]; then
         run_stash push -m "$message"
@@ -234,7 +234,7 @@ EOF
       ;;
     *)
       echo "无效的 stash 选项: $selection" >&2
-      exit 1
+      return 1
       ;;
   esac
 }
@@ -248,10 +248,10 @@ show_menu() {
 
     if "$@"; then
       return 0
+    else
+      local status=$?
+      echo "菜单操作失败（$action_label，退出码: $status），返回菜单继续。" >&2
     fi
-
-    local status=$?
-    echo "菜单操作失败（$action_label，退出码: $status），返回菜单继续。" >&2
   }
 
   while true; do

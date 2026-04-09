@@ -191,6 +191,16 @@ menu_fail_then_exit_output="$(printf '7\n2\n8\n' | run_helper_in_repo "$alice_re
 assert_contains "$menu_fail_then_exit_output" "菜单操作失败（stash"
 assert_contains "$menu_fail_then_exit_output" "退出菜单"
 
+set +e
+menu_validation_fail_then_exit_output="$(printf '7\n9\n8\n' | run_helper_in_repo "$alice_repo" menu 2>&1)"
+menu_validation_fail_then_exit_status=$?
+set -e
+assert_equals "$menu_validation_fail_then_exit_status" "0"
+assert_contains "$menu_validation_fail_then_exit_output" "无效的 stash 选项: 9"
+assert_contains "$menu_validation_fail_then_exit_output" "菜单操作失败（stash"
+assert_contains "$menu_validation_fail_then_exit_output" "退出码: 1"
+assert_contains "$menu_validation_fail_then_exit_output" "退出菜单"
+
 menu_output="$(printf '8\n' | run_helper_in_repo "$alice_repo" menu)"
 assert_contains "$menu_output" "退出"
 
