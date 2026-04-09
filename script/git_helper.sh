@@ -35,11 +35,22 @@ ensure_git_repo() {
   fi
 }
 
+require_no_extra_args() {
+  local command_name="$1"
+  shift
+  if (($# > 0)); then
+    echo "$command_name 不接受额外参数。" >&2
+    exit 1
+  fi
+}
+
 run_status() {
+  require_no_extra_args "status" "$@"
   git status --short --branch
 }
 
 run_log() {
+  require_no_extra_args "log" "$@"
   git log --oneline --decorate -n 15
 }
 
@@ -107,10 +118,12 @@ run_switch() {
 }
 
 run_pull() {
+  require_no_extra_args "pull" "$@"
   echo "pull 命令在只读骨架阶段暂不执行。"
 }
 
 run_push() {
+  require_no_extra_args "push" "$@"
   echo "push 命令在只读骨架阶段暂不执行。"
 }
 
@@ -122,6 +135,11 @@ main() {
 
   case "$command" in
     help|-h|--help|menu)
+      local help_command="help"
+      if [[ "$command" == "menu" ]]; then
+        help_command="menu"
+      fi
+      require_no_extra_args "$help_command" "$@"
       usage
       ;;
     status)

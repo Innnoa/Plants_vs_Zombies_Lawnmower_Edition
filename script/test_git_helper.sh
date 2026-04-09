@@ -74,6 +74,11 @@ if [[ -n "$stash_output" ]]; then
 fi
 
 assert_command_fails "commit 需要通过 -m 或 --message 提供提交信息。" run_helper commit
+assert_command_fails "status 不接受额外参数。" run_helper status extra
+assert_command_fails "log 不接受额外参数。" run_helper log extra
+assert_command_fails "pull 不接受额外参数。" run_helper pull extra
+assert_command_fails "push 不接受额外参数。" run_helper push extra
+assert_command_fails "help 不接受额外参数。" run_helper --help extra
 assert_command_fails "stash 默认仅支持 list，其他动作暂不支持。" run_helper stash list extra
 assert_command_fails "switch 只接受一个目标分支名。" run_helper switch main extra
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit -m msg extra
