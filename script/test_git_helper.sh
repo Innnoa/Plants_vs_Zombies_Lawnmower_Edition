@@ -47,10 +47,15 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 tmp_repo="$tmp_dir/repo"
-mkdir -p "$tmp_repo/script"
 
-cp "$repo_root/script/git_helper.sh" "$tmp_repo/script/git_helper.sh"
-chmod +x "$tmp_repo/script/git_helper.sh"
+install_helper() {
+  local repo_path="$1"
+  mkdir -p "$repo_path/script"
+  cp "$repo_root/script/git_helper.sh" "$repo_path/script/git_helper.sh"
+  chmod +x "$repo_path/script/git_helper.sh"
+}
+
+install_helper "$tmp_repo"
 
 git -C "$tmp_repo" init
 git -C "$tmp_repo" config user.name "Smoke Test"
@@ -62,9 +67,15 @@ git -C "$tmp_repo" commit -m "initial commit" >/dev/null
 base_branch="$(git -C "$tmp_repo" symbolic-ref --short HEAD)"
 
 run_helper() {
+  run_helper_in_repo "$tmp_repo" "$@"
+}
+
+run_helper_in_repo() {
+  local repo_path="$1"
+  shift
   (
-    cd "$tmp_repo"
-    "$tmp_repo/script/git_helper.sh" "$@"
+    cd "$repo_path"
+    "$repo_path/script/git_helper.sh" "$@"
   )
 }
 
@@ -129,5 +140,53 @@ assert_command_fails "switch 只接受一个目标分支名。" run_helper switc
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit -m msg extra
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit --message msg --amend
 assert_command_fails "switch 需要目标分支名。" run_helper switch
+
+remote_repo="$tmp_dir/remote.git"
+alice_repo="$tmp_dir/alice"
+bob_repo="$tmp_dir/bob"
+
+git init --bare "$remote_repo" >/dev/null
+git clone "$remote_repo" "$alice_repo" >/dev/null
+git clone "$remote_repo" "$bob_repo" >/dev/null
+
+install_helper "$alice_repo"
+install_helper "$bob_repo"
+
+git -C "$alice_repo" config user.name "Alice"
+git -C "$alice_repo" config user.email "alice@example.com"
+git -C "$bob_repo" config user.name "Bob"
+git -C "$bob_repo" config user.email "bob@example.com"
+
+echo "alice seed" > "$alice_repo/REMOTE.md"
+git -C "$alice_repo" add REMOTE.md
+git -C "$alice_repo" commit -m "chore: init remote" >/dev/null
+remote_base_branch="$(git -C "$alice_repo" symbolic-ref --short HEAD)"
+git -C "$alice_repo" push -u origin "$remote_base_branch" >/dev/null
+
+git -C "$bob_repo" fetch origin "$remote_base_branch" >/dev/null
+git -C "$bob_repo" switch -c "$remote_base_branch" --track "origin/$remote_base_branch" >/dev/null
+
+echo "bob update" >> "$bob_repo/REMOTE.md"
+git -C "$bob_repo" add REMOTE.md
+git -C "$bob_repo" commit -m "feat: bob update" >/dev/null
+run_helper_in_repo "$bob_repo" push >/dev/null
+
+bob_head_after_push="$(git -C "$bob_repo" rev-parse HEAD)"
+run_helper_in_repo "$alice_repo" pull >/dev/null
+alice_head_after_pull="$(git -C "$alice_repo" rev-parse HEAD)"
+assert_equals "$alice_head_after_pull" "$bob_head_after_push"
+
+echo "alice followup" >> "$alice_repo/REMOTE.md"
+git -C "$alice_repo" add REMOTE.md
+git -C "$alice_repo" commit -m "feat: alice followup" >/dev/null
+git -C "$alice_repo" push >/dev/null
+
+alice_head_after_push="$(git -C "$alice_repo" rev-parse HEAD)"
+run_helper_in_repo "$bob_repo" pull >/dev/null
+bob_head_after_pull="$(git -C "$bob_repo" rev-parse HEAD)"
+assert_equals "$bob_head_after_pull" "$alice_head_after_push"
+
+menu_output="$(printf '8\n' | run_helper_in_repo "$alice_repo" menu)"
+assert_contains "$menu_output" "退出"
 
 echo "git_helper smoke test: PASS"

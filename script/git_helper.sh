@@ -11,10 +11,10 @@ usage() {
   script/git_helper.sh <命令> [参数]
 
 命令:
-  menu                 显示命令菜单
+  menu                 显示交互菜单
   status               显示 git status --short --branch
-  pull                 当前骨架阶段暂不执行（预期为 git pull --ff-only）
-  push                 当前骨架阶段暂不执行
+  pull                 拉取更新（git pull --ff-only）
+  push                 推送当前分支（git push）
   commit -m <message>  暂存全部变更并提交（git add -A + git commit）
   switch <branch>      切换到已有本地分支
   log                  显示最近 15 条提交
@@ -171,28 +171,139 @@ run_switch() {
 
 run_pull() {
   require_no_extra_args "pull" "$@"
-  echo "pull 命令在只读骨架阶段暂不执行。"
+  git pull --ff-only
 }
 
 run_push() {
   require_no_extra_args "push" "$@"
-  echo "push 命令在只读骨架阶段暂不执行。"
+  git push
+}
+
+prompt_commit() {
+  local message=""
+  if ! read -r -p "请输入提交信息: " message; then
+    echo "读取输入失败。" >&2
+    exit 1
+  fi
+  run_commit -m "$message"
+}
+
+prompt_switch() {
+  local branch=""
+  echo "本地分支列表:"
+  git branch --format='  %(refname:short)'
+  if ! read -r -p "请输入目标分支名: " branch; then
+    echo "读取输入失败。" >&2
+    exit 1
+  fi
+  run_switch "$branch"
+}
+
+prompt_stash() {
+  local selection=""
+  local message=""
+  cat <<'EOF'
+请选择 stash 操作:
+  1) push
+  2) pop
+  3) list
+EOF
+  if ! read -r -p "请输入选项 [1-3]: " selection; then
+    echo "读取输入失败。" >&2
+    exit 1
+  fi
+
+  case "$selection" in
+    1|push)
+      if ! read -r -p "请输入 stash 说明（可留空）: " message; then
+        echo "读取输入失败。" >&2
+        exit 1
+      fi
+      if [[ -n "$message" ]]; then
+        run_stash push -m "$message"
+      else
+        run_stash push
+      fi
+      ;;
+    2|pop)
+      run_stash pop
+      ;;
+    3|list)
+      run_stash list
+      ;;
+    *)
+      echo "无效的 stash 选项: $selection" >&2
+      exit 1
+      ;;
+  esac
+}
+
+show_menu() {
+  local selection=""
+  while true; do
+    cat <<'EOF'
+Git Helper 菜单:
+  1) 查看状态
+  2) 拉取更新
+  3) 推送当前分支
+  4) 暂存全部并提交
+  5) 切换分支
+  6) 查看日志
+  7) Stash 操作
+  8) 退出
+EOF
+    if ! read -r -p "请输入选项 [1-8]: " selection; then
+      echo "读取输入失败。" >&2
+      exit 1
+    fi
+
+    case "$selection" in
+      1)
+        run_status
+        ;;
+      2)
+        run_pull
+        ;;
+      3)
+        run_push
+        ;;
+      4)
+        prompt_commit
+        ;;
+      5)
+        prompt_switch
+        ;;
+      6)
+        run_log
+        ;;
+      7)
+        prompt_stash
+        ;;
+      8)
+        echo "退出菜单。"
+        break
+        ;;
+      *)
+        echo "无效选项: $selection" >&2
+        ;;
+    esac
+  done
 }
 
 main() {
-  local command="${1:-help}"
+  local command="${1:-menu}"
   if (($# > 0)); then
     shift
   fi
 
   case "$command" in
-    help|-h|--help|menu)
-      local help_command="help"
-      if [[ "$command" == "menu" ]]; then
-        help_command="menu"
-      fi
-      require_no_extra_args "$help_command" "$@"
+    help|-h|--help)
+      require_no_extra_args "help" "$@"
       usage
+      ;;
+    menu)
+      require_no_extra_args "menu" "$@"
+      show_menu
       ;;
     status)
       run_status "$@"
