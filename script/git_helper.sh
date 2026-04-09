@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+用法:
+  script/git_helper.sh <命令> [参数]
+
+命令:
+  menu                 显示命令菜单
+  status               显示 git status --short --branch
+  pull                 预留命令（只读骨架，暂不执行）
+  push                 预留命令（只读骨架，暂不执行）
+  commit               校验提交参数（需 -m/--message）
+  switch               校验分支参数（需目标分支名）
+  log                  显示最近 15 条提交
+  stash                仅支持: stash list
+  help                 显示帮助
+
+示例:
+  script/git_helper.sh status
+  script/git_helper.sh log
+  script/git_helper.sh stash list
+EOF
+}
+
+ensure_git_repo() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "当前目录不是 git 仓库：$repo_root" >&2
+    exit 1
+  fi
+}
+
+run_status() {
+  git status --short --branch
+}
+
+run_log() {
+  git log --oneline --decorate -n 15
+}
+
+run_stash() {
+  local subcommand="${1:-list}"
+  if [[ "$subcommand" != "list" ]]; then
+    echo "stash 默认仅支持 list，其他动作暂不支持。" >&2
+    exit 1
+  fi
+  git stash list
+}
+
+run_commit() {
+  local message=""
+
+  while (($#)); do
+    case "$1" in
+      -m|--message)
+        if (($# < 2)) || [[ -z "$2" ]]; then
+          echo "commit 需要通过 -m 或 --message 提供提交信息。" >&2
+          exit 1
+        fi
+        message="$2"
+        shift 2
+        ;;
+      --message=*)
+        message="${1#--message=}"
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+
+  if [[ -z "$message" ]]; then
+    echo "commit 需要通过 -m 或 --message 提供提交信息。" >&2
+    exit 1
+  fi
+
+  echo "commit 参数校验通过（只读骨架阶段不执行提交）。"
+}
+
+run_switch() {
+  if (($# < 1)) || [[ -z "${1:-}" ]]; then
+    echo "switch 需要目标分支名。" >&2
+    exit 1
+  fi
+
+  echo "switch 参数校验通过（只读骨架阶段不执行切换）。"
+}
+
+run_pull() {
+  echo "pull 命令在只读骨架阶段暂不执行。"
+}
+
+run_push() {
+  echo "push 命令在只读骨架阶段暂不执行。"
+}
+
+main() {
+  local command="${1:-help}"
+  if (($# > 0)); then
+    shift
+  fi
+
+  case "$command" in
+    help|-h|--help|menu)
+      usage
+      ;;
+    status)
+      run_status "$@"
+      ;;
+    log)
+      run_log "$@"
+      ;;
+    stash)
+      run_stash "$@"
+      ;;
+    commit)
+      run_commit "$@"
+      ;;
+    switch)
+      run_switch "$@"
+      ;;
+    pull)
+      run_pull "$@"
+      ;;
+    push)
+      run_push "$@"
+      ;;
+    *)
+      echo "未知命令: $command" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+cd "$repo_root"
+ensure_git_repo
+main "$@"
