@@ -60,12 +60,56 @@ run_stash() {
     return
   fi
 
-  if (($# != 1)) || [[ "$1" != "list" ]]; then
-    echo "stash 默认仅支持 list，其他动作暂不支持。" >&2
-    exit 1
-  fi
+  local subcommand="$1"
+  shift
 
-  git stash list
+  case "$subcommand" in
+    list)
+      require_no_extra_args "stash list" "$@"
+      git stash list
+      ;;
+    pop)
+      require_no_extra_args "stash pop" "$@"
+      git stash pop
+      ;;
+    push)
+      local message=""
+      while (($#)); do
+        case "$1" in
+          -m|--message)
+            if (($# < 2)) || [[ -z "$2" ]]; then
+              echo "stash push 的消息不能为空。" >&2
+              exit 1
+            fi
+            message="$2"
+            shift 2
+            ;;
+          --message=*)
+            if [[ -z "${1#--message=}" ]]; then
+              echo "stash push 的消息不能为空。" >&2
+              exit 1
+            fi
+            message="${1#--message=}"
+            shift
+            ;;
+          *)
+            echo "stash push 仅支持可选的 -m/--message 参数，且不接受多余参数。" >&2
+            exit 1
+            ;;
+        esac
+      done
+
+      if [[ -n "$message" ]]; then
+        git stash push -m "$message"
+      else
+        git stash push
+      fi
+      ;;
+    *)
+      echo "未知 stash 子命令: $subcommand" >&2
+      exit 1
+      ;;
+  esac
 }
 
 run_commit() {
@@ -101,7 +145,9 @@ run_commit() {
     exit 1
   fi
 
-  echo "commit 参数校验通过（只读骨架阶段不执行提交）。"
+  git status --short
+  git add -A
+  git commit -m "$message"
 }
 
 run_switch() {
@@ -114,7 +160,13 @@ run_switch() {
     exit 1
   fi
 
-  echo "switch 参数校验通过（只读骨架阶段不执行切换）。"
+  local branch="$1"
+  if ! git show-ref --verify --quiet "refs/heads/$branch"; then
+    echo "本地分支不存在: $branch" >&2
+    exit 1
+  fi
+
+  git switch "$branch"
 }
 
 run_pull() {

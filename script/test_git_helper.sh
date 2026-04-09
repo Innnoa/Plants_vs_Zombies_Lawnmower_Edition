@@ -18,6 +18,14 @@ assert_contains() {
   fi
 }
 
+assert_equals() {
+  local actual="$1"
+  local expected="$2"
+  if [[ "$actual" != "$expected" ]]; then
+    fail "值不符合预期，actual=[$actual], expected=[$expected]"
+  fi
+}
+
 assert_command_fails() {
   local expected_message="$1"
   shift
@@ -49,8 +57,9 @@ git -C "$tmp_repo" config user.name "Smoke Test"
 git -C "$tmp_repo" config user.email "smoke@example.com"
 
 echo "seed" > "$tmp_repo/README.md"
-git -C "$tmp_repo" add README.md
+git -C "$tmp_repo" add README.md script/git_helper.sh
 git -C "$tmp_repo" commit -m "initial commit" >/dev/null
+base_branch="$(git -C "$tmp_repo" symbolic-ref --short HEAD)"
 
 run_helper() {
   (
@@ -73,13 +82,49 @@ if [[ -n "$stash_output" ]]; then
   fail "空仓库 stash list 结果应为空"
 fi
 
+git -C "$tmp_repo" branch feature/demo
+
+run_helper switch feature/demo >/dev/null
+current_branch="$(git -C "$tmp_repo" symbolic-ref --short HEAD)"
+assert_equals "$current_branch" "feature/demo"
+
+run_helper switch "$base_branch" >/dev/null
+current_branch="$(git -C "$tmp_repo" symbolic-ref --short HEAD)"
+assert_equals "$current_branch" "$base_branch"
+
+echo "tracked change" >> "$tmp_repo/README.md"
+echo "new file" > "$tmp_repo/NEW_FILE.txt"
+run_helper commit -m "feat: helper commit" >/dev/null
+latest_message="$(git -C "$tmp_repo" log -1 --pretty=%s)"
+assert_equals "$latest_message" "feat: helper commit"
+commit_files="$(git -C "$tmp_repo" show --name-only --pretty='' HEAD)"
+assert_contains "$commit_files" "README.md"
+assert_contains "$commit_files" "NEW_FILE.txt"
+
+run_helper switch feature/demo >/dev/null
+current_branch="$(git -C "$tmp_repo" symbolic-ref --short HEAD)"
+assert_equals "$current_branch" "feature/demo"
+
+echo "stash line" >> "$tmp_repo/README.md"
+run_helper stash push -m "wip: test stash" >/dev/null
+stash_after_push="$(git -C "$tmp_repo" stash list)"
+assert_contains "$stash_after_push" "wip: test stash"
+if grep -q "stash line" "$tmp_repo/README.md"; then
+  fail "stash push 后工作区应回滚改动"
+fi
+
+run_helper stash pop >/dev/null
+if ! grep -q "stash line" "$tmp_repo/README.md"; then
+  fail "stash pop 后应恢复工作区内容"
+fi
+
 assert_command_fails "commit 需要通过 -m 或 --message 提供提交信息。" run_helper commit
 assert_command_fails "status 不接受额外参数。" run_helper status extra
 assert_command_fails "log 不接受额外参数。" run_helper log extra
 assert_command_fails "pull 不接受额外参数。" run_helper pull extra
 assert_command_fails "push 不接受额外参数。" run_helper push extra
 assert_command_fails "help 不接受额外参数。" run_helper --help extra
-assert_command_fails "stash 默认仅支持 list，其他动作暂不支持。" run_helper stash list extra
+assert_command_fails "stash list 不接受额外参数。" run_helper stash list extra
 assert_command_fails "switch 只接受一个目标分支名。" run_helper switch main extra
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit -m msg extra
 assert_command_fails "commit 仅支持 -m/--message，且不接受多余参数。" run_helper commit --message msg --amend
