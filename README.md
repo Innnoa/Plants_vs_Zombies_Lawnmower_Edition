@@ -243,6 +243,17 @@ script/network_latency_check.sh 127.0.0.1
 3. 启动一份本地服务端实例（未显式指定时自动选择空闲 TCP/UDP 端口）
 4. 运行客户端真实 TCP 登录 / 开局 / UDP 同步诊断
 
+### Git helper 使用说明
+
+在本工作区可以直接用 `script/git_helper.sh` 快速完成常用 git 操作：
+
+- 打开交互菜单：`script/git_helper.sh`
+- 查看当前状态：`script/git_helper.sh status`
+- 暂存全部并提交：`script/git_helper.sh commit -m "docs: update readme"`
+- 拉取远端更新：`script/git_helper.sh pull`
+
+默认支持的子命令为 `status`、`pull`、`push`、`commit -m "message"`、`switch <branch>`、`log` 以及 `stash push|pop|list`，涵盖同步、提交、分支切换和缓冲区管理。
+
 ## 配置
 
 ### 服务器配置
