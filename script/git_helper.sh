@@ -50,9 +50,19 @@ run_status() {
   git status --short --branch
 }
 
+show_commit_preview() {
+  git status --short
+}
+
+perform_commit() {
+  local message="$1"
+  git add -A
+  git commit -m "$message"
+}
+
 run_log() {
   require_no_extra_args "log" "$@"
-  git log --oneline --decorate -n 15
+  git --no-pager log --oneline --decorate -n 15
 }
 
 run_stash() {
@@ -146,9 +156,8 @@ run_commit() {
     return 1
   fi
 
-  git status --short
-  git add -A
-  git commit -m "$message"
+  show_commit_preview
+  perform_commit "$message"
 }
 
 run_switch() {
@@ -182,17 +191,34 @@ run_push() {
 
 prompt_commit() {
   local message=""
+  local confirmation=""
   if ! read -r -p "请输入提交信息: " message; then
     echo "读取输入失败。" >&2
     return 1
   fi
-  run_commit -m "$message"
+  if [[ -z "$message" ]]; then
+    echo "commit 需要通过 -m 或 --message 提供提交信息。" >&2
+    return 1
+  fi
+
+  echo "以下改动将被暂存并提交："
+  show_commit_preview
+  if ! read -r -p "输入 yes 确认执行 git add -A 并提交: " confirmation; then
+    echo "读取输入失败。" >&2
+    return 1
+  fi
+  if [[ "$confirmation" != "yes" ]]; then
+    echo "已取消提交。"
+    return 1
+  fi
+
+  perform_commit "$message"
 }
 
 prompt_switch() {
   local branch=""
   echo "本地分支列表:"
-  git branch --format='  %(refname:short)'
+  git --no-pager branch --format='  %(refname:short)'
   if ! read -r -p "请输入目标分支名: " branch; then
     echo "读取输入失败。" >&2
     return 1
