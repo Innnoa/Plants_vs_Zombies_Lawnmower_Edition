@@ -250,9 +250,9 @@ script/network_latency_check.sh 127.0.0.1
 - 打开交互菜单：`script/git_helper.sh`
 - 查看当前状态：`script/git_helper.sh status`
 - 暂存全部并提交：`script/git_helper.sh commit -m "docs: update readme"`
-- 拉取远端更新：`script/git_helper.sh pull`
+- 拉取远端更新（等价执行 `git pull --ff-only`）：`script/git_helper.sh pull`
 
-默认支持的子命令为 `status`、`pull`、`push`、`commit -m "message"`、`switch <branch>`、`log` 以及 `stash push|pop|list`，涵盖同步、提交、分支切换和缓冲区管理。
+默认支持的子命令为 `menu`、`status`、`pull`、`push`、`commit -m "message"`、`switch <branch>`（只切换已存在的本地分支，不会创建或跟踪远端分支）、`log`、`stash push|pop|list` 以及 `help`，涵盖同步、提交、分支切换和缓冲区管理。
 
 ## 配置
 
