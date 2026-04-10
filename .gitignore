@@ -53,6 +53,7 @@ hs_err_pid*
 *~
 
 # AI
+.codex
 .codex/
 .agtx/
 AI_GUIDE.md
