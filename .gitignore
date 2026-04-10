@@ -56,3 +56,12 @@ hs_err_pid*
 .codex/
 .agtx/
 AI_GUIDE.md
+**/AI_GUIDE.md
+CURRENT_TASK.md
+DECISIONS.md
+handoff/
+docs/requirements/
+docs/plans/
+docs/superpowers/specs/
+docs/superpowers/plans/
+outputs/runtime/vibe-sessions/
