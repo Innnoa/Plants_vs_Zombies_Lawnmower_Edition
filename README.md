@@ -394,12 +394,6 @@ bash ./gradlew test
 - **C++ 服务端开发者** - 服务器架构和游戏逻辑
 - **Java 客户端开发者** - 客户端实现和 UI/UX
 
-## 联系方式
-
-项目链接：[https://github.com/yourusername/lawnmower-game](https://github.com/yourusername/lawnmower-game)
-
-如有问题或需要支持，请在 GitHub 上提交 Issue。
-
 ---
 
 **注意**：本项目使用《植物大战僵尸》的素材仅供教育目的。如需商业使用，请替换为原创素材。
